@@ -200,6 +200,14 @@ static bool request(const wchar_t* key, bool on, const char* what) {
 }
 bool set_performance_mode(bool enabled) { return request(L"PerformanceMode", enabled, "performance mode"); }
 bool set_load_all_effects(bool enabled) { return request(L"LoadAllEffects", enabled, "load every installed effect"); }
+// Pre-release audit: effects on/off for an A/B plan row (`reshade effects on|off`). Session only: the
+// preset is not saved, so the next launch has the player's own state. Present thread.
+int set_effects(int on) {
+    auto* rt = api();
+    if (!rt) return -1;
+    if (on >= 0) rt->set_effects_state(on != 0);
+    return rt->get_effects_state() ? 1 : 0;
+}
 void load_optional() {
     if (attempted) return;
     attempted = true;

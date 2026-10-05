@@ -23,6 +23,8 @@ const char* load_failure();
 reshade::api::effect_runtime* api();
 const wchar_t* directory();
 inline thread_local bool inside = false; // bypass game classifiers during our graphics calls
+// -1 = no running effect runtime; otherwise the state after the call. on < 0 only reads.
+int set_effects(int on);
 void render(IDirect3DDevice9* device);
 void reset();
 }

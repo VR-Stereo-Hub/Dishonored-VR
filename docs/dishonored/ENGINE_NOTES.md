@@ -10342,3 +10342,61 @@ no engine-memory writer. Host evidence: 17 model cases, 72 material cases and
 paged GPU upload/incarnation checks pass. These are not an in-game appearance
 claim; the first user launch must confirm the installed build banner and material
 matches before interpreting its visual result.
+## Scene render stages, the draw-event switch and the SCALE command (2026-10-04)
+
+IDA series `tools/ida/pf1_render_stages.py` .. `pf5_scale_exec.py`, staged md5
+204f3c1a0de5e6ad77efa75236b0990e (equal to the deployed exe when run). Read from the image;
+nothing here has been exercised at runtime yet.
+
+**The scene render function, VA 0x0086C060 (482 bytes).** It holds the three sampled return
+addresses of PERFORMANCE.md: 0x0086C0C1 after the call to InitViews (0x008662A0, already in
+patterns.h), 0x0086C1F4 after the call to 0x0086BF00, 0x0086C208 after the call to 0x00864290.
+Its own strings are the depth-priority-group labels (UnrealEd Background, World, Foreground,
+UnrealEd Foreground, PostProcess) and the format `DPG %s`. Five callers.
+- 0x0086BF00 calls, in order, functions whose only string literals are: PrePass,
+  Dominant light shadows, BeginRenderingSceneColor, ClearView, (RenderTextureDensity and
+  LightMapDensity behind a debug-viewmode config read), BasePass, FinishRenderingSceneColor,
+  ResolveSceneDepthTexture.
+- 0x00864290 references ShadowedLights and UnshadowedLights itself and calls functions labelled
+  ModShadow, BeginRenderingSceneColor, Translucent / Opaque / Decals, RenderSoftMasked,
+  BeginOcclusionTests (ShadowFrustumQueries, IndividualQueries, GroupedQueries), BloomParts
+  (Draw blooming primitives, Bloom reduction and blur, Bloom compose), DisFog, Distortion
+  (Accum, Apply), ResolveSceneColor, Translucency, RadialBlur, LightShafts (Downsample,
+  RadialBlur, Apply), PostProcessEffects.
+A label names a stage because the function that carries it passes it to the event constructor;
+the stage's own cost is not read from the label.
+
+**The draw-event switch (UE3 GEmitDrawEvents), VA 0x0141B268.** The event constructor is
+0x004DA900 (formats a wide name, calls the wrapper 0x009B5EA0, which calls the imported
+D3DPERF_BeginEvent); the end is the thunk 0x009B5EC0. The image reads the dword 139 times: 123
+reads are followed first by the constructor, 1 by the end thunk, 15 by name-building helpers.
+Its single writer is 0x006C7BBB, inside the console handler that compares the command against
+`TOGGLEDRAWEVENTS` and stores the inverted value. In the scene render function the read is at
+0x0086C161 (`39 35 68 B2 41 01 74 5D`). patterns.h: `kEmitDrawEvents`, the reader and the
+writer's 20 bytes; the `stages` seam word verifies both before writing 0 or 1. The game imports
+D3DPERF_BeginEvent, EndEvent and SetOptions from d3d9.dll (IAT 0x00F94724, 0x00F94720,
+0x00F94728), so with the switch set every stage reaches the proxy's exports.
+
+**The SCALE console command, handler VA 0x00586740 (4,470 bytes).** It references SCALE, SET,
+TOGGLE, ADJUST, LOWEND, HIGHEND, RESET, DUMP and DUMPINI, and builds the switch table by name:
+43 booleans (StaticDecals, DynamicDecals, UnbatchedDecals, DynamicLights, DynamicShadows,
+LightEnvironmentShadows, CompositeDynamicLights, SHSecondaryLighting, DirectionalLightmaps,
+MotionBlur, MotionBlurPause, DepthOfField, AmbientOcclusion, Bloom, UseHighQualityBloom,
+bAllowLightShafts, bAllowRatsShadow, Distortion, FilteredDistortion, DropParticleDistortion,
+bAllowDownsampledTranslucency, SpeedTreeLeaves, bUseMaxQualityMode, SpeedTreeFronds,
+OnlyStreamInTextures, LensFlares, FogVolumes, FloatingPointRenderTargets, OneFrameThreadLag,
+UseVsync, UpscaleScreenPercentage, Fullscreen, AllowD3D10, AllowRadialBlur,
+bEnableBranchingPCFShadows, bAllowHardwareShadowFiltering, bAllowBetterModulatedShadows,
+bEnableForegroundShadowsOnWorld, bEnableForegroundSelfShadowing,
+bAllowWholeSceneDominantShadows, bAllowFracturedDamage, bForceCPUAccessToGPUSkinVerts,
+bDisableSkeletalInstanceWeights), the integers (SkeletalMeshLODBias, the two LOD distance
+multipliers, TextureForcedLODBias, iType_AntiAlias, ParticleLODBias, DetailMode,
+ShadowFilterQualityBias, MaxAnisotropy, MaxMultisamples, MinShadowResolution,
+MinPreShadowResolution, MaxShadowResolution, MaxWholeSceneDominantShadowResolution, ResX, ResY,
+the two unbuilt-cascade values, ShadowFadeResolution, PreShadowFadeResolution,
+SpeakerConfiguration) and the floats (ScreenPercentage, SceneCaptureStreamingMultiplier,
+FoliageDrawRadiusMultiplier, ShadowTexelsPerPixel, PreShadowResolutionFactor,
+ShadowFilterRadius). The same names are referenced from two other functions (0x005806C0,
+0x00581250), taken to be the ini load and save; not read further.
+NOT established: that the mod's `console` seam word reaches this handler, and which switches
+take effect without a restart. Both are runtime questions.

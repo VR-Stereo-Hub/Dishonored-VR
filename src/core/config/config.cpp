@@ -2303,6 +2303,16 @@ static void LoadConfig()
             char plan[MAX_PATH] = "";
             GetPrivateProfileStringA("Perf", "AbPlan", "", plan, sizeof(plan), ini);
             if (!diagnosticAb && plan[0]) dvr::perf::ab_load_plan(plan);
+            // Pre-release audit: AbPlanOnce arms a plan for ONE launch. The key is emptied as it
+            // is read, so a plan that flips settings for a quarter of an hour cannot be left armed.
+            char once[MAX_PATH] = "";
+            GetPrivateProfileStringA("Perf", "AbPlanOnce", "", once, sizeof(once), ini);
+            if (once[0]) {
+                WritePrivateProfileStringA("Perf", "AbPlanOnce", "", ini);
+                if (!diagnosticAb && !plan[0]) dvr::perf::ab_load_plan(once);
+                Log("config: [Perf] AbPlanOnce=%s - %s; the key has been emptied, so only this launch runs it",
+                    once, diagnosticAb ? "NOT loaded (DiagnosticAb is on)" : plan[0] ? "NOT loaded ([Perf] AbPlan is set and wins)" : "armed");
+            }
         }
         dvr::diag_ab::set_enabled(diagnosticAb);
         const int desktopTrial = GetPrivateProfileIntA("Perf", "DesktopAb", 0, ini);
@@ -3721,6 +3731,7 @@ static void LoadConfig()
             dvr::vr::set_image_orientation(GetPrivateProfileIntA("Pace","ImageOrientation",1,ini)!=0);
             // VR-39: the depth layer under AFW (read here, before the runtime creates its instance). Default off.
             dvr::vr::set_submit_depth(GetPrivateProfileIntA("VR", "SubmitDepth", 0, ini) != 0);
+            dvr::vr::set_visibility_mask_probe(GetPrivateProfileIntA("VR", "VisibilityMaskProbe", 0, ini) != 0);
             // VR-39: the mod's own spacewarp under AFW. Default off.
             dvr::vr::set_mod_spacewarp(GetPrivateProfileIntA("VR", "ModSpacewarp", 0, ini) != 0);
             dvr::afw::set_synth_hands(GetPrivateProfileIntA("VR", "ModSpacewarpHands", 0, ini) != 0);

@@ -270,6 +270,70 @@ which still defaults 0. `[Anim] CinematicArms` stays 0.
   a staging build after #177 has `SmoothBlend=0` and `ArmIKGameArmInAnim=0` written and keeps
   them (TRAPS section 1): set them in F10 or delete the lines.
 - Default writer = packaged = golden ini; animation host checks pass.
+## 2026-10-05: the unattended audit run, read (nothing built, no default changed)
+
+Branch `claude/performance-audit`. Detail: dishonored/PERFORMANCE.md, top entry (sections 1-9).
+- The plan completed (40 of 41 segments) on build v1.0.3-54-gd0c57b1b9, but **not in the played
+  configuration**: the F10 panel was opened in the lead-in and its Display tab wrote
+  `Method=reentry` and `DLAA=0` before the first segment. Every row is reentry, native
+  2750x2850, DLSS off; the two DLSS rows and `hud sharp off` were no-ops.
+- Hidden area: 10.9 % of each eye image (the extension is offered).
+- Rows: nothing our own costs more than its noise except the ReShade preset (about 0.7-0.9 ms
+  a pair, one unbracketed step) and the HUD redirect, which is 0.5 ms a pair CHEAPER than no
+  redirect under reentry. Engine switches reach the SCALE handler; the best are the shadow
+  ones at 1.5-3 %.
+- Stage profile: the scene is 8.0 of the render thread's 10.6 ms a pair (BasePass 3.4, shadowed
+  lights 2.5); on the GPU depth of field is 1.9 ms and MLAA 0.8 ms a pair although both
+  settings read off.
+- DLSS from the helper's own timer: K 3.3-3.9 ms against fast 0.85-1.1 ms per eye image; Ultra
+  Quality with K ran 2.6-3.2 ms a pair slower than native at the same spot (indicative).
+- Script lane named: four statements are 0.97 ms of a 1.6-1.8 ms tick.
+
+**Next steps:** the six go / no-go answers are the maintainer's (PERFORMANCE.md section 9 has
+the evidence for each). If a second run is wanted it must be in the played configuration, with
+the plan's restore words fixed first and the panel left closed. Faults to file: the once-a-
+second `hud/markers-sharp: REFUSED` Warn, the plan's fixed restore words, the stage profile's
+timestamp ring (half the intervals skipped) and 28-row cut. The installed ini now reads
+`Method=reentry`, `DLAA=0` (written by F10 in that session) with a 2114x2192 render ask.
+- Later the same day: run 2 prepared (`tools/perf-plans/audit-run2.txt`, about 9.5 minutes): the
+  open rows in the played configuration, plus two rows that size shadow sharing by dropping the
+  `Shadow Depths` stage in one eye and in both (`stages skip odd|all <stage>`, new, default off).
+  The plan now sets and checks its configuration and holds the F10 panel closed. Built, not run.
+  PERFORMANCE.md, top entry, section 10.
+- Run 2 read (afw, DLSS Ultra Quality, fast model; PERFORMANCE.md section 11). Three bursts of an
+  outside load spoiled the plan's own percentiles, so the rows are read from clean 3 s windows.
+  Transformer K costs 1.1 ms a present (14 %) over the fast model; DLSS Ultra Quality is no faster
+  than native; the ReShade preset is about 6 % of the rate; the HUD hand-off wait is backpressure;
+  MLAA still runs under DLSS (the option write at launch never reaches the renderer); no shadow
+  depth stage exists to share in the measured scene (the skip rows dropped nothing).
+  Decided: the fast model becomes the default (#181); MLAA under DLSS stays as it is. The audit
+  is closed; this branch holds the record and the tools.
+No game launched by the session. No Linear ticket (no Linear access).
+
+## 2026-10-04: pre-release performance audit (analysis; probe and plan built, nothing run)
+
+Branch `claude/performance-audit` (off staging). Detail: dishonored/PERFORMANCE.md, top entry.
+- From the 2026-10-04 headset logs: the played configuration (DLSS model K, mostly `stereo afw`)
+  runs 9.6 ms a present under AFW (102-104/s against a 144 Hz budget of 6.94 ms) and 12.6-15.8 ms
+  a pair under reentry, against 8.6 ms native without DLSS on 2026-09-27. The render thread is
+  saturated; DLSS K is the largest single cost; the mod's script hook takes 2.7-3.4 ms of every
+  game tick but is not the limit yet.
+- New: under AFW 2.0-3.5 ms of every present is a wait at the HUD hand-off, and every HUD sink
+  does its full copy every present even when empty (three of five were).
+- New lever candidate: the hidden-area mask (XR_KHR_visibility_mask; the Virtual Desktop runtime
+  offers it). Built: a probe only, `[VR] VisibilityMaskProbe=1`, logging the hidden share of each
+  eye image. Built: seam word `reshade effects on|off` and `tools/perf-plans/audit-1.txt`, a
+  six-minute A/B plan that sizes DLSS model/off, the HUD sinks, ReShade, the texture filter,
+  sharpen and names the script lane's statements.
+- Later the same night, from the IDA database (series `tools/ida/pf1..pf5`): the engine brackets
+  every render stage with named events that pass through our d3d9.dll, gated by one dword; the
+  stock `SCALE` console command and its whole switch table are in the image. Built: the stage
+  profile (`stages on|off`, `stages gpu on|off`: CPU, GPU and draws per engine stage) and
+  `tools/perf-plans/audit-2-engine.txt` (the engine's own switches as live A/B rows). Neither
+  has run.
+- 2026-10-05: `tools/perf-plans/audit-all.txt` runs all of it unattended in one launch (about
+  14 minutes); the planner gained `delay`, `atend` and the one-shot `[Perf] AbPlanOnce` key.
+- Release builds. No game launched. No Linear ticket (no Linear access).
 
 ## 2026-10-04: run 4 - takedown arms accepted; cutscene arms left as an opt-in
 
