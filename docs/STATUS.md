@@ -1,4 +1,4 @@
-## 2026-10-05: Approved Heart material integrated, installation authorized
+## 2026-10-05: Approved Heart material installed, awaiting in-game review
 
 The approved natural-seam Blender appearance now has a runtime material path.
 DVRHRT02 separates the 4,279 backing triangles from native-material details.
@@ -21,9 +21,14 @@ Paged D3D9Ex GPU tests pass, including new incarnation/write/read-only checks.
 A fuzzy mip-color matcher was rejected in favor of exact native compressed
 mips recovered with UModel from a reordered, isolated package copy. No game
 package is edited. Local material data and captures remain untracked under
-build/heart-backside-preview/seam-revision. Installation is authorized; copy
-the three data files with the matching DLL, preserve the entire INI, and record
-the final installation manifest there. In-game appearance is not yet verified.
+build/heart-backside-preview/seam-revision. Installed v1.0.3-55-gf8f2260ea
+with all three matching data files; SHA256 matches verified for every copy.
+The entire INI is byte-identical to its backup and expected configuration,
+with CRLF preserved and HeartBack=1 retained. DLL, INI, logs and previous Heart
+data are backed up together; latest-install.json records the installation.
+Exports (11) and lint pass. No game launch; in-game appearance remains unverified.
+Next launch: use the September 13 Hounds Pit save, equip the Heart and inspect
+the side seam for natural pink upper tissue and darker lower tissue continuity.
 
 ## 2026-10-05: Heart seam material preview, original colors carried across join
 
