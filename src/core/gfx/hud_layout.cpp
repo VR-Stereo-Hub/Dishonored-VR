@@ -126,6 +126,10 @@ dvr::hudalpha::Bank g_alphaBank;
 AlphaCfg& g_alpha=g_alphaBank.general;
 const char* kScopedAlpha[5]={"WeaponDialAlpha","ReadingAlpha","InteractionAlpha","PauseAlpha","WheelPartsAlpha"};
 bool g_readHand[2]={false,false};
+// The hand a grip-opened note attaches to (note_opened_by_hand), and the hand the open note is on.
+std::atomic<int> g_noteAskHand{0};
+std::atomic<uint64_t> g_noteAskMs{0};
+int g_noteHand=0; uint64_t g_noteSeenMs=0;
 float g_readTilt=0;
 float g_readUp[2]={0,0};
 std::atomic<bool> g_pauseSceneFreshness{false},g_menuExitHeading{false};
@@ -1140,13 +1144,30 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         place(d, e, a, whole, aspect, true);
         const int readPanel=e==ElNote?0:e==ElJournal?1:-1;
         if(readPanel>=0 && g_readHand[readPanel]) {
+            // Which hand: the journal is always the left. A note is the left unless a grip opened
+            // it (physical pickup), decided once when the panel appears and kept while it is open.
+            int readHand=0;
+            if(readPanel==0) {
+                const uint64_t nowMs=GetTickCount64();
+                if(nowMs-g_noteSeenMs>300) {
+                    const int was=g_noteHand;
+                    g_noteHand=(nowMs-g_noteAskMs.load()<=2500) ? g_noteAskHand.load() : 0;
+                    DVR_LOG(DVR_CAT,::dvr::log::Level::Info,
+                        "hud/reading-hand: the note opens on the %s hand (%s; the hand before was %s)",
+                        g_noteHand?"RIGHT":"LEFT",g_noteHand==g_noteAskHand.load() && nowMs-g_noteAskMs.load()<=2500 ?
+                        "opened by that hand's grip" : "not opened by a grip: the left hand, as before",was?"right":"left");
+                }
+                g_noteSeenMs=nowMs;
+                readHand=g_noteHand;
+            }
             float hp[3],hq[4],attached[4],page[4];
-            if(!dvr::vr::input_get_hand_pose(0,false,hp,hq) ||
-               !dvr::hudanchor::reading_grip_reference(hq,attached,page)) {--n;continue;}
-            d.anchor=dvr::vr::HudAnchor::LocalBillboard;d.hand=0;
+            if(!dvr::vr::input_get_hand_pose(readHand,false,hp,hq) ||
+               !dvr::hudanchor::reading_grip_reference(hq,attached,page,readHand==1)) {--n;continue;}
+            d.anchor=dvr::vr::HudAnchor::LocalBillboard;d.hand=readHand;
             d.orient=dvr::vr::HudOrient::OpeningPlane;
             dvr::hudanchor::camera_panel_position(hp,attached,g_readDistance[readPanel],d.base);
-            const float offset[3]={g_readRight[readPanel],g_readUp[readPanel],0};float worldOffset[3];
+            // the horizontal offset was tuned on the left hand: mirrored on the right
+            const float offset[3]={readHand==1?-g_readRight[readPanel]:g_readRight[readPanel],g_readUp[readPanel],0};float worldOffset[3];
             dvr::xrmath::quat_rotate(attached[0],attached[1],attached[2],attached[3],offset,worldOffset);
             for(int k=0;k<3;++k)d.base[k]+=worldOffset[k];
             dvr::hudanchor::reading_alignment(page,g_readTilt,d.orientation);
@@ -2120,6 +2141,11 @@ void draw_ui() {
         if (dvr::ovl::button("Reset the HUD to its presets")) reset_presets("F10 HUD");
         ov::tip("Puts every HUD panel, element and alpha back to the shipped layout. Saved at once.");
     }
+}
+
+void note_opened_by_hand(int hand) {
+    g_noteAskHand.store(hand == 1 ? 1 : 0);
+    g_noteAskMs.store(GetTickCount64());
 }
 
 } // namespace dvr::hudlayout

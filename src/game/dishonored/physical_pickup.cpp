@@ -20,7 +20,13 @@
 //      press of that hand's PHYSICAL grip is swallowed (the power wheel or the block bound to
 //      it does not fire) and Interact is pressed for a moment instead (pad_bridge.cpp).
 //
-// [Aim] PhysicalPickup (default 1), PhysicalPickupReachCm (default 30). F10 > Aim. Seam: `pickup`.
+// Books, notes and audio logs (DisAbstractItemPickup and its children) are larger than a coin and
+// are measured from their origin like everything else, so they have a longer reach of their own;
+// and when one is opened by a grip, the page attaches to the hand that opened it (hud_layout's
+// reading panel; the Interact button keeps the left hand).
+//
+// [Aim] PhysicalPickup (default 1), PhysicalPickupReachCm (30), PhysicalPickupBookReachCm (45).
+// F10 > Aim. Seam: `pickup`.
 // Script lane for 1 and 2 (the interaction bridges run on the same game thread); the pad
 // bridge reads two atomics.
 
@@ -28,11 +34,13 @@
 
 static std::atomic<bool>     g_ppOn{true};
 static std::atomic<float>    g_ppReachM{0.30f};
+static std::atomic<float>    g_ppBookReachM{0.45f};   // books, notes, audio logs
+static std::atomic<bool>     g_ppTargetReadable{false};   // the target is one of those (for the pad bridge)
 static std::atomic<uint32_t> g_ppReadyMask{0};        // bit h: hand h may pick the target up now
 static std::atomic<uint64_t> g_ppReadyMs{0};          // when the mask was last written
 static std::atomic<uint32_t> g_ppFired{0}, g_ppSwallowed{0};
 
-struct PpEntry { uint8_t* obj; uint32_t idx; uint8_t* cls; };
+struct PpEntry { uint8_t* obj; uint32_t idx; uint8_t* cls; uint32_t readable; };   // readable: a book, note or audio log
 // Two fixed arrays, swapped when a sweep completes. Plain data on purpose: the loops that fill
 // and read them run under a structured exception handler (see PpSweepSlice), which cannot share
 // a function with C++ objects that unwind.
@@ -43,7 +51,8 @@ static PpEntry* g_ppBuild = g_ppArrB; static uint32_t g_ppBuildN = 0;
 // class pointer -> lootable, direct mapped; a collision only recomputes.
 struct PpClassSlot { uint8_t* cls; uint8_t verdict; };
 static PpClassSlot g_ppClass[8192];
-// name index -> "is one of the lootable base names", direct mapped (0 = empty, 1 = no, 2 = yes).
+// name index -> "is one of the lootable base names", direct mapped (0 = empty, 1 = no, 2 = yes,
+// 3 = yes and readable: DisAbstractItemPickup).
 // A class name is turned into text ONCE; after that the chain walk compares integers.
 struct PpNameSlot { uint32_t idx; uint8_t verdict; };
 static PpNameSlot g_ppName[8192];
@@ -95,8 +104,8 @@ static bool PpGameplay()
 // loops read them directly and a structured exception handler is the backstop for a pointer
 // that is not. Plain data only inside them.
 
-// Is this name one of the lootable base names? 2 yes, 1 no, 0 not known yet (the frame's budget of
-// text lookups is spent: ask again in a later sweep).
+// Is this name one of the lootable base names? 3 yes and readable, 2 yes, 1 no, 0 not known yet
+// (the frame's budget of text lookups is spent: ask again in a later sweep).
 static uint8_t PpNameVerdict(uint32_t nameIdx)
 {
     PpNameSlot& slot = g_ppName[(nameIdx * 2654435761u) >> 19];
@@ -104,13 +113,14 @@ static uint8_t PpNameVerdict(uint32_t nameIdx)
     if (!g_ppNameBudget) return 0;
     --g_ppNameBudget;
     const char* n = RealName(nameIdx);
-    const uint8_t v = (n && (!strcmp(n, "DisPickup_Base") || !strcmp(n, "DisProjectile_Arrow"))) ? 2 : 1;
+    const uint8_t v = !n ? 1 : !strcmp(n, "DisAbstractItemPickup") ? 3
+                    : (!strcmp(n, "DisPickup_Base") || !strcmp(n, "DisProjectile_Arrow")) ? 2 : 1;
     slot.idx = nameIdx; slot.verdict = v;
     return v;
 }
 
 // Does this class derive from a lootable base? Walks the SuperField chain, cached per class.
-// 2 yes, 1 no, 0 not known yet. Called only from inside the guarded loops.
+// 3 yes and readable, 2 yes, 1 no, 0 not known yet. Called only from inside the guarded loops.
 static uint8_t PpClassLootableRaw(uint8_t* cls)
 {
     PpClassSlot& slot = g_ppClass[(((uintptr_t)cls >> 4) * 2654435761u) >> 19];
@@ -121,7 +131,7 @@ static uint8_t PpClassLootableRaw(uint8_t* cls)
         if (((uintptr_t)c & 3) || (uintptr_t)c < 0x10000) break;
         const uint8_t nv = PpNameVerdict(*(uint32_t*)(c + kNameOff));
         if (nv == 0) return 0;                          // unknown: not cached, asked again next sweep
-        if (nv == 2) { v = 2; break; }
+        if (nv >= 2) { v = nv; break; }                 // the readable base is met before DisPickup_Base on the way up
         c = *(uint8_t**)(c + kSuperFieldOff);
     }
     slot.cls = cls; slot.verdict = v;
@@ -144,8 +154,9 @@ static uint32_t PpSweepSlice(void** objs, uint32_t from, uint32_t to, PpEntry* o
             if (!o || ((uintptr_t)o & 3) || (uintptr_t)o < 0x10000) continue;
             uint8_t* cls = *(uint8_t**)(o + kClassOff);
             if (!cls || ((uintptr_t)cls & 3) || (uintptr_t)cls < 0x10000) continue;
-            if (PpClassLootableRaw(cls) != 2) continue;
-            if (n < kPpMax) { out[n].obj = o; out[n].idx = i; out[n].cls = cls; ++n; }
+            const uint8_t v = PpClassLootableRaw(cls);
+            if (v < 2) continue;
+            if (n < kPpMax) { out[n].obj = o; out[n].idx = i; out[n].cls = cls; out[n].readable = (v == 3); ++n; }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) { *fault = true; i = to; }
     *next = i;
@@ -198,12 +209,12 @@ static uint32_t PpNearSlice(void** objs, uint32_t num, const PpEntry* list, uint
 }
 
 // The nearest listed item within reach of a hand, and the engine's focused actor. Plain data.
-struct PpPick { uint8_t* obj; uint32_t idx; float loc[3]; float d2[2]; int hand; uint8_t* focus; bool fault; };
+struct PpPick { uint8_t* obj; uint32_t idx; float loc[3]; float d2[2]; int hand; uint8_t* focus; bool fault; bool readable; float keep; };
 static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n, uint32_t locOff,
                       uint32_t hiddenOff, uint32_t hiddenMask, const float (*hand)[3], const bool* handOk,
-                      float reach, float keep, uint8_t* held, uint8_t* blocked, uint8_t* pc, uint32_t focusOff, PpPick* out)
+                      float reach, float bookReach, uint8_t* held, uint8_t* blocked, uint8_t* pc, uint32_t focusOff, PpPick* out)
 {
-    out->obj = NULL; out->idx = 0; out->hand = -1; out->focus = NULL; out->fault = false;
+    out->obj = NULL; out->idx = 0; out->hand = -1; out->focus = NULL; out->fault = false; out->readable = false; out->keep = 0;
     out->d2[0] = out->d2[1] = 1e30f;
     float bestScore = 0;
     __try {
@@ -216,7 +227,8 @@ static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n
             if (hiddenMask && (*(uint32_t*)(e.obj + hiddenOff) & hiddenMask)) continue;
             float loc[3]; memcpy(loc, e.obj + locOff, 12);
             if (!(loc[0] == loc[0]) || !(loc[1] == loc[1]) || !(loc[2] == loc[2])) continue;   // NaN
-            const float lim = (e.obj == held ? keep : reach), lim2 = lim * lim;
+            const float own = e.readable ? bookReach : reach, keep = own * 1.25f;   // the held target's hysteresis
+            const float lim = (e.obj == held ? keep : own), lim2 = lim * lim;
             float d2h[2] = { 1e30f, 1e30f }; int nearHand = -1;
             for (int h = 0; h < 2; ++h) {
                 if (!handOk[h]) continue;
@@ -229,6 +241,7 @@ static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n
             const float score = d2h[nearHand] * (e.obj == held ? 0.6f : 1.0f);
             if (!out->obj || score < bestScore) {
                 out->obj = e.obj; out->idx = e.idx; out->hand = nearHand; bestScore = score;
+                out->readable = e.readable != 0; out->keep = keep;
                 memcpy(out->loc, loc, 12); out->d2[0] = d2h[0]; out->d2[1] = d2h[1];
             }
         }
@@ -360,7 +373,7 @@ static void PhysicalPickupTick()
     if (!handOk[0] && !handOk[1]) { if (g_ppTarget) PpDropTarget("no tracked hand", now, false); return; }
 
     const float reach = g_ppReachM.load() * g_posScaleUU;         // game units
-    const float keep  = reach * 1.25f;                            // the held target's hysteresis
+    const float bookReach = g_ppBookReachM.load() * g_posScaleUU;
     PpPick pick;
     dvr::crash::probe_begin();
     {   // the rotating near-list pass: 192 listed items a frame, those within 2.5 m of the camera kept
@@ -377,13 +390,14 @@ static void PhysicalPickupTick()
             g_ppNearN = g_ppNearBuildN; g_ppNearBuildN = 0; g_ppNearCursor = 0;
         }
     }
-    PpNearest(objs, num, g_ppNear, g_ppNearN, locOff, hiddenOff, hiddenMask, hand, handOk, reach, keep, g_ppTarget,
+    PpNearest(objs, num, g_ppNear, g_ppNearN, locOff, hiddenOff, hiddenMask, hand, handOk, reach, bookReach, g_ppTarget,
               now < g_ppBlockUntilMs ? g_ppBlock : NULL, g_peCtrl, focusOff, &pick);
     dvr::crash::probe_end();
     if (pick.fault) ++g_ppFaults;
     uint8_t* best = pick.obj; const uint32_t bestIdx = pick.idx; const int bestHand = pick.hand;
     float bestLoc[3] = { pick.loc[0], pick.loc[1], pick.loc[2] };
     float dist2[2] = { pick.d2[0], pick.d2[1] };                  // of the chosen item, per hand
+    const float keep = pick.keep;                                 // that item's own reach, with the hysteresis
     if (!best) { if (g_ppTarget) PpDropTarget("no lootable within reach", now, false); return; }
 
     if (best != g_ppTarget) {
@@ -391,13 +405,15 @@ static void PhysicalPickupTick()
         g_ppTarget = best; g_ppTargetIdx = bestIdx; g_ppTargetSinceMs = now; g_ppFocusedLastMs = 0; g_ppTargetFocused = false;
         const char* cn = ObjClassName(best);
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 400,
-            "pickup: target %s at %.0f uu (%.0f cm) from the %s hand, reach %.0f cm - the interaction trace now looks at it; "
+            "pickup: target %s%s at %.0f uu (%.0f cm) from the %s hand, reach %.0f cm - the interaction trace now looks at it; "
             "the grip picks it up once the game focuses it",
-            cn ? cn : "?", sqrtf(dist2[bestHand]), sqrtf(dist2[bestHand]) / g_posScaleUU * 100.0f, bestHand ? "RIGHT" : "LEFT",
-            g_ppReachM.load() * 100.0f);
+            cn ? cn : "?", pick.readable ? " (a book or note: its own reach, and the page goes to the hand that opens it)" : "",
+            sqrtf(dist2[bestHand]), sqrtf(dist2[bestHand]) / g_posScaleUU * 100.0f, bestHand ? "RIGHT" : "LEFT",
+            (pick.readable ? g_ppBookReachM.load() : g_ppReachM.load()) * 100.0f);
     }
     memcpy(g_ppTargetLoc, bestLoc, 12);
     g_ppTargetHand = bestHand;
+    g_ppTargetReadable.store(pick.readable);
 
     // The engine's verdict: is its focused actor our target?
     uint8_t* focus = pick.focus;
@@ -443,8 +459,10 @@ static bool PickupPadFilter(dvr::vr::InputSnapshot& raw, bool blocked)
         if (down && !was[h] && (mask & (1u << h))) {
             swallow[h] = true; pressUntil = now + 130;
             g_ppSwallowed.fetch_add(1); g_ppFired.fetch_add(1);
-            Log("pickup: %s grip pressed with the target in reach and focused - grip swallowed, Interact pressed for 130 ms",
-                h ? "RIGHT" : "LEFT");
+            const bool page = g_ppTargetReadable.load();
+            if (page) dvr::hudlayout::note_opened_by_hand(h);     // the reading panel attaches to this hand
+            Log("pickup: %s grip pressed with the target in reach and focused - grip swallowed, Interact pressed for 130 ms%s",
+                h ? "RIGHT" : "LEFT", page ? "; a book or note: its page is asked onto this hand" : "");
         }
         if (!down) swallow[h] = false;
         was[h] = down;
@@ -458,9 +476,9 @@ static void PickupSet(bool on, const char* who)
     g_ppOn.store(on);
     if (on) InteractAimInstall();                       // the two bridges carry the target's ray
     if (!on) g_ppReadyMask.store(0);
-    Log("pickup: physical pickup %s (%s) - reach %.0f cm. Reach a hand to loot and squeeze its grip; the Interact "
-        "button is unchanged. Bridges first-pass=%s selector=%s",
-        on ? "ON" : "off", who, g_ppReachM.load() * 100.0f, g_iaFirstDet.on ? "ready" : "NOT installed",
+    Log("pickup: physical pickup %s (%s) - reach %.0f cm, books and notes %.0f cm. Reach a hand to loot and squeeze its "
+        "grip; the Interact button is unchanged. Bridges first-pass=%s selector=%s",
+        on ? "ON" : "off", who, g_ppReachM.load() * 100.0f, g_ppBookReachM.load() * 100.0f, g_iaFirstDet.on ? "ready" : "NOT installed",
         g_iaSelDet.on ? "ready" : "NOT installed");
 }
 
@@ -471,10 +489,18 @@ static void PickupSetReachCm(float cm)
     g_ppReachM.store(cm / 100.0f);
 }
 static float PickupReachCm() { return g_ppReachM.load() * 100.0f; }
+static void PickupSetBookReachCm(float cm)
+{
+    if (!std::isfinite(cm)) return;
+    cm = cm < 10.0f ? 10.0f : cm > 100.0f ? 100.0f : cm;
+    g_ppBookReachM.store(cm / 100.0f);
+}
+static float PickupBookReachCm() { return g_ppBookReachM.load() * 100.0f; }
 
 static void PickupConfigure(const char* ini)
 {
     PickupSetReachCm(IniFloat(ini, "Aim", "PhysicalPickupReachCm", 30));
+    PickupSetBookReachCm(IniFloat(ini, "Aim", "PhysicalPickupBookReachCm", 45));
     PickupSet(IniFloat(ini, "Aim", "PhysicalPickup", 1) != 0.0f, "ini [Aim] PhysicalPickup");
 }
 
@@ -490,10 +516,14 @@ static bool PickupCommand(const char* args)
         PickupSetReachCm(cm);
         char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupReachCm()); v[sizeof(v) - 1] = 0;
         ConfigWriteKey("Aim", "PhysicalPickupReachCm", v, "the seam");
+    } else if (sscanf(args, "bookreach %f", &cm) == 1) {
+        PickupSetBookReachCm(cm);
+        char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupBookReachCm()); v[sizeof(v) - 1] = 0;
+        ConfigWriteKey("Aim", "PhysicalPickupBookReachCm", v, "the seam");
     }
-    Log("pickup: on|off, reach <cm> (now %s, reach %.0f cm) | listed %u, sweeps %u (last %.0f ms), target %s (hand %d, focused %s), "
+    Log("pickup: on|off, reach <cm>, bookreach <cm> (now %s, reach %.0f cm, books and notes %.0f cm) | listed %u, sweeps %u (last %.0f ms), target %s (hand %d, focused %s), "
         "trace driven %ld, grips swallowed %u, Interact pressed %u, ready mask %u",
-        g_ppOn.load() ? "ON" : "off", PickupReachCm(), g_ppListN, g_ppSweeps, g_ppLastSweepMs,
+        g_ppOn.load() ? "ON" : "off", PickupReachCm(), PickupBookReachCm(), g_ppListN, g_ppSweeps, g_ppLastSweepMs,
         g_ppTarget ? "held" : "none", g_ppTargetHand, g_ppTargetFocused ? "yes" : "no", (long)g_ppRayDriven,
         g_ppSwallowed.load(), g_ppFired.load(), g_ppReadyMask.load());
     return true;

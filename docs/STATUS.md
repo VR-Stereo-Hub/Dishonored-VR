@@ -23,6 +23,12 @@ Branch `claude/fast-dlss-physical-pickup` (off staging), two commits.
   the camera-silent rate only halved (16.7 a minute against 0.2 to 0.7 without the pickup code).
   OPEN. A third build bounds the scan to 60 us a frame and logs the frames before every
   camera-silent draw (`pickup/silent`); toggling the F10 checkbox in one session is the A/B.
+- Third headset session (v1.0.3-64): no flicker reported; 1.1 camera-silent draws a minute, the
+  module at 16 us a frame. HEADSET-CONFIRMED fixed. Reported in the same session: items are
+  comfortable to take, books needed the hand almost touching them.
+- Built after it, not run: books and notes get their own reach (`PhysicalPickupBookReachCm`,
+  45), and a note opened by a grip attaches to the hand that opened it (the right-hand page
+  pose is the left one mirrored: derived and host-tested, not measured). Not installed.
 - No Linear ticket (no Linear access in this session). MLAA under DLSS is left as it is by
   decision. Not installed.
 

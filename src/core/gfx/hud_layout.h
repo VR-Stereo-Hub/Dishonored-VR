@@ -108,6 +108,10 @@ const ElementCfg& element(int e);
 const WindowCfg&  window();
 const HandCfg&    hand(int which);   // 0 left, 1 right
 void set_element_anchor(int e, int anchor, const char* who);
+// Physical pickup: a note or book was just opened by this hand's grip (0 left, 1 right). The
+// reading panel that opens within the next 2.5 s attaches to that hand for as long as it stays
+// open; any other opening (the Interact button) uses the left hand as before. Any thread.
+void note_opened_by_hand(int hand);
 void set_element_place(int e, bool onHand, float x, float y, float scale, const char* who);
 void set_element_rect(int e, const float rect[4], const char* who);
 void set_window(const WindowCfg& w, const char* who);

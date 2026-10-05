@@ -445,6 +445,21 @@ static void OvlTabAim()
             }
             OvlTip("Reach a hand to coins, elixirs, keys and other loot and squeeze that hand's grip. The game "
                    "highlights the item when a hand is close enough. The Interact button works as before.");
+            if (grab) {
+                float reach = PickupReachCm(), book = PickupBookReachCm();
+                if (dvr::ovl::slider_float("Reach (cm)", &reach, 10.f, 80.f, "%.0f")) {
+                    PickupSetReachCm(reach);
+                    char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupReachCm()); v[sizeof(v) - 1] = 0;
+                    ConfigWriteKey("Aim", "PhysicalPickupReachCm", v, "F10 Aim");
+                }
+                OvlTip("How close a hand must be to an item.");
+                if (dvr::ovl::slider_float("Reach for books and notes (cm)", &book, 10.f, 100.f, "%.0f")) {
+                    PickupSetBookReachCm(book);
+                    char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupBookReachCm()); v[sizeof(v) - 1] = 0;
+                    ConfigWriteKey("Aim", "PhysicalPickupBookReachCm", v, "F10 Aim");
+                }
+                OvlTip("Books and notes are larger, so they have their own distance. A page opened by a grip attaches to that hand.");
+            }
         }
         ImGui::TextDisabled("Not aimed by the mod: the sword (motion swing), carried bodies, the Heart.");
         if (g_gamepadOnly) ImGui::TextDisabled("[Mode] GamepadOnly=1: everything stays on the head.");

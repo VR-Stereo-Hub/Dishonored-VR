@@ -699,6 +699,8 @@ static bool PickupPadFilter(dvr::vr::InputSnapshot& raw, bool blocked);
 static void PickupSet(bool on, const char* who);
 static void PickupSetReachCm(float cm);
 static float PickupReachCm();
+static void PickupSetBookReachCm(float cm);
+static float PickupBookReachCm();
 static void PickupConfigure(const char* ini);
 static bool PickupCommand(const char* args);
 // VR-166: grenades and other throws aimed by hand (throw_aim.cpp).

@@ -2230,3 +2230,21 @@ come from a single measurement.
   ON`).
 * `Element.reticle` now ships `window`, not `off`: with the startup preset's crosshair
   off, only centred gauges reach it.
+
+## The reading panel on either hand (physical pickup, 2026-10-05)
+
+Built, host-tested, not run in a headset.
+
+- A note or book opened with the Interact button attaches to the left hand, as before. One
+  opened by a grip (physical pickup) attaches to the hand that opened it: the pad bridge calls
+  `hudlayout::note_opened_by_hand(hand)`, and the reading panel that appears within 2.5 s
+  takes that hand and keeps it until it closes. Log: `hud/reading-hand: the note opens on the
+  LEFT|RIGHT hand (...)`. The journal is always the left hand. `NoteFollowHand=0` still means
+  the page floats in front of the player.
+- The pose reference (`reading_grip_reference`) was measured on the LEFT controller. For the
+  right hand both basis rotations are mirrored in the plane between the hands, (x, y, z, w) ->
+  (x, -y, -z, w), and the horizontal offset changes sign; the tilt is about the page's own
+  horizontal axis and is unchanged. This is derived, not measured on a right hand: the host
+  test checks that a mirrored grip gives the mirrored page and placement (922 checks pass),
+  which says the mirror is consistent, not that it is comfortable. If the right-hand page
+  sits wrong, a right-hand reference has to be recorded the way the left one was.

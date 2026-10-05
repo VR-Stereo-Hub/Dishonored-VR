@@ -12,6 +12,7 @@
 - Loot can be picked up by reaching for it: bring a hand to a coin, elixir, key or other
   pickup and squeeze that hand's grip. The game highlights the item when a hand is close.
   The Interact button works as before. F10 > Aim > "Pick up loot by reaching for it".
+  A book or note opened this way shows its page on the hand that opened it.
 
 ## Stereo settings
 

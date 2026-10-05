@@ -11,6 +11,11 @@ starved the right eye about once every two seconds (FLICKER_REFERENCE, 2026-10-0
   `pe/cost` before and after (us an event, mid ticks), or a timer of its own in its beat line.
 - For a walk over live objects on the game thread, read directly and guard the loop with a
   structured exception handler between `crash::probe_begin` and `probe_end`.
+- **The mean was the wrong number.** The second build cost 0.32 ms a frame on average and still
+  starved the eye 17 times a minute; the third costs 16 us and never more than 0.3 ms, and does
+  not. Under AFW it is the occasional slow game frame that does the damage, so new script-lane
+  work needs a hard per-frame time budget and a count of the frames that exceeded it, in its
+  own log line, before it is called cheap.
 
 ## 2026-10-04: a motion detector that measured the mod's own motion
 

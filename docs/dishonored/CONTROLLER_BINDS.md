@@ -107,4 +107,5 @@ press of that hand's PHYSICAL grip is taken before the remap. The grip reads 0 f
 that press, so the action bound to it (the power wheel or Choke in the shipped layout) does not
 fire, and the logical Interact is held for 130 ms instead. A grip that was already held when
 the hand arrived is not taken; the Interact button itself is untouched. Log: `pickup: LEFT|RIGHT
-grip pressed ... grip swallowed, Interact pressed`.
+grip pressed ... grip swallowed, Interact pressed`. Books and notes use
+`PhysicalPickupBookReachCm` (45), and a page opened this way attaches to the hand that opened it.

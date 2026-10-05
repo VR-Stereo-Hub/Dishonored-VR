@@ -10191,6 +10191,12 @@ First headset session 2026-10-05: targets were found from both hands, the game f
   the engine does not focus within 250 ms is dropped and left alone for 3 s, doubling each
   time up to a minute. The log's `pickup: target released (the game did not focus it ...)`
   line is where both answers will show.
+* **Books and notes** are `DisAbstractItemPickup` and its children (`...Note`, `...AudioLog`).
+  The class walk meets that name before `DisPickup_Base` and marks the entry readable. A
+  readable entry has its own reach (`PhysicalPickupBookReachCm`, 45): with the common 30 cm,
+  measured to the actor origin, the first headset sessions needed the hand almost on the
+  book. When a readable target is opened by a grip, `hudlayout::note_opened_by_hand` asks the
+  reading panel onto that hand (HUD_ANCHORS, "the reading panel on either hand").
 * Hand positions: the grip pose, scaled about the head by the drawn hand's own scale, through
   the same head-to-world mapping as the published aim ray (`fireaim::solve`), anchored on the
   game camera. Distances are to the actor origin, so the default reach is a generous 30 cm.

@@ -215,6 +215,19 @@ int main() {
             check(reading_grip_reference(grip,p,o),"return to reference after different initial hand poses");
             for(int k=0;k<4;++k)check(fabsf(o[k]-page[k])<.00001f,"no opening history changes reference");
         }
+        {   // the right hand is the left hand's mirror image (x -> -x): mirror the grip, mirror the answer
+            const float gripR[]={grip[0],-grip[1],-grip[2],grip[3]};
+            float placeR[4],pageR[4];
+            check(reading_grip_reference(gripR,placeR,pageR,true),"mirrored grip accepted for the right hand");
+            const float sign[]={1,-1,-1,1};
+            for(int k=0;k<4;++k){
+                check(fabsf(pageR[k]-sign[k]*page[k])<.00001f,"right-hand page is the mirror of the left-hand page");
+                check(fabsf(placeR[k]-sign[k]*place[k])<.00001f,"right-hand placement is the mirror of the left-hand placement");
+            }
+            float leftAgain[4],placeAgain[4];
+            check(reading_grip_reference(grip,placeAgain,leftAgain,false),"left hand unchanged by the new argument");
+            for(int k=0;k<4;++k)check(fabsf(leftAgain[k]-page[k])<.000001f,"default argument is the left hand");
+        }
         const float zero[]={0,0,0,0},bad[]={NAN,0,0,1};
         check(!reading_grip_reference(zero,place,page),"invalid zero grip refused");
         check(!reading_grip_reference(bad,place,page),"nonfinite grip refused");

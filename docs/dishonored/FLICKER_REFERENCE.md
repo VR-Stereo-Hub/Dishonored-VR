@@ -1,4 +1,4 @@
-## 2026-10-05: right-eye flicker on the hands and weapons with physical pickup - the pickup build raises the camera-silent rate (OPEN: first fix halved it, second built)
+## 2026-10-05: right-eye flicker on the hands and weapons with physical pickup - a per-frame scan with occasional slow frames starved the right eye (HEADSET-CONFIRMED fixed on the third build)
 
 1. **Symptom identity:** a strong flicker on the hands and the weapons, reported in the right
    eye, sideways. Surface: the eye image itself (the right eye's swapchain misses a present),
@@ -67,12 +67,22 @@
    us, and `pickup/silent:` prints, at every camera-silent single draw, the gaps between the
    last eight game frames and this module's cost in each. It prints with pickup switched off
    as well (cost 0), so one session with the F10 checkbox toggled is an A/B of the rate.
-9. **Status and remaining scope:** OPEN. The pickup build raises the camera-silent rate by a
-   factor of 25 to 150 and the cause inside it is not isolated. Decided by the next log:
-   `pickup/silent` lines with small costs before the gate mean the cost theory is wrong; the
-   rate with pickup off against on, in one session, says whether the module is involved at
-   all. Not explained and not new: why a game-thread delay produces a camera-silent draw
-   under AFW (VR-77's scheduling question), and the baseline 0.2 to 0.7 a minute.
+9. **Third run (build v1.0.3-64-gb12a804f1, the bounded scan): no flicker reported, and the
+   log agrees.** About 162 s of stereo gameplay with pickup on throughout: 3 camera-silent
+   single draws (1.1 a minute, the level of the sessions without the pickup code), `own cost`
+   15.6 to 16.8 us a frame, max 314 us in the first beat and under 160 after it, 1 frame over
+   250 us and none over 1000 in about 16,000. The three `pickup/silent` lines show the
+   module's cost at 0 to 30 us in the frames before each remaining gate, and a game-frame gap
+   of 56.8 ms before one of them: those three are not this module. Pickups worked through
+   the run (four notes opened by a grip).
+10. **Status and remaining scope:** HEADSET-CONFIRMED fixed for this cause. What the three
+   builds establish: per-frame work on the game thread that has occasional multi-millisecond
+   frames starves an eye under AFW even when its mean cost is small (0.32 ms a frame still
+   gave 16.7 gates a minute); bounding the worst frame, not the mean, removed it. The
+   expensive frames of the second build were not recorded, so the class-cache explanation
+   stays a hypothesis. The in-session A/B was not needed and not run. Not explained and not
+   new: why a game-thread delay produces a camera-silent draw under AFW (VR-77's scheduling
+   question), and the baseline 0.2 to 1.1 a minute.
 
 ## 2026-10-04: menu-triggered full-arm disappearance, separate from minor flicker
 
@@ -3268,7 +3278,7 @@ pose metadata without reopening the disproved historical theories.
 | World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |
 | Desktop window alternates left/right views throughout stereo | Each eye draw reaches the game's Present; missing desktop pin | Original VR-53 pin implemented; later VR-76 correction confirmed |
 | Single-frame rightward hand/weapon jump, clearest in desktop window | Current D3D9 pixels classified by a previous-present capture tag; single-draw bursts trigger raw leaks | VR-76 confirmed, `DesktopEyeSource=draw` default |
-| Hands and weapons flicker sideways in the RIGHT eye about once every second or two under AFW, after a new per-frame feature was added; `gates -> SINGLE draw (camera silent ...)` then `pushed eye -1 TWICE` at that rate | The game tick got slower: read `pe/cost` (us an event, mid ticks) against a session without the feature BEFORE looking at the eye path | 2026-10-05 OPEN: the first pickup build cost 2.4 ms a tick; cutting it to 0.32 ms only halved the rate; a bounded scan and a `pickup/silent` instrument are built; top entry |
+| Hands and weapons flicker sideways in the RIGHT eye about once every second or two under AFW, after a new per-frame feature was added; `gates -> SINGLE draw (camera silent ...)` then `pushed eye -1 TWICE` at that rate | The game tick got slower: read `pe/cost` (us an event, mid ticks) against a session without the feature BEFORE looking at the eye path | 2026-10-05 HEADSET-CONFIRMED: the pickup scan (2.4 ms a tick, then 0.32 ms with slow frames) raised the rate from under 1 to 17-32 a minute; bounded to 60 us a frame it is back to 1.1 and no flicker is reported. `pickup/silent` prints the frames before each gate; top entry |
 | One eye lags and flickers sideways (world AND weapon) all the time on a slow GPU, since 1.0.2; `stereo: beat` lopsided with `none/s` ~25 | Capture waits time out and REFUSE (1.0.2, 1d2ee24a5); the refusals land on one eye | `TimeoutRefuse=0` REPORTED fixing the strong flicker (2026-10-03); `[Capture] AutoDepth` measured removing the hitch (2026-10-04); top entry |
 | Rare single one-eye flicker while moving sideways; ledger `TOOK` right after the same eye, then `pushed eye TWICE` | The c5 within-tick arm misreads a cross-tick step when the walk per tick is ~2 ipd | 2026-10-04 candidate `[Stereo] C5SameEyeGuard`, host-verified (599 -> 0 wrong eyes); headset pending; top entry |
 | One eye appears frozen, swapped, or behind after pause/load/rearm | Tag-ring skew, capture freshness, c5 arbitration, or one-sided tag generation | VR-80 late-tag repair confirmed; distinct reload R/0 capture repair headset-confirmed on build 215 (18:01:15), latest record below. Residual generation/timing remains open |
