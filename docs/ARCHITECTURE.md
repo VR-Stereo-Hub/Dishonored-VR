@@ -1255,7 +1255,7 @@ Execute, and retires it at consumption. Synchronous drawing uses the native
 Display scope directly. Queue metadata is fixed-size, generation-bound, refuses
 ambiguous/reused identities and never requires render-thread UObject access.
 Unknown draws retain native rendering. The existing menu context route is separate.
-Default-off SemanticOwnership has an explicit local candidate enable and live A/B.
+SemanticOwnership (default on since 2026-10-04; it was default-off with a local candidate enable until then) keeps a live A/B.
 This is an ownership repair candidate; target depth and headset performance are
 not established by transport host tests. See HUD_ANCHORS, ENGINE_NOTES and PERFORMANCE.
 

@@ -13,6 +13,47 @@ DLL, INI or runtime code changed. Added geometry is a static visual proposal;
 skinning, animation and integration are pending explicit review of screenshots.
 The AFW cutscene candidate remains shelved on codex/performance-audit, with its
 build retained separately. See ENGINE_NOTES for asset discovery and validation.
+## 2026-10-04: ReShade - F10 lists the preset's effects; settings that apply; ini prepared at start
+
+Branch `claude/reshade-f10-audit`, stacked on `claude/hud-recouple` (PR #178, HUD test pending).
+Detail: INSTALLER.md, top entry.
+- F10 > ReShade listed every installed effect because ReShade loaded them all: an existing
+  ReShade.ini is never rewritten by the launcher and the dev PC's had
+  `SkipLoadingDisabledEffects=0`. The proxy now prepares ReShade.ini before ReShade loads
+  (preset-only loading, the mod's shader folders in the search paths) and F10 lists the preset's
+  effects, with "Show all installed effects" to add one.
+- "Performance mode" could not take effect from F10 (ReShade reads its config only when a runtime
+  is built). It and show-all now rebuild the runtime and verify what the new one read.
+- Host-verified against the real ReShade 6.8.0 DLL (817 checks). Not run in the game.
+- No Linear ticket: this session has no Linear access.
+
+## 2026-10-04: HUD widgets splitting and marker flicker - native ownership restored
+
+Branch `claude/hud-recouple`. Detail: dishonored/HUD_ANCHORS.md and FLICKER_REFERENCE.md, top
+entries; TRAPS.md, top entry.
+- Cause, measured from the ini backups and logs: `[Hud] SemanticOwnership` (the accepted widget
+  grouping of 2026-09-26) was default 0 and absent from the default ini; the dev PC's ini lost
+  the key when the installer rewrote it on 2026-09-27, and no session since armed the hooks.
+  HUD code is close to unchanged since v1.0.2.
+- Change: default 1, written in the default ini, one-time 0 -> 1 migration. No routing code
+  changed. Host suites pass. NOT yet run in a headset.
+- Next run: `hud/semantic: hooks=1` at startup, widgets in one piece, objective titles steady.
+- Installed on the dev PC: v1.0.3-45-g16881bd46; ini = the previous ini with
+  `SemanticOwnership=1` and `SemanticOwnershipRev=1` only, byte for byte (73882 bytes, 1701
+  CRLF). Backup pair and logs: `build/playtest-candidates/hud-recouple/replaced-20261004-224724/`.
+- No Linear ticket: this session has no Linear access.
+
+## 2026-10-04: accepted takedown arm levers on by default
+
+Branch `claude/hud-recouple`. `[Anim] SmoothBlend`, `[Hands] ArmIKGameArmInAnim` and `[Hands]
+ArmIKGameArmShoulder` (1 = not the choke) now default ON in the code and the default ini: all
+three were headset-confirmed in run 4. The two IK keys do nothing unless `[Hands] ArmIK=1`,
+which still defaults 0. `[Anim] CinematicArms` stays 0.
+- No release carries these keys, so an upgrade from 1.0.3 takes the new defaults. An ini that ran
+  a staging build after #177 has `SmoothBlend=0` and `ArmIKGameArmInAnim=0` written and keeps
+  them (TRAPS section 1): set them in F10 or delete the lines.
+- Default writer = packaged = golden ini; animation host checks pass.
+
 ## 2026-10-04: run 4 - takedown arms accepted; cutscene arms left as an opt-in
 
 Branch `claude/anim-blend-ik`, PR #177. Detail: dishonored/ANIM-HANDOFF-PLAN.md, top section.

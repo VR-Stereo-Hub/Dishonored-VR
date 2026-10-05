@@ -7,12 +7,13 @@ static std::atomic<float> g_ikLength{1},g_ikElbowOut{.6f};
 // [Hands] ArmIKGameArmInAnim: while a game animation owns a hand, that side's IK arm blends to
 // the game's own arm by the hand-back weight (full game arm when the game fully owns it).
 // Off = the IK arm follows the animated wrist from the tracked shoulder (the original design).
-static std::atomic<bool> g_ikGameArmInAnim{false};
+// Default on since the 2026-10-04 headset run accepted it.
+static std::atomic<bool> g_ikGameArmInAnim{true};
 // [Hands] ArmIKGameArmShoulder: that game arm is re-seated so its shoulder sits on the IK shoulder
 // (the wrist stays the game's). 0 = off, the game's arm exactly as drawn for its own camera;
 // 1 = every game animation except the choke (judged right as it was in the 2026-10-04 run);
-// 2 = the choke as well.
-static std::atomic<int> g_ikGameArmShoulder{0};
+// 2 = the choke as well. Default 1 since the same run accepted it.
+static std::atomic<int> g_ikGameArmShoulder{1};
 static float g_ikGameShare[2]={0,0};   // render lane: the game's share of each arm in the last IK draw (log only)
 static std::atomic<const char*> g_ikStatus{"Waiting for the first gameplay arm draw"};
 static std::atomic<unsigned> g_ikSolves{0},g_ikRefusals{0};

@@ -56,7 +56,7 @@ unsigned releaseMs = 250, blendMs = 150;
 // [Anim] SmoothBlend: the hand-back eases in and out (smootherstep) over its own entry and
 // return durations, the palm travels a straight line, and the hands stay owned until the
 // return reaches the controller. Off = the original linear HandBackBlendMs ramp, exactly.
-std::atomic<bool> smoothBlend{false};
+std::atomic<bool> smoothBlend{true};
 unsigned blendInMs = 250, blendOutMs = 350;
 // [Anim] CinematicArms: in a cinematic the player keeps tracked arms; the game takes them
 // (with the same blend) only while it animates them - an upper/left action or the matinee
@@ -873,7 +873,7 @@ void configure(const char* ini) {
     Log("config: [Anim] HandAnimMelee=%d HandAnimFire=%d (game animation on the tracked hands, arms hidden)",handAnimMelee,handAnimFire);
     releaseMs=(unsigned)GetPrivateProfileIntA("Anim","ReleaseMs",250,ini); if(releaseMs>5000) releaseMs=5000;
     blendMs=(unsigned)GetPrivateProfileIntA("Anim","HandBackBlendMs",150,ini); if(blendMs>2000) blendMs=2000;
-    smoothBlend.store(GetPrivateProfileIntA("Anim","SmoothBlend",0,ini)!=0);
+    smoothBlend.store(GetPrivateProfileIntA("Anim","SmoothBlend",1,ini)!=0);
     blendInMs=(unsigned)GetPrivateProfileIntA("Anim","HandBackBlendInMs",250,ini); if(blendInMs>2000) blendInMs=2000;
     blendOutMs=(unsigned)GetPrivateProfileIntA("Anim","HandBackBlendOutMs",350,ini); if(blendOutMs>2000) blendOutMs=2000;
     cinematicArms=GetPrivateProfileIntA("Anim","CinematicArms",0,ini)!=0;
