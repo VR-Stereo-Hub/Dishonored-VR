@@ -832,6 +832,7 @@ static bool WriteDefaultIni(const char* ini)
         "RouteByDrawOrder=0\n"
         "DrawOrderHands=-1,-1,-1,-1,-1,-1,-1,-1\n"
         "[Hands]\n"
+        "HeartBack=0\n"
         "RoundedWrist=1\n"
         "RoundedWristDepth=0.570\n"
         "PaletteEyeMenuHalfStep=1\n"
@@ -2969,6 +2970,7 @@ static void LoadConfig()
     CamShakeConfigure(ini);   // VR-172
     dvr::snap::configure(ini);   // VR-219: [Turning] snap turn
     LensConfigure(ini);
+    HbConfigure(ini);
     WmConfigure(ini);
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
     dvr::depthprobe::set_enabled(IniFloat(ini, "Diagnostics", "DepthProbe", 0) != 0.0f, "ini [Diagnostics] DepthProbe");
@@ -4326,6 +4328,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Lens","Trace",LensTraceEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Lens","FollowHead",LensFollowHead() ? "1" : "0",ini);
     { char v[16]; _snprintf(v,sizeof(v),"%d",LensRainPct()); WritePrivateProfileStringA("Lens","RainStrength",v,ini); }
+    WritePrivateProfileStringA("Hands","HeartBack",HbEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Mirror","Enabled",WmEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockRoll",CineRollEnabled() ? "1" : "0",ini);

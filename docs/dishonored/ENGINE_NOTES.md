@@ -1,3 +1,57 @@
+## 2026-10-04: Heart rear shell runtime integration
+
+The preview was approved for implementation. `heart_back.cpp` adds the local
+surface after a successful, instance-validated Heart draw in both weapon_attach
+placement routes, before mirror handling and palette/viewport restoration. It
+does not write engine objects or replace the original Heart vertices. Contract
+invalidation releases its owned buffers, including before the empty-contract
+early return. The body pass has 3,672 triangles; the separate nine-triangle lens
+pass is not duplicated. There are 2,583 vertices in the native body draw window.
+
+Measured on the September 13 Hound Pits Pub save with the xrsim runtime:
+
+- The native declaration uses stride 32: UBYTE4 tangent at 0, UBYTE4 normal at 4,
+  UBYTE4 bone indices at 8, UBYTE4N weights at 12, FLOAT3 position at 16 and
+  FLOAT16_2 UV at 28 (aliased as TEXCOORD0..3). A second stream supplies COLOR0
+  as D3DCOLOR with stride zero, offset zero and one four-byte constant. Refusing
+  every secondary stream prevented the first candidate from drawing. The fixed
+  path supports that color stream and restores it after each addition.
+- All 2,583 positions and skin-weight fields validated against the locally
+  generated reference. The shader declares c6 x225, or 75 palette slots. The
+  maximum relative weight-field error is 0.0000074; 22 reference bones exist.
+- The native vertex dump agrees with the glTF coordinates after the measured
+  transform to engine space: maximum position error 0.00000192 uu, UV error zero.
+  Decoding packed normals as byte/127.5 - 1 agrees within 0.00845 vector length
+  for every vertex. Native tangent W is 128; normal W stores handedness. Tangent
+  seam duplicates make nearest-position/UV tangent comparisons ambiguous, so
+  they are not used as an all-vertex tangent proof.
+- The added surface contains 9,903 vertices and 19,439 triangles. At all 65 rim
+  points, the native reference weights are copied exactly. Interior weights
+  diffuse across the cap adjacency; detail weights interpolate the nearest cap
+  triangle. The new rear bulge is reduced by up to 1.5 cm for finger clearance;
+  the original boundary stays fixed. Screenshots still only cover sampled grips.
+- Rotated views and the live OFF/ON comparison show the main rear opening filled.
+  A sampled status counted 14,755 successful draws and zero failures. Model reload
+  also rebuilt and validated the fitted version without restarting the game.
+
+`tools/heart-back-export.py` runs in Blender with a local proposal directory and
+the tools directory. It writes `dishonored_vr_heart_rig.bin` (DVRIK002 reference)
+and `dishonored_vr_heart_back.bin` (DVRHRT01 vertices/indices) for the mod data
+directory. These derived assets must not be committed or packaged. The loader
+bounds counts, checks all values/influences/indices, and fails back to the
+original Heart when unavailable or invalid. `tools/heart-back-host.ps1` checks
+valid data plus negative cases. `heartback dump` explicitly requests a local
+native vertex/declaration capture on the next validated rebuild; normal play
+does not create that diagnostic file.
+
+The original material shaders and textures light the backing. Its UVs select
+the original darker flesh patch; the static Blender preview's vertex-color edge
+blend and procedural bump are not native shader features. In-game screenshots,
+not the Blender material preview, determine acceptance. No new engine addresses,
+field offsets, package mutation or UObject writes are involved. The addition is
+inside the tracked weapon route; native-only cinematic rendering remains outside
+the tested scope. No performance improvement is claimed.
+
 ## 2026-10-04: Heart rear shell, local modeling preview
 
 UModel's Startup.upk object list identifies SkeletalMesh Heart, materials

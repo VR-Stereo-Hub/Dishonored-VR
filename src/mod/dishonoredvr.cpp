@@ -221,6 +221,7 @@
 #include "legacy/vr33/weapon_id.cpp"
 #endif
 #include "game/dishonored/hands/weapon_mirror.cpp"   // VR-138: called from weapon_attach.cpp
+#include "game/dishonored/hands/heart_back.cpp"
 #include "game/dishonored/hands/weapon_attach.cpp"
 #include "game/dishonored/hands/draw_census.cpp"
 #undef DVR_CAT

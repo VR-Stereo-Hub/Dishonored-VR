@@ -61,6 +61,10 @@ static bool LensFollowHead();
 static void LensRainPctSet(int pct);
 static int LensRainPct();
 static void LensFollowEye(int eye);
+static void HbConfigure(const char* ini);
+static void HbSet(bool on);
+static bool HbEnabled();
+static bool HbCommand(const char* args);
 static void WmConfigure(const char* ini);   // VR-138 (hands/weapon_mirror.cpp)
 static void WmSet(bool on);
 static bool WmEnabled();

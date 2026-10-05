@@ -1,3 +1,31 @@
+## 2026-10-04: Heart backing implemented and exercised in the simulator
+
+The approved local model now draws through the Heart's validated weapon passes,
+with its own vertex/index buffers and the game's current skin palette/materials.
+The branch preserves the installed arm, HUD and ReShade changes from 175cceda1.
+`[Hands] HeartBack=0` is the shipping default; the local installation has it ON.
+F10 Advanced > Hands and `heartback on|off|reload|status` control it live.
+
+Simulator validation used the September 13, 09:02 Hound Pits Pub save. All 2,583
+native vertices mapped to the local 22-bone reference within the 75-slot palette;
+the maximum relative weight error was 0.0000074. The added 9,903 vertices and
+19,439 triangles rendered successfully through wrist turns and a live OFF/ON
+comparison. The first candidate refused the extra constant-color stream; the
+revised candidate supports it and reported 14,755 draws with zero failures at
+the sampled status. The runtime fit reduces the new bulge near the gripping
+fingers while preserving all 65 original boundary positions and weights.
+
+The model-loader suite passes 14 checks, including malformed files and the local
+authored asset. Actual compositor screenshots and build/INI/log backups remain
+local under build/heart-backside-preview. The installation changed only
+HeartBack=1; later candidate installs preserved the entire INI byte for byte.
+CRLF is verified. Assets and captures are game-derived and remain untracked.
+
+Next: finish the final clean-build verification and deliver simulator screenshots.
+Headset perception, extreme animated grip poses and content distribution remain
+unverified. This is a local installed candidate, not a release. AFW stays shelved.
+Details: [Heart runtime evidence](dishonored/ENGINE_NOTES.md).
+
 ## 2026-10-04: Heart backside model preview, awaiting visual review
 
 Created codex/heart-backside-preview directly from staging cc5feaca6.
