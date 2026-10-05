@@ -46,6 +46,20 @@ offline copies of the downloads.
 (before ReShade loads): SkipLoadingDisabledEffects=1 (changed) ...` once, then F10 should list
 the three techniques of the bundled preset.
 
+**2026-10-05, first headset log with the change (build v1.0.3-54-gd0c57b1b9, a local merge
+that carries this branch; log only).** `reshade: ReShade.ini already as asked (before ReShade
+loads): every installed effect is loaded, search paths complete`: this machine's
+`dishonored_vr.ini` carried `[ReShade] LoadAllEffects=1`, so the run exercised the show-all
+path, NOT the preset-only default. ReShade.log: 62 effects compiled for each of three runtimes
+(start, and two device resets from a DLSS resize), 0 errors; `PerformanceMode=0` throughout,
+so the F10 Performance mode rebuild was not exercised either. The proxy log has no line for
+what the F10 tab listed, so that check needs eyes. The seam words `reshade effects off|on`
+(from the performance branch) were honoured: the proxy's CPU share of the effects pass went
+85 -> 154 us a present when they came on, and the pair time rose about 0.7-0.9 ms at native
+2750x2850 (one unbracketed step, PERFORMANCE.md 2026-10-05). The effects were NOT being drawn
+when that session's plan began, 40 s after a device reset had recreated the runtime; whether a
+recreated runtime comes up with its effects off is not established and is worth one look.
+
 ## 2026-10-03: Display upscaler settings and ReShade compatibility
 
 Display now offers Off, NVIDIA DLSS and AMD FSR; Native AA/DLAA, Ultra Quality,

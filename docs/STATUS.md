@@ -228,7 +228,16 @@ Detail: INSTALLER.md, top entry.
 - "Performance mode" could not take effect from F10 (ReShade reads its config only when a runtime
   is built). It and show-all now rebuild the runtime and verify what the new one read.
 - Host-verified against the real ReShade 6.8.0 DLL (817 checks). Not run in the game.
+- Installed on the dev PC: v1.0.3-47-g175cceda1, dishonored_vr.ini unchanged byte for byte (no
+  key of this build needs a stored value). The proxy will edit ReShade.ini on the next launch
+  (preset-only loading on, the custom shader folders added and created). Backup of the previous
+  DLL, both inis, the preset and the logs:
+  `build/playtest-candidates/hud-recouple/replaced-20261004-230947/`.
 - No Linear ticket: this session has no Linear access.
+
+- 2026-10-05, first headset log with the change: ReShade.ini needed no edit, but the ini had
+  `LoadAllEffects=1`, so the preset-only list and the Performance mode rebuild were not
+  exercised. 62 effects compiled per runtime, 0 errors. Detail in INSTALLER.md, top entry.
 
 ## 2026-10-04: HUD widgets splitting and marker flicker - native ownership restored
 
