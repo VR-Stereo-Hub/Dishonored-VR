@@ -1,3 +1,78 @@
+## 2026-10-05: xrEndFrame blocks 5-6 display periods every 5.66 s of wall clock on VDXR at 144 Hz, in every session since 1.0.1-253 (MEASURED, OPEN; discriminator tool built, one headset run decides)
+
+1. **Symptom identity:** a hitch, not an eye defect: the whole view, both eyes, is held
+   for 5-6 display slots about every 5.7 s (a 32-45 ms frame gap, median 36-39 ms),
+   under afw and reentry alike, in menus too. Each stall can also trigger the camera-
+   silent single tick of the entry above it (gate #3 of that entry followed one). The
+   TOP smoothness item of the 2026-10-05 audit; distinct from the 5.000 s depth-share
+   check (different period, not inside xrEndFrame) and from the per-event spikes the
+   `pe/cost` line records (those are game-thread time).
+2. **Reproduction identity:** 15 headset logs scanned (local log archive, builds
+   `v1.0.1-253` through `v1.0.3-85`), Quest 3 over VDXR 1.0.10, Streamer 1.34.22, HEVC
+   10-bit, 144 Hz (period 6.94 ms), PC wired. Under afw 9.5-16.5 gaps a minute with the
+   modal interval 5.65 s (`perf: frame gap NNms ... sat in: present-tail (xrEndFrame)`,
+   tick deltas 5656/5672 ms, the 16 ms tick quantisation of GetTickCount); presents per
+   cycle vary 637-762, so the period is wall clock, not a frame count. Under reentry 2.5-3
+   a minute logged (the gap census only prints above its threshold) with the same 5.65 s
+   mode. Nearly absent in a session at about 70 submits/s (2/min); ZERO on `dvr-xrsim`.
+   `xrWaitFrame` takes 3-6 ms on the stalled present and 0.0 otherwise; the presents
+   before a stall are ordinary. The 2026-09-18 PERFORMANCE entry measured a 4.0-4.5 s
+   beat of 88-94 ms at 120 Hz: the same symptom at another refresh.
+3. **Hypothesis and counterprediction:** nothing in the mod runs on a 5.66 s period (every
+   timer in the tree was listed: 1, 2, 5, 10 s and the per-present paths). The stall is
+   inside `xrEndFrame`, after the mod's work, so the reading is back-pressure from
+   downstream of the submit: the streamer's encoder, the link, or the headset (a periodic
+   Wi-Fi scan or power-save beacon is the shape). NOT PROVEN. Discriminator:
+   `tools\net-ping-watch.ps1 -FromStreamer` pings the headset at 50 Hz during a session
+   with `[Environment]::TickCount64` timestamps, the clock of the log's `[  tick]`
+   column. RTT spikes or losses on a 5.66 s beat at the same ticks as the log's frame
+   gaps = the link; a flat trace while the gaps continue = the PC side (encoder,
+   compositor, or the runtime's own pacing), and the next instrument is the streamer's
+   own performance overlay at those ticks. Counterprediction for "it is the mod": a
+   session on the simulator shows it (it does not), or a mod timer with that period
+   exists (none does).
+4. **Change identity:** no render change. The `stereo: rate` line now measures the afw
+   submit cadence (next entry) so a session reports how many display slots were refilled
+   with a repeated frame; `tools\net-ping-watch.ps1` is the discriminator (local output,
+   never committed).
+5. **Results:** measured from the logs; the ping trace has not run. Not run: a session
+   with the trace, a session at another refresh (90 or 120 Hz, for the period), a session
+   with the streamer's bitrate lowered (an encoder-side back-pressure moves with it, a
+   link outage does not).
+6. **Status:** OPEN. The one run: start `net-ping-watch.ps1 -FromStreamer -Minutes 5`
+   after the session is up, play 5 minutes, then line its spike ticks up against
+   `perf: frame gap` ticks in the log. Everything else about this item is already on
+   disk. PERFORMANCE.md carries the timing record.
+
+## 2026-10-05: the played method had no cadence instrument - the rate line's evenness verdict read n/a under afw (INSTRUMENT GAP, filled)
+
+1. **Symptom identity:** not a flicker: a blind spot. `stereo: rate` derives EVEN/UNEVEN
+   CADENCE from the pair interval, sampled where a pair closes. afw submits every present
+   as its own frame and has no pairs, so for the configuration that is actually played
+   the line read `cadence n/a (no pair intervals this window)` and the doubled-edge
+   question (one frame in N held an extra slot) had no number.
+2. **Reproduction identity:** every afw window of every headset log; `xr: pair phase`
+   never prints under afw either (0 pairs).
+3. **Hypothesis and counterprediction:** the pair statistics are the wrong population for
+   afw; the right one is the stereo submit itself. The new sample can print the welcome
+   answer (a whole number of slots per frame and no step over one) and the unwelcome one,
+   and its population is every successful stereo `xrEndFrame` of the window, so a zero is
+   a measured zero.
+4. **Change identity:** `openxr_runtime.cpp` (a marked `41.x (Dishonored, 2026-10-05)`
+   block after the endFrame cost record, present thread only): the wall-clock interval
+   between consecutive stereo submits (mean, sd, max) and the step in the runtime's own
+   `predictedDisplayTime` in display periods (1 = the next slot, 2 = one slot refilled
+   with the previous frame, 3+ = more). `PairProbe` carries them; `stereo.cpp` prints,
+   when there are no pair intervals: `SUBMIT CADENCE (no pairs: every present is its own
+   frame): interval mean X ms sd Y worst Z = S slots per frame; of N display-time steps
+   A skipped one slot and B more (P%; ...)`. Logging only; no lever.
+5. **Results:** builds; not yet seen on a run. Expected from the newest log's numbers
+   (124-129 presents/s at 144 Hz): about 1.15 slots per frame, 13-15% of steps skipping
+   a slot - which is the arithmetic of a GPU-bound 7.8-8.0 ms frame against a 6.94 ms
+   slot, printed instead of inferred.
+6. **Status:** instrument, default on, headset pending. What it will NOT say: which eye
+   the repeated slot showed (afw re-submits both; the compositor reprojects both).
+
 ## 2026-10-05: the simulator's per-eye exposure alternation is the afw rebuild written through a typed sRGB swapchain view (MEASURED cause, fix built, host-verified; no headset effect expected)
 
 1. **Symptom identity:** the top open entry of this morning: in simulator captures one
@@ -3483,7 +3558,9 @@ pose metadata without reopening the disproved historical theories.
 | Grass (and some other objects) invisible for one or two frames while walking in a straight line | OPEN. NOT the VR-79 per-eye view state: it also blinks with the engine's own culling (native), in BOTH eyes (headset 2026-09-24). Remaining suspect: older than VR-79, likely the early report of grass and objects vanishing up close | VR-226. Eliminated: pereye (reproduces under native). Next: whether `occlusion off` stops it (occlusion) or not (distance/near culling, streaming) |
 | Trails/smear while walking with experimental Temporal AA | Camera parallax in history reprojection; c5/world sign at the consumer | 2026-09-26: depth-vector candidate measured on simulator, normal yaw confirmed; default OFF, headset OPEN. See PERFORMANCE and PLAN-motion-vectors-dlss |
 | Slight hand/weapon flicker on FAST head yaw while the world stays smooth (gameplay) | Hands normalised against a head sample a fixed two presents back (measured 8-15% of fast-turn frames on another generation, up to 1.7 deg); rarer: the eye guessed from a hand jump the yaw sweep pushes out of band | CANDIDATE 2026-09-26 `[Hands] PoseFromView` (view found by c5; its own head sample and eye); host-tested, headset open. Top entry |
-| Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
+| Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately. 2026-10-05: under afw the `stereo: rate` line now prints the SUBMIT CADENCE (slots per frame, slots refilled with a repeated frame); before it read n/a for the played method |
+| A hitch (the whole view held 5-6 display slots) about every 5.7 s, both eyes, afw and reentry, menus too; `perf: frame gap 32-45ms ... sat in: present-tail (xrEndFrame)` on a 5.65 s beat | Downstream of the submit (streamer, encoder, link, headset): no mod timer has that period, the simulator never shows it, xrWaitFrame also lengthens on the stalled present | OPEN 2026-10-05, MEASURED in 15 headset logs since 1.0.1-253; `tools\net-ping-watch.ps1 -FromStreamer` during one session decides link vs PC side; see the 2026-10-05 stall entry and PERFORMANCE |
+| A hitch of about a frame every 5.000 s under afw only | The depth-share proof check: a D3D9 readback, a fence busy-wait and a blocking D3D11 Map on the present thread every 5 s all session | 2026-10-05 bounded to three checks after a ring build (`[Diagnostics] DepthShareChecks`), the check line prints its cost; headset pending |
 | Arms/weapon jump sideways in ONE eye during a head roll | Palette eye classifier held the previous eye on an unreadable jump | VR-95, section 3.11. Cause measured and confirmed; the shipped correction is OFF and its own regression is open |
 | Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |
 | Stereo "reloads" (the world drops to the screen and comes straight back) on every pause-menu RESUME, and the same on the menu OPEN | The scene verdict falls for a few presents at both edges: on open the owner read publishes 50 ms after the menu flag, on resume the view pipeline is silent until its first dispatch; the runtime's 3-present fallback fires in the gap | VR-117: a ride stand-in (300 ms open gap, 1500 ms resume grace) and the HUD quads built after the hold path; simulator-confirmed (`pause-ride.xrs`), headset pending |

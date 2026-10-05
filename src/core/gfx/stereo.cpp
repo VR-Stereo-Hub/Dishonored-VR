@@ -281,7 +281,7 @@ bool end_frame(const FrameDevices& d, FrameOutput& out) {
             const double iSdMs = (ivar > 0.0 ? sqrt(ivar) : 0.0) / 1000.0;
             const double iMeanMs = iMeanUs / 1000.0;
             const double spf = periodMs > 0.0 ? iMeanMs / periodMs : 0.0;
-            char even[340] = "";
+            char even[400] = "";
             if (icnt && periodMs > 0.0) {
                 const double nearest = floor(spf + 0.5);
                 const double off = spf - nearest;
@@ -320,7 +320,33 @@ bool end_frame(const FrameDevices& d, FrameOutput& out) {
                                     "0.02 the headset run could not see)"
                                   : " and no beat is expected");
             } else if (periodMs > 0.0) {
-                strcpy_s(even, sizeof(even), " | cadence n/a (no pair intervals this window)");
+                // 2026-10-05: a method without pairs (afw submits every present as its own frame) left this
+                // line reading "cadence n/a" for the configuration that is actually played. The submit cadence
+                // answers the same question from every successful stereo xrEndFrame. It can print the welcome
+                // answer (a mean of a whole number of slots, no interval refilled) and the unwelcome one, and a
+                // zero here is a real zero: the population is every stereo submit of the window.
+                const uint32_t scnt = p.submitIntCount - q.submitIntCount;
+                if (scnt) {
+                    const double ssum = (double)(p.submitIntSumUs - q.submitIntSumUs);
+                    const double ssumSq = (double)(p.submitIntSumSqUs - q.submitIntSumSqUs);
+                    const double sMeanUs = ssum / scnt;
+                    const double svar = ssumSq / scnt - sMeanUs * sMeanUs;
+                    const double sSdMs = (svar > 0.0 ? sqrt(svar) : 0.0) / 1000.0;
+                    const uint32_t steps = p.submitSteps - q.submitSteps;
+                    const uint32_t two = p.submitStepTwo - q.submitStepTwo;
+                    const uint32_t more = p.submitStepMore - q.submitStepMore;
+                    _snprintf(even, sizeof(even),
+                              " | SUBMIT CADENCE (no pairs: every present is its own frame): interval mean %.2f ms "
+                              "sd %.2f worst %.1f = %.2f slots per frame; of %u display-time steps %u skipped one "
+                              "slot and %u more (%.1f%%; a skipped slot repeats the previous frame, 0 at 1.00 is "
+                              "the even answer)",
+                              sMeanUs / 1000.0, sSdMs, p.submitIntMaxUs / 1000.0, sMeanUs / 1000.0 / periodMs, steps,
+                              two, more, steps ? 100.0 * (two + more) / steps : 0.0);
+                    even[sizeof(even) - 1] = 0;
+                } else {
+                    strcpy_s(even, sizeof(even), " | cadence n/a (no pair intervals and no stereo submit intervals "
+                                                 "this window)");
+                }
             }
             DVR_INFO("stereo: rate hmd=%s slots/s=%.1f | presents/s=%.0f submits/s=%.0f (one xrEndFrame per pair) "
                      "| pair interval mean=%.2f ms sd=%.2f ms | endFrame mean=%.2f ms max=%.1f ms over %u submits "

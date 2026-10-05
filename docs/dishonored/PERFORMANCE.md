@@ -1,3 +1,62 @@
+## 2026-10-05: the recurring xrEndFrame stall has a 5.66 s WALL-CLOCK period; the depth-share proof was a 5.000 s hitch of its own; afw now reports its submit cadence (MEASURED from 15 logs, two instruments built, one run owed)
+
+The flicker audit of 2026-10-05 (FLICKER_REFERENCE, the entries of that date and its
+appendix 9) read every headset log on the dev PC with one scan
+(`perf: frame gap NNms ... sat in: present-tail (xrEndFrame) ... endFrame X`) and
+ordered the stalls by tick instead of by count. Three timing results.
+
+**1. The recurring submit stall is periodic in wall clock, at 5.664 s.** The 2026-09-18
+and 2026-10-04 entries measured the stall itself (30-96 ms inside `xrEndFrame`, 12-30 a
+minute) and could not place it. The tick deltas between consecutive logged gaps are
+5656 or 5672 ms (the 16 ms GetTickCount quantisation of 5.664 s) in every VDXR 144 Hz
+session from `v1.0.1-253` to `v1.0.3-85` (15 logs): under afw 9.5-16.5 gaps a minute
+with that modal interval, under reentry 2.5-3 a minute logged (the census threshold
+hides the rest) with the same mode, in the pause menu too (a mono quad, no scene draw).
+The presents per cycle vary 637-762, so it is not a frame count; the session at about
+70 submits/s shows almost none (2/min), the simulator none at all. On the stalled
+present `xrWaitFrame` also takes 3-6 ms (0.0 on every other present) and the presents
+before the stall are ordinary. The 120 Hz record of 2026-09-18 (a 4.0-4.5 s beat of
+88-94 ms) is the same symptom at another refresh. No timer in the mod runs on 5.66 s
+(every period in the tree was listed: 1, 2, 5, 10 s and the per-present work), and the
+stall sits inside the runtime call after all of the mod's work for the frame, so the
+reading is back-pressure from downstream of the submit - streamer, encoder, link or
+headset; a periodic Wi-Fi scan or power-save beacon has this shape. NOT PROVEN.
+
+What this retires: full-arm IK, the per-frame scans, texture streaming and VRAM were
+each measured against the stall in earlier entries and could not have a wall-clock
+period; the depth-share check (next item) has the wrong period (5.000 s). What decides
+it: `tools\net-ping-watch.ps1 -FromStreamer -Minutes 5` during one session, which pings
+the headset at 50 Hz with `TickCount64` stamps (the log's clock) and prints every RTT
+spike with the interval to the previous one. Spikes or losses on a 5.66 s beat at the
+same ticks as the log's gaps put the stall on the link; a flat trace while the gaps
+continue puts it on the PC side (then: the streamer's performance overlay at those
+ticks, a run at another bitrate, a run at 90 or 120 Hz for the period).
+
+**2. The depth-share proof was a 5.000 s hitch of its own under afw.** `depth_probe.cpp`
+`share_tick` proved every 5 s, on the present thread, that D3D11 reads what the game
+wrote: a D3D9 `StretchRect` + `GetRenderTargetData` + `LockRect` of the depth target (a
+pipeline drain), a busy-wait on the copy fence of up to 50 ms, and a blocking D3D11
+`Map`. It read IDENTICAL 62 of 62 times in the newest log. Bounded to three checks after
+each ring build (`[Diagnostics] DepthShareChecks`, -1 = the old behaviour); the check
+line now prints `cost X ms on the present thread (max Y)`, so the next run measures
+what each one cost instead of this entry estimating it. The `hk.depthCopy` mean of about
+20 us over the surrounding presents is the per-present cost; the check present itself
+was never separately timed.
+
+**3. The played method had no cadence number.** `stereo: rate` derived EVEN/UNEVEN from
+the pair interval, which afw never produces, so the configuration that is actually
+played read `cadence n/a`. The line now prints, when there are no pairs, the SUBMIT
+CADENCE: the interval between consecutive stereo `xrEndFrame`s (mean, sd, worst), the
+derived slots per frame, and from the runtime's own `predictedDisplayTime` how many
+steps skipped one slot or more (a skipped slot is a display period that showed the
+previous frame again). From the newest log's 124-129 presents/s at 144 Hz the expected
+reading is about 1.15 slots per frame with 13-15% of steps skipping a slot: the
+arithmetic of a 7.8-8.0 ms GPU-bound frame against a 6.94 ms slot, now printed per
+window rather than inferred. It cannot say which eye a repeated slot showed.
+
+Not changed: no pacing or render lever; the two instruments are logging only; the
+depth-share bound is a bound on a diagnostic.
+
 ## 2026-10-05: the unattended audit run - measured, and in which configuration
 
 One headset run of `tools/perf-plans/audit-all.txt` (41 segments of 20 s, 4 s warm-up each) on
