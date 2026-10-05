@@ -254,10 +254,9 @@ const char* kSrc =
     "            if (outside || hidden) return shade(heldTex, sb, 4, zb);\n"
     "        }\n"
     "    }\n"
-    // Tangential object/vehicle motion can change colour without changing depth.
-    // The depth-only stale test cannot detect it. This opt-in uses current-time
-    // stereo samples where available; unseen regions retain the established fill.
-    "    if (prm9.w > 0.5 && okF) return shadeF(sF, 2, tF);\n"
+#if DVR_WITH_LEGACY
+#include "legacy/afw_fresh_world.inc"
+#endif
     "    if (st && tp) {\n"
     // The stale test: the held point, carried to this instant as static, seen from the fresh eye.
     "        bool stale = false;\n"
@@ -1083,8 +1082,13 @@ void set_stereo(bool on, const char* who) {
 }
 bool stereo() { return g_stereo.load(); }
 void set_fresh_world(bool on,const char* who) {
+#if DVR_WITH_LEGACY
     g_freshWorld.store(on);
-    DVR_INFO("afw: current-time world %s by %s; fresh-eye depth reprojection with held-eye hole fill; view-dependent shading may change",on ? "ON" : "off",who);
+    DVR_INFO("afw: LEGACY current-time world %s by %s; rejected after world ghosting regression", on ? "ON" : "off", who ? who : "?");
+#else
+    g_freshWorld.store(false);
+    if (on) DVR_WARN("afw: retired AfwFreshWorld request ignored (%s); using held-eye world after build 34 ghosting regression", who ? who : "?");
+#endif
 }
 bool fresh_world() {return g_freshWorld.load();}
 void set_debug(bool on, const char* who) {

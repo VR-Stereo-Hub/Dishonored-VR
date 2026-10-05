@@ -57,8 +57,8 @@ bool enabled();
 // the body hypothesis (the first version, kept as the A/B).
 void set_stereo(bool on, const char* who);
 bool stereo();
-// Prefer current-time world pixels reprojected from the fresh eye. The held eye
-// remains the disocclusion fallback. Off by default: reflections can differ by eye.
+// Retired build-34 experiment. Normal builds refuse ON, including retained INI keys.
+// DVR_WITH_LEGACY keeps the source-selection experiment available for offline replay.
 void set_fresh_world(bool on,const char* who);
 bool fresh_world();
 // The held eye's world by the game's own view-projection matrices (default on; head, stick yaw and

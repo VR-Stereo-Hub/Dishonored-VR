@@ -8,7 +8,9 @@
 - [x] Optimize repeated blank HUD transfers and validate native GPU lifecycle.
 - [x] Filter ReShade to preset-owned effects while retaining disabled selections.
 - [x] Build host-verified current-time AFW world option for moving platforms.
-- [ ] Confirm ferry ghosting response to AfwFreshWorld in the headset.
+- [x] Read build-34 ferry/world captures; reject fresh-world tradeoff and retire it.
+- [ ] Confirm build-only rollback restores prior ordinary-world quality.
+- [ ] Resolve original AFW moving-boat ghosting without broad world regression.
 - [ ] Isolate and recover the reported steady FPS regression.
 
 ## Full-arm IK (2026-10-04)

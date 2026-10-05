@@ -1,3 +1,22 @@
+## 2026-10-04: build 34 AFW tradeoff rejected; HUD/ReShade work retained
+
+The headset follow-up reports slight boat improvement but much worse world
+geometry ghosting with AfwFreshWorld enabled. Both captured bursts are verified
+as build 34; the subsequently replaced installed DLL belongs to separate work.
+Unconditional fresh-world selection is retired from normal builds, including
+refusal of retained ON keys. HUD blank reuse and ReShade preset membership remain.
+The new candidate is build-only, with no installed INI or binary changes.
+
+All 30 offline rebuilt images match build 34 with that option OFF byte-for-byte.
+This establishes the rollback's output, not a new boat solution or FPS benefit.
+The synthetic 13.66 -> 0.02 px platform result below is historical and insufficient
+for acceptance. The clean/composed overlay theory is rejected for these captures;
+next-frame replay scores cannot establish same-instant moving-boat accuracy.
+Full capture populations, failed prediction and recoverable next steps are in
+FLICKER_REFERENCE.md's newest entry. No new steady performance measurement or
+controlled ReShade GPU-cost result is claimed. The former toggle test below has
+completed and rejected the option; do not queue it again.
+
 ## 2026-10-04: HUD transfer optimization, preset filtering and moving-platform AFW
 
 Follow-up to the full audit below, on codex/performance-audit / PR #175.

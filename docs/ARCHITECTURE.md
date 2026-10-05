@@ -1550,3 +1550,13 @@ OFF, live/persisted Basic control, capture metadata and replay support.
 ReShade preset membership comes from effect sections, active techniques and F10's
 persisted choices, never the global TechniqueSorting list. Definitions still load;
 an explicit all-effects view is available for adding effects.
+
+### 2026-10-04: withdraw unconditional fresh-world preference
+
+Build 34's favorable synthetic moving-platform coordinates did not predict its
+reported world-geometry regression. Keep the shader clause in src/legacy for
+explicit offline reproduction; normal builds refuse an ON request, including
+existing INI values, and do not expose a checkbox that cannot work. Captures and
+replay metadata remain readable. The previous world path is byte-identical for
+30 replayed captured frames. No speculative color-based motion classifier is
+introduced. HUD and ReShade changes remain independent of this rejected tradeoff.

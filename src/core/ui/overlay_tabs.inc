@@ -911,14 +911,6 @@ static void OvlTabDisplay()
                    "the previous frame, warped to your head. Aims for the headset's full rate. Best when combined with DLSS or DLAA.");
             if ((c0 || c1 || c2) && sm != cur && dvr::stereo::choose(kNames[sm]))
                 ConfigWriteKey("Stereo", "Method", kNames[sm], "F10 Display");
-            if(isAfw) {
-                bool fw=dvr::afw::fresh_world();
-                if(dvr::ovl::checkbox("AFW: moving scenery from the current frame",&fw)) {
-                    dvr::afw::set_fresh_world(fw,"F10");
-                    ConfigWriteKey("Stereo","AfwFreshWorld",fw ? "1" : "0","F10 Display");
-                }
-                OvlTip("Uses the current frame to rebuild moving vehicles and scenery. Older eye pixels fill gaps. Reflections and shine may look different between eyes. Experimental; off by default.");
-            }
             if (OvlAt(kOvlD)) {
                 bool clamp = DeltaClampEnabled();
                 ImGui::BeginDisabled(!isAer);

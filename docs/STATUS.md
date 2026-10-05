@@ -1,3 +1,26 @@
+## 2026-10-04: AFW fresh-world regression withdrawn; candidate not installed
+
+Build 34 produced a small reported boat improvement with much worse surrounding
+and ordinary-world ghosting. Both 16-frame captures are verified against that
+historical build; the installed DLL has since changed to a separate candidate.
+The broad clean/UI-contamination hypothesis was rejected by all captured source
+pairs. The synthetic platform success did not establish general image quality.
+
+Retired unconditional fresh-world selection under src/legacy, removed the Basic
+checkbox/default key and refuse old AfwFreshWorld=1 requests in normal builds.
+Keep the HUD optimization and ReShade preset filtering. Normal AFW host: 68 pass;
+30 captured rebuilds match the previous OFF path byte-for-byte with ON requested.
+The explicitly enabled legacy research build retains all 71 passing host checks.
+The original boat problem remains open. Full evidence and continuation plan:
+[FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md). Performance record remains
+[PERFORMANCE](dishonored/PERFORMANCE.md); no FPS gain claimed.
+
+Build only, no installation or game-file writes. Do not overwrite the separately
+installed candidate. No launch requested now. After installation is authorized,
+the next single question is whether ordinary-world ghosting returns to its level
+before build 34; improvement supports rollback, unchanged requires upstream
+image/timing investigation. Original boat investigation follows separately.
+
 ## 2026-10-04: HUD performance candidate and AFW moving-platform option
 
 Continue codex/performance-audit / draft PR #175. ReShade menu now defaults to

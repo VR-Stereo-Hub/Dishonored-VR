@@ -1,4 +1,62 @@
-## 2026-10-04: AFW moving boat/ferry ghosting (HOST-VERIFIED option, headset pending)
+## 2026-10-04: build 34 fresh-world regression; experiment withdrawn (build only)
+
+Surface: AFW world geometry and the environment around a moving boat in the
+headset. Routing: section 1's moving boat/ferry row. REPORTED: slightly improved
+boat appearance but substantially worse ghosting across surrounding and ordinary
+world geometry. This rejects the previous candidate's tradeoff; the synthetic
+platform result did not establish general image quality.
+
+Identity was checked before interpretation. Both 16-frame bursts (18:59:54 boat,
+19:01:35 alley) belong to v1.0.3-34-g63a890a76, built 18:52:56, with freshWorld=1.
+The historical installed manifest and preserved tested DLL match SHA256
+4a29ae80dd9d4d44410a2639dc7120e97841ea47abaa674d7a75abee27481d30.
+The currently installed DLL had already changed to a separate build-33 candidate
+after this run; it is not the producer of these captures. No game files were
+changed during this follow-up. Local evidence: build/performance-audit/run34-followup/;
+raw bursts remain in their timestamped local AFW dump folders, never committed.
+
+- MEASURED: all recorded rebuilds accept game-camera matrices. The failure is
+  not explained by a permanent matrix-refusal latch.
+- REJECTED hypothesis: the clean/composed RGB difference might mistake broad
+  post-processing for UI and paste stale world back over fresh pixels. Across
+  all 32 source images per burst, boat clean/composed images are identical;
+  alley differences above one byte cover at most 0.0208% of an image. This
+  does not support broad HUD-overlay contamination in either burst.
+- MEASURED: replaying each capture with the option ON/OFF changes normal world
+  detail, including view-dependent reflective surfaces. The first alley frame's
+  mean absolute RGB change is 1.43/255; 1.22% of pixels differ by over 16 in at
+  least one channel. This identifies affected pixels, not a perceptual score or
+  proof that all reported ghosting is caused by reflections.
+- LIMIT: the existing replay score compares a rebuild against the NEXT native
+  frame. Readback stalls and moving boats make that a different instant. Boat
+  world disagreement ON/OFF is 9.871%/10.079%; alley 0.217%/0.211%. These small
+  aggregate differences did not predict the severe reported regression and
+  must not override headset evidence or be called same-instant ground truth.
+- CORRECTION: retire unconditional fresh-world preference to
+  src/legacy/afw_fresh_world.inc, compiled only with DVR_WITH_LEGACY. Normal
+  builds retain the prior held-eye world selection and its existing fresh-eye
+  foreground/disocclusion handling. Refuse/log old INI and command ON requests;
+  remove the player-facing checkbox and new-default/save emission. A retained
+  AfwFreshWorld=1 cannot reactivate it. No new object-motion heuristic is guessed.
+- VALIDATION: 68 normal native AFW checks pass. The explicit ON-request fixture
+  now preserves the old platform error, deliberately documenting that the
+  original tangential-motion limitation remains. All 30 replayed rebuilds from
+  the two captures match the previous option-OFF output byte-for-byte even with
+  ON requested. Legacy host/replay switches retain the failed mode for research; all 71
+  legacy host checks also pass.
+
+OPEN: original boat ghosting, upstream temporal reconstruction and perceptual
+confirmation that this rollback restores ordinary-world quality. Build only per
+request; no installation, INI write, game launch or new headset test requested.
+Recoverable plan: after installation is authorized, one launch asks whether
+ordinary-world ghosting returns to the pre-build-34 level with other settings
+fixed. Improvement supports the regression rollback; unchanged means investigate
+upstream temporal imagery and timing before another source-selection experiment.
+Then isolate the boat separately, keeping geometry motion and DLSS history as
+separate hypotheses with same-instant controls. Do not restore this mode based
+only on the synthetic moving-platform score.
+
+## 2026-10-04: AFW moving boat/ferry ghosting (historical candidate, REJECTED above)
 
 Surface: world/moving vehicle in the headset under AFW; the reported lagging eye
 is uncertain. Routing: section 1's eye-behind row, plus the vehicle-motion case
@@ -3226,7 +3284,7 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
-| AFW ghosting on a moving boat/ferry; affected eye uncertain | Depth-only stale rejection cannot detect tangential object motion at unchanged depth | 2026-10-04 host-verified opt-in AfwFreshWorld; 13.66 -> 0.02 px synthetic platform error; headset pending |
+| AFW ghosting on moving boats and worse ordinary-world ghosting with build 34 | Original depth-only motion limit remains; unconditional opposite-eye world replacement regresses general quality | 2026-10-04 headset REJECTED AfwFreshWorld; retired from normal builds, 30 captured rebuilds match prior OFF path; build-only rollback awaits acceptance |
 | Small flicker on newly active full IK arms, subtype uncertain | IK history mixed head-locate and hand-publication counters; surface/pose distinction still needs pixels | 2026-10-04 code/host defect corrected; headset effect pending. Basic IK/Display frame burst added; see newest entry |
 | AFW rebuilt hand/sword duplicates more deeply inside a wall | Background fill chooses a geometrically farther foreground seed | 2026-09-30 follow-up: fill fixed the solid duplicate; foreground-aware stale rejection removes the striped remainder in replay, 46/46 host tests; headset pending |
 | AFW hands slide opposite lateral head motion while world stays stable | Native hand image/pose association, including position ties | Build 242 HEADSET-ACCEPTED with PoseFromView=1 and rotation-assisted ties. Negligible residual reported; do not infer all views matched. |

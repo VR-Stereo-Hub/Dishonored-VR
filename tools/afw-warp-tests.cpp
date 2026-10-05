@@ -405,12 +405,18 @@ int main() {
       State boat=still;boat.bodyPos={.08,0,0};boat.platformPos=boat.bodyPos;
       Opt fresh;fresh.freshWorld=true;
       Result old=run(g,still,boat);report("moving platform control: old world texture trails",old,old.ok && old.errP95>2);
+#if DVR_WITH_LEGACY
       Result now=run(g,still,boat,fresh);report("moving platform: current-time world",now,clean(now));
       boat.bodyPos={-.08,0,0};boat.platformPos=boat.bodyPos;
       now=run(g,still,boat,fresh);report("moving platform: opposite travel",now,clean(now));
       boat=still;boat.platformPos={.08,0,0};
       now=run(g,still,boat,fresh);report("moving object, stationary player",now,clean(now));
       now=run(g,still,still,fresh);report("current-time world: static scene",now,clean(now));
+#else
+      Result now=run(g,still,boat,fresh);
+      report("retired world option: ON request preserves prior reconstruction",now,
+             !dvr::afw::fresh_world() && now.ok && now.errP95==old.errP95 && now.wrong==old.wrong && now.ghost==old.ghost);
+#endif
     }
     { Opt fresh;fresh.freshWorld=true;
       for(const State* next:{&turn,&head,&all,&walkTurn}) {
