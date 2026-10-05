@@ -1561,3 +1561,14 @@ the mod restores the original streams, indices and cull state before returning.
 Reference position and weight-field correspondence derives the palette mapping
 instead of assuming exported bone order equals shader slots. A missing or invalid
 reference leaves the original Heart drawing. Game-derived geometry remains local.
+
+### 2026-10-05: attachment follow carries a parent-local correction
+
+Hand effects consume the same render correction as weapons, but cannot retain
+its old world origin while querying current bones. Convert through the published
+arm/parent relationship into parent-local space, then conjugate by the live
+parent transform. This remains valid when native arm and item updates occur in
+different phases. The script lane continues to write only validated attachment
+relatives using engine bone-space conversion. A locked publication and refreshed
+object identities bound the render-to-script handoff. Host negative controls
+cover old-world and current-arm-only alternatives; in-game acceptance is pending.

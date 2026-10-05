@@ -1661,3 +1661,15 @@ interval where LEFT labels disappear. The remote flight recorder uses recurring
 rate limits and label-independent bursts, with all-frame populations and explicit
 missing-stage masks. Camera-side SWAPPED and low image difference are observations,
 not independent proof of swapped or mono imagery during moving/dark cinematics.
+
+## A saved world correction cannot be applied to current attachment bones (2026-10-05)
+
+Controller-motion acceptance did not establish body-motion acceptance for hand
+effects. Reusing the native arm origin from an earlier render snapshot adds a
+travel-dependent offset to the current bone result. Rebasing only through the
+current arm still fails if a held item updates later. Keep the correction in
+the attached parent's local frame, then use that parent's live native transform.
+The production host tests reproduce both failures with fixed controller poses.
+Do not change particle local-space flags to hide this mismatch: the Heart and
+Possession hand-cast modules already use local space. ENGINE_NOTES records the
+asset evidence, equations, negative controls and pending headset validation.

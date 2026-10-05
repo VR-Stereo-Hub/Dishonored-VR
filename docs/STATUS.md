@@ -1,3 +1,42 @@
+## 2026-10-05: Hand-effect locomotion correction, build only
+
+Heart backing PR #182 is ready for review against staging and remains unmerged.
+Child branch codex/hand-effects-locomotion starts from its accepted tip. The
+reported follow-up is the Heart glow sliding out during walking; Possession
+has the same shared attachment route. No new Linear issue is created under the
+established workspace-limit exception.
+
+The old script writer applies a render snapshot's world correction to current
+bone positions. Reproduce the resulting travel-dependent displacement in the
+production-code host harness. Carry the correction through each parent's local
+frame, then through that parent's live native transform. This also handles an
+arm update preceding a held-item update. Apply it to the existing shared path
+for hand particle systems and light components, including Heart, Possession
+and Blink. Do not alter particle assets or engine bone animation.
+
+Runtime safety: coherent render publication, parent/component/FName/bone identity
+checks, a refreshed live-object table across menu/load boundaries, re-reading
+the attachment after engine calls, and restoration only while the relative is
+still ours. Fresh post-transition draws are required. The existing movement
+limit and once-per-frame/reentry guards remain.
+
+Validation: 733 production-code host checks pass. A fixed hand with 6/-2 uu
+body translation exposes 3.872011 uu error in the old formula versus 0.000275 uu
+corrected; staggered parent updates also pass. All 77 travel/turn poses remain
+below 0.001 uu position error. UModel and UE Explorer's library confirm the
+Heart required module and both Possession hand-cast required modules use local
+space. Details, rejected arm-only correction and limits: ENGINE_NOTES.
+
+The user requests a build only. Do not install this candidate or change the
+installed INI/assets. No game launch or in-game validation of this fix occurred.
+Build/exports/lint results and the artifact identity are recorded in the local
+build/heart-backside-preview/effects-candidate manifest after final compilation.
+Later, when installation is requested, use one question per launch: with the
+Heart held still relative to the body, does its glow remain inside while walking
+and strafing? Stable alignment supports the fix; continued drift requires the
+new parent-travel diagnostics before changing another mechanism. Possession
+casting while moving is a separate follow-up launch.
+
 ## 2026-10-05: Heart backing accepted, PR ready for review
 
 The final natural-seam backing is headset-accepted on v1.0.3-55-gf8f2260ea.
