@@ -1,3 +1,22 @@
+## 2026-10-05: Heart backing deformation checked in Blender
+
+Blender 5.2 tested the installed-format backing geometry with its runtime
+8-bit skin weights on the original 22-bone Heart armature. Across 446 poses
+(rest, independent per-bone translations/rotations/scales, and an authored
+synthetic double pulse), all 65 rim vertices stayed attached: maximum separation
+0.0000167 mm. Boundary weight differences were below 0.00000003. The pulse moved
+the backing by up to 3.65 mm; its smallest cap triangle retained 73.9 percent of
+its rest area. Rendered rest/peak views show the rear details following the skin.
+
+This verifies skinning and rim continuity, not the native animation clip.
+The exported asset has no action, and UModel cannot decode the game's Edge
+animation data. The Blender action is explicitly labeled synthetic. Native
+heartbeat timing and deformation extremes remain unverified. Local artifacts
+are in build/heart-backside-preview/heartbeat: the saved blend, 24-frame GIF,
+rest/peak comparison, script and numeric report. No runtime or INI changes.
+The simulator opened before the Blender-only correction was closed without
+loading a save. The installed candidate remains v1.0.3-50-g4cdd3b78d.
+
 ## 2026-10-04: Heart backing implemented and exercised in the simulator
 
 The approved local model now draws through the Heart's validated weapon passes,
