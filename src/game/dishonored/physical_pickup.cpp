@@ -633,6 +633,7 @@ static bool PickupPadFilter(dvr::vr::InputSnapshot& raw, bool blocked)
         const bool down = *grip[h] > (was[h] ? 0.7f : 0.9f);
         if (down && !was[h] && (mask & (1u << h))) {
             swallow[h] = true; pressUntil = now + 130;
+            GrabAnimNotify(h, "a pickup grip");                  // the hand closes (mesh_split.cpp, THE GRAB)
             pressedOn[h] = g_ppTargetHold.load() ? g_ppTargetId.load() : 0;
             holding[h] = pressedOn[h] != 0; holdSince[h] = now;
             g_ppSwallowed.fetch_add(1); g_ppFired.fetch_add(1);
@@ -643,6 +644,7 @@ static bool PickupPadFilter(dvr::vr::InputSnapshot& raw, bool blocked)
         }
         if (!down) swallow[h] = false;
         was[h] = down;
+        GrabAnimGrip(h, swallow[h]);                             // the fist stays closed while this grip is held
         if (swallow[h]) *grip[h] = 0.0f;
         if (holding[h]) {
             const bool keep = swallow[h] && (mask & (1u << h)) && g_ppTargetId.load() == pressedOn[h];

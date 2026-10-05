@@ -984,6 +984,18 @@ static bool WriteDefaultIni(const char* ini)
         "; OpenEmptyRightHand=1: with nothing in the right hand (the sword holstered) its fingers\n"
         "; take the left hand's open pose, mirrored, instead of the game's loose fist. 0 = the fist.\n"
         "OpenEmptyRightHand=1\n"
+        "; GrabAnim=1: a grip that picks something up or uses it (PhysicalPickup) plays a grab on that\n"
+        "; hand: the fingers shape flat, close into a fist, stay closed while the grip is held and\n"
+        "; return. Off by default until it is accepted in a headset. The times are in ms: shape (to\n"
+        "; flat, scaled by how closed the hand is: none when it is already open), close (flat to\n"
+        "; fist), hold (the least time closed), release, and lag (how far the fingertips trail the\n"
+        "; knuckles). Live: grab on|off, grab test left|right, grab time ...\n"
+        "GrabAnim=0\n"
+        "GrabAnimShapeMs=150\n"
+        "GrabAnimCloseMs=220\n"
+        "GrabAnimHoldMs=180\n"
+        "GrabAnimReleaseMs=260\n"
+        "GrabAnimLagMs=40\n"
         "WeaponId=0\n"
         "WeaponIdMs=1500\n"
         "PaletteFrameTol=0.0200\n"
@@ -2878,6 +2890,7 @@ static void LoadConfig()
     g_ohOn = IniFloat(ini, "Hands", "OpenEmptyRightHand", 1) != 0.0f;       // the empty right hand opens like the left
     Log("config: [Hands] OpenEmptyRightHand=%d (%s)", g_ohOn ? 1 : 0,
         g_ohOn ? "an empty right hand takes the left hand's open pose, mirrored" : "the empty right hand keeps the game's fist");
+    GrabAnimConfigure(ini);   // [Hands] GrabAnim and its times
     // VR-33: attachment matches owned component transforms independently of
     // the optional hide sweep. Installed test configuration enables it;
     // a fresh configuration leaves this render lever off.

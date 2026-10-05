@@ -696,6 +696,16 @@ static bool PickupEnabled();
 static bool PickupRay(float* origin, float* dir);
 static void PhysicalPickupTick();
 static bool PickupPadFilter(dvr::vr::InputSnapshot& raw, bool blocked);
+// The grab animation (hands/mesh_split.cpp, THE GRAB).
+static void GrabAnimNotify(int hand, const char* who);
+static void GrabAnimGrip(int hand, bool down);
+static bool GrabAnimEnabled();
+static void GrabAnimSet(bool on, const char* who);
+static void GrabAnimConfigure(const char* ini);
+static bool GrabAnimCommand(const char* args);
+static void GrabAnimWriteTimes(const char* who);
+static void GrabAnimTimes(float* t5);
+static void GrabAnimSetTimes(const float* t5);
 static void PickupSet(bool on, const char* who);
 static void PickupSetReachCm(float cm);
 static float PickupReachCm();

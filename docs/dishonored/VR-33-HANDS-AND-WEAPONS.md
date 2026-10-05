@@ -688,3 +688,60 @@ Hand vertices near the cut are partly weighted to forearm bones, so arm and wris
 **Build 672 moved nothing** (`ms/wrist: 0 hand vertex(es) had 0 forearm influence(s)`). It selected forearm bones as `!g_msBoneHand`, but the hand set is every bone within the wrist radius (30.8 uu) of the hand bone. That radius takes in the forearm-twist bones behind the wrist, which are the ones bending it. The left hand looked better only because of the VR-183 empty-hand wrist anchor. The right hand, holding the sword, was unchanged. Build 673 calls a bone forearm when its centroid lies more than 2 uu BEHIND the hand bone along the limb axis (`g_msAxis`, pointing to the fingers), and logs every bone's position along the axis per side.
 
 **Build 673 result: VR-183 and VR-184 headset-confirmed.** The reticle lines up with a held item again, the hands stay still on the wrist while power animations move the fingers, and the wrist cut and cap no longer bend on either hand.
+
+## The grab animation (2026-10-05, branch `claude/grab-hand-anim`, not yet run in the game)
+
+A grip that the physical pickup takes (PLAN-physical-interaction.md) plays a grab on that hand:
+the fingers shape flat, close into a fist with the knuckles leading and the fingertips trailing,
+stay closed while the grip is held, and return to the pose the hand had. Code: `hands/grab_pose.h`
+(the maths and the timing, no game reads) and "THE GRAB" in `hands/mesh_split.cpp` (the palette
+rows, beside the open right hand). `[Hands] GrabAnim` (default 0, a render lever), the five
+`GrabAnim*Ms` times, F10 > Hands ("Grab animation", a "Try it" button, the times under Advanced),
+seam `grab on|off`, `grab test left|right`, `grab time <shape> <close> <hold> <release> <lag>`.
+
+* **The poses.** Flat: the left hand's open fingers (live while the left hand is empty or on a
+  power, otherwise the last ones seen), mirrored for the right hand through the open hand's
+  measured pairing. Fist: the right hand's own game fingers (a fist around the sword grip, a
+  loose fist when empty), mirrored for the left. Base: whatever this draw would show.
+* **Joint by joint.** Each finger bone is blended against its PARENT and the chain is rebuilt from
+  the wrist out. The palette has no hierarchy and its order is not the skeleton's (the two sides
+  even differ: `ms/wrist:` lines), so the parents are found from the mesh and the right hand's
+  game pose: candidates are the bones nearer the wrist (straight-line centroid distance) that
+  share a vertex with the bone, and the winner is the one whose relative motion leaves a point
+  between the two centroids in place (`parent_score`). Logged as `hands/grab: right finger tree`.
+* **The opening time** is `GrabAnimShapeMs` scaled by how far the hand is from flat (the largest
+  joint angle, against 60 degrees): a hand that is already open starts closing at once.
+* **Takedowns and chokes:** `dvr::anim::hand_owned` stops a grab on that hand at once.
+
+**Verified offline** (`tools\grab-pose-host.ps1`: 222 host checks; `tools\blender\grab_verify.py`
+on the extracted `Skm_Player` mesh, driving the production header through `grab-pose-cli.exe`,
+against a joint-by-joint forward-kinematics reference with a synthetic fist):
+
+| | max vertex distance from the reference | max gap at a finger joint |
+|---|---|---|
+| joint by joint (the shipped design) | 0.000 | 0.000 |
+| every bone against the wrist, screw blend (the first design) | 12.5 | 8.6 |
+| every bone against the wrist, element-wise blend | 9.1 | 0.8 |
+
+(game units; the index finger is 10.8 long and its tip travels 13.5.) The parent inference
+recovered 15 of the 16 real parents; the miss is the thumb's end bone (2 vertices, weight 0.03).
+Fingertip speed is a smooth bell from zero to zero in every phase (peak 198 units/s closing; 280
+opening from a fist over the scaled 150 ms, where a fixed 70 ms opening had peaked at 574).
+
+**Graveyard, from the offline check, never built into a game run:**
+
+1. **Every finger bone blended against the wrist.** A fingertip bone's curl against the wrist is
+   the sum of its three joints' (about 240 degrees for a fist); a rotation blend takes the short
+   way round, so the tip turned about 120 degrees backwards mid-grab and the joints opened 8.6
+   unit gaps. Blending against the parent keeps every joint under about 110 degrees.
+2. **Parent picked by the raw joint residual.** Two neighbouring knuckles curl almost alike, so
+   every point between them drifts by the same small amount and they scored as well as a real
+   joint: the middle and ring knuckles took a neighbour as parent. The residual is now divided by
+   how far the segment's ends move (a real joint: ends swing, joint stays; siblings: all drift alike).
+3. **Chain depth measured along the arm.** The thumb points sideways, so its end bone sat "before"
+   its own parent along the arm axis. Depth is the straight-line distance from the wrist.
+
+**Not established (needs a run):** that the game's right-hand fist and the left hand's open pose
+give a natural-looking grab on THIS rig (the offline fist was synthetic); how the sword looks while
+its hand opens around it (the weapon is not hidden yet: plan step 4); the inferred tree from a real
+game pose (read the `right finger tree` line and its worst fit).
