@@ -137,7 +137,7 @@ tree (limit 3 below).
   post stage. The game's Antialiasing option read 0 (off) at the automatic read
   (`gameopts: id 122 ... VALUE 0`), yet MLAA runs its three passes per eye (0.82 ms GPU a
   pair). Neither was a plan row. Both are full-screen GPU work, so they matter most where the
-  GPU is the limit (DLSS, AFW).
+  GPU is the limit (DLSS, AFW). (The depth-of-field half of this bullet is corrected in section 10.)
 - **Which limit this configuration is on.** Cutting 0.6 ms of GPU a pair (`ScreenPercentage 80`,
   `gpu/present` 4.0 -> 3.7 ms a present) returned 0.2 ms; cutting 2 % of the draws and 0.35 ms
   of GPU (`DynamicShadows`) returned 0.35 ms. Native without DLSS is nearer the render thread's
@@ -258,6 +258,51 @@ Next run, if one is wanted: the same spot in the played configuration with the p
 closed, restore words fixed first, and rows for DLSS model, DLSS off, HUD off, HUD sharp off,
 ReShade effects, the two shadow sizes, and whatever handle switches the depth-of-field and
 MLAA stages off (to be found: the `[SystemSettings]` flags are already off).
+
+### 10. Run 2, prepared the same day (built, not run)
+
+Only what run 1 left open, in the played configuration. `tools/perf-plans/audit-run2.txt`:
+17 segments of 30 s with a 10 s warm-up (a DLSS model change and a DLSS resize need several
+seconds), about 9.5 minutes after a 60 s lead-in.
+
+- Rows: `hud off`, `hud sharp off`, `reshade effects off`, `dlss model k` (restore `fast`),
+  then the stage profile on (so the played configuration gets its own stage table, and it says
+  whether MLAA runs with DLSS on), the two shadow rows below, and `dlss off` last with a
+  settling baseline after its restore.
+- **Correction to section 4.** The stage called ArkPpNodeDof / `D.O.F.us` is not a depth-of-field
+  pass that ignores `DepthOfField=False`. The class's parameter block carries depth of field,
+  colour balance and HDR overrides together: it is the game's combined final post-process node
+  (the tone map and colour grade live in it). It cannot be switched off for a row, and its 1.9
+  ms of GPU a pair is the price of the final image, not a stray effect. No row for it.
+- **Shadow sharing, sized before anything is built.** The engine labels its shadow depth
+  render as a stage of its own (`Shadow Depths`; `Shadow Projection` is the per-eye half; both
+  labels are in the image). New, default off, session only: `stages skip odd|all <stage name>`
+  drops the game's draws inside one named stage (a prefix, any case) on every second present
+  or on all, from the draw hooks; it needs `stages on`. `Shadow Depths` dropped on every
+  second present is one eye without its shadow depth render: **the upper bound of what sharing
+  it between the eyes can return**, measured, at the cost of moving shadows missing in one eye
+  for 30 s. The second row drops it in both eyes as the cross-check (it should be about twice
+  the first). The clear still runs, so the eye reads an empty shadow buffer; reusing the other
+  eye's buffer (the actual sharing) would also need the clear held back, which needs a hook
+  on Clear and is not built. If the bound is small the idea ends here. The table's header
+  counts the dropped stages and draws; 0 dropped means the name matched nothing and the row is
+  a baseline.
+- The plan runner (`perf_ab.cpp`) gained what run 1 showed was missing: `atstart <words>` (run
+  when gameplay is first reached, so a resize settles in the lead-in; here it sets afw, DLSS
+  on, the fast model and the ReShade effects on), `expect <key> <value>` (keys `stereo`,
+  `dlss`, `dlssmodel`; checked at the start, the found configuration is logged on its own line
+  and a mismatch REFUSES the plan and runs `atend`, so a wrong run ends after a minute),
+  `holdpanel` (the F10 panel is closed again if it is opened between first gameplay and the
+  plan's end, with a Warn), and gameplay lost inside a segment's WARM-UP no longer discards the
+  segment (a DLSS resize drops the gameplay flag for a moment; that is the lever's own
+  switching cost).
+- The stage profile's three limits of section 4: the timestamp ring is 8192 (was 2048) and is
+  resolved at every top-level stage end (was every sixteenth), the table prints 56 rows (was
+  28), and each row names the stage it was first seen inside (`in <parent>`).
+- Read in run 2, in this order: the `perf/ab: configuration at the start:` line; `skip: ...
+  dropped this window` on the stage headers of the two shadow rows; the `Shadow Depths` and
+  `Shadow Projection` rows of baseline B1 (their CPU, GPU and draws are the split the first
+  run could not see); whether an `MLAA` row exists in B1.
 
 ## 2026-10-04: pre-release audit - where the frame goes in the played configuration, and what is left
 

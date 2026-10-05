@@ -1200,6 +1200,7 @@ struct SharpMarkerScope {
 
 #define HUD_DRAW_PROLOGUE(ENTRY, PRIMTYPE, PRIMS, VERTS, STRIDE, FIRST, COUNT)                     \
     note_draw();                                                                                  \
+    if (dvr::stageprof::g_skipDraw) { ++dvr::stageprof::g_skipped; return D3D_OK; } /* `stages skip`, diagnostic */ \
     const bool hudNow = (g_track || dvr::hudcap::armed()) && hud_class();                         \
     Probe probe; const float* pbb = nullptr; int element = -1;                                    \
     if (hudNow && g_regions) {                                                                    \

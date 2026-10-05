@@ -115,10 +115,28 @@ static uint32_t g_abWarmMs = 2000;      // discarded at the head of every segmen
 // more directives. `delay <ms>` waits that long in gameplay before the first segment (time to walk
 // to the spot after a load). `atend <seam words>` runs once after the summary: a visible "finished"
 // (`overlay on` opens the F10 panel) and the switching-off of anything a row left on.
+// Second audit run (2026-10-05): the first one was measured in the wrong configuration, because the
+// F10 panel was opened in the lead-in and rewrote the stereo method and DLSS under the plan, and the
+// rows' fixed restore words then changed the state again. Three more directives, all optional:
+//   `atstart <seam words>`  runs once when gameplay is first reached (the start of the delay), so
+//                           a resize it causes has settled before the first segment;
+//   `expect <key> <value>`  checked when the plan starts: keys `stereo` (a method name), `dlss`
+//                           (on|off), `dlssmodel` (fast|k). A mismatch REFUSES the plan, says why
+//                           with both values and runs `atend`, so a wrong run ends after a minute;
+//   `holdpanel`             keeps the F10 panel closed from gameplay to the plan's end.
+// And a segment is no longer discarded for gameplay lost inside its WARM-UP: the warm-up exists for
+// the lever's own switching cost, and a DLSS resize is one.
 #define DVR_AB_MAX_ROWS 64
 static uint32_t g_abDelayMs = 0;
 static uint64_t g_abFirstGameplayMs = 0;
 static char     g_abAtEnd[200] = "";
+static char     g_abAtStart[200] = "";
+static bool     g_abAtStartRan = false;
+static bool     g_abHoldPanel = false;
+static uint32_t g_abPanelClosed = 0;
+struct AbExpect { char key[16]; char value[32]; };
+static AbExpect g_abExpect[8];
+static int      g_abExpectN = 0;
 struct AbRow {
     char label[48];
     char apply[200];
@@ -175,6 +193,7 @@ static bool AbLoadPlan(const char* name)
     int n = 0;
     char line[512];
     g_abDelayMs = 0; g_abAtEnd[0] = 0; g_abFirstGameplayMs = 0;
+    g_abAtStart[0] = 0; g_abAtStartRan = false; g_abHoldPanel = false; g_abPanelClosed = 0; g_abExpectN = 0;
     while (fgets(line, sizeof(line), f)) {
         AbTrim(line);
         if (!line[0] || line[0] == '#') continue;
@@ -183,6 +202,16 @@ static bool AbLoadPlan(const char* name)
         if (sscanf(line, "warm %u", &v) == 1) { if (v <= 10000) g_abWarmMs = v; continue; }
         if (sscanf(line, "delay %u", &v) == 1) { if (v <= 600000) g_abDelayMs = v; continue; }
         if (!strncmp(line, "atend ", 6)) { strncpy(g_abAtEnd, line + 6, sizeof(g_abAtEnd) - 1); g_abAtEnd[sizeof(g_abAtEnd) - 1] = 0; AbTrim(g_abAtEnd); continue; }
+        if (!strncmp(line, "atstart ", 8)) { strncpy(g_abAtStart, line + 8, sizeof(g_abAtStart) - 1); g_abAtStart[sizeof(g_abAtStart) - 1] = 0; AbTrim(g_abAtStart); continue; }
+        if (!strcmp(line, "holdpanel")) { g_abHoldPanel = true; continue; }
+        if (!strncmp(line, "expect ", 7)) {
+            if (g_abExpectN < 8) {
+                AbExpect& e = g_abExpect[g_abExpectN];
+                memset(&e, 0, sizeof(e));
+                if (sscanf(line + 7, "%15s %31s", e.key, e.value) == 2) ++g_abExpectN;
+            }
+            continue;
+        }
         if (n >= DVR_AB_MAX_ROWS) break;
         AbRow& r = g_abRows[n];
         memset(&r, 0, sizeof(r));
@@ -211,8 +240,10 @@ static bool AbLoadPlan(const char* name)
     strncpy(g_abPlanName, path, MAX_PATH - 1); g_abPlanName[MAX_PATH - 1] = 0;
     DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info,
             "perf/ab: plan LOADED from %s - %d segments (%d baselines) of %u ms, %u ms warm-up each; it starts %u ms "
-            "after gameplay begins and takes about %.1f minutes; at the end it runs `%s`:",
-            path, n, baselines, g_abSegMs, g_abWarmMs, g_abDelayMs, (g_abDelayMs + (double)n * g_abSegMs) / 60000.0, g_abAtEnd);
+            "after gameplay begins and takes about %.1f minutes; at the end it runs `%s`; when gameplay is reached it "
+            "runs `%s`; %d expectation(s) checked at the start; F10 panel %s:",
+            path, n, baselines, g_abSegMs, g_abWarmMs, g_abDelayMs, (g_abDelayMs + (double)n * g_abSegMs) / 60000.0, g_abAtEnd,
+            g_abAtStart, g_abExpectN, g_abHoldPanel ? "HELD CLOSED from gameplay to the end" : "not held");
     for (int i = 0; i < n; ++i)
         DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info, "perf/ab:   %2d %-24s apply `%s` restore `%s`",
                 i + 1, g_abRows[i].label, g_abRows[i].apply, g_abRows[i].restore);
@@ -462,18 +493,57 @@ static void AbSummary()
             g_abSegMs);
 }
 
+// What the session is configured as, in the plan's own words. The found value is always logged, so
+// a run's identity is on its PLAN STARTED line and not inferred afterwards.
+static bool AbCheckExpectations(char* found, size_t foundSize)
+{
+    const char* stereo = dvr::stereo::active_name();
+    const char* dlss = dvr::dlss::mode() != 0 ? "on" : "off";
+    const char* model = dvr::dlss::model() == 1 ? "fast" : dvr::dlss::model() == 0 ? "k" : "other";
+    _snprintf(found, foundSize, "stereo %s, dlss %s (mode %d, %s), dlssmodel %s (model %d preset %d)", stereo ? stereo : "?", dlss,
+              dvr::dlss::mode(), dvr::dlss::quality_name(dvr::dlss::quality()), model, dvr::dlss::model(), dvr::dlss::preset());
+    found[foundSize - 1] = 0;
+    bool ok = true;
+    for (int i = 0; i < g_abExpectN; ++i) {
+        const AbExpect& e = g_abExpect[i];
+        const char* have = !strcmp(e.key, "stereo") ? (stereo ? stereo : "?") : !strcmp(e.key, "dlss") ? dlss
+                         : !strcmp(e.key, "dlssmodel") ? model : NULL;
+        if (!have) {
+            DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Warn, "perf/ab: expect `%s %s` - unknown key (stereo, dlss, dlssmodel)", e.key, e.value);
+            ok = false;
+        } else if (_stricmp(have, e.value)) {
+            DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Warn, "perf/ab: expect `%s %s` FAILED - the session has `%s`", e.key, e.value, have);
+            ok = false;
+        }
+    }
+    return ok;
+}
+
 // Called from hkPresent, at the entry stamp, on the present thread.
 void ab_tick(IDirect3DDevice9* dev)
 {
     if (!g_abOn || g_abDone) return;
     g_abDevice = dev;
 
+    // The F10 panel rewrites the configuration a plan is measuring (the first audit run lost its
+    // configuration to a stick-click in the lead-in). While a plan asks for it, the panel stays shut
+    // from the first gameplay to the plan's end. Before the gameplay test: an open panel is not gameplay.
+    if (g_abHoldPanel && g_abRowN && (g_abFirstGameplayMs || g_abSeg >= 0) && g_ovlVisible) {
+        g_ovlVisible = false;
+        ++g_abPanelClosed;
+        DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Warn,
+                "perf/ab: the F10 panel was opened while a plan is %s and has been CLOSED again (%u time(s)): its tabs write the "
+                "configuration the plan measures. It opens by itself when the plan ends.",
+                g_abSeg >= 0 ? "running" : "in its lead-in", g_abPanelClosed);
+    }
+
     // The plan measures GAMEPLAY. Starting it in the menu would spend every
     // segment on a screen that does not render the game, and the numbers would
     // be a comparison of menus. Losing gameplay inside a segment poisons that
     // segment rather than the whole plan.
     if (!g_abGameplay) {
-        if (g_abSeg >= 0) g_abSegDirty = true;
+        // lost in the warm-up = the lever's own switching (a DLSS resize); lost after it = a dirty segment
+        if (g_abSeg >= 0 && GetTickCount64() - g_abSegStartMs >= (uint64_t)g_abWarmMs) g_abSegDirty = true;
         else if (!g_abWaitLogged) {
             g_abWaitLogged = true;
             DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info,
@@ -492,10 +562,25 @@ void ab_tick(IDirect3DDevice9* dev)
             g_abFirstGameplayMs = nowMs;
             DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info,
                     "perf/ab: gameplay reached - the plan starts in %u ms (get to the spot and stand still)", g_abDelayMs);
+            if (g_abAtStart[0] && !g_abAtStartRan) { g_abAtStartRan = true; AbRunCommands(g_abAtStart, "plan lead-in"); }
         }
         if (nowMs - g_abFirstGameplayMs < (uint64_t)g_abDelayMs) return;
     }
     if (g_abSeg < 0) {   // the plan starts here: remember what to restore
+        if (g_abRowN) {
+            if (g_abAtStart[0] && !g_abAtStartRan) { g_abAtStartRan = true; AbRunCommands(g_abAtStart, "plan start"); }
+            char found[200];
+            const bool ok = AbCheckExpectations(found, sizeof(found));
+            DVR_LOG(dvr::log::Cat::perf, ok ? dvr::log::Level::Info : dvr::log::Level::Warn,
+                    "perf/ab: configuration at the start: %s | %d expectation(s) %s", found, g_abExpectN,
+                    ok ? "met" : "NOT met - PLAN REFUSED: nothing is measured, because every row would be measured in a "
+                         "configuration the plan was not written for. Set the configuration and arm the plan again.");
+            if (!ok) {
+                if (g_abAtEnd[0]) AbRunCommands(g_abAtEnd, "plan refused");
+                g_abDone = true; g_abOn = false;
+                return;
+            }
+        }
         if (!g_abSamples) {
             g_abSamples = (float*)malloc(DVR_AB_MAX_SAMPLES * sizeof(float));
             if (!g_abSamples) {

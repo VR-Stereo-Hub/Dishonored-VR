@@ -29,4 +29,13 @@ bool gpu();
 void note_device(IDirect3DDevice9* dev);    // render thread, any hook that has the device
 void release_gpu(const char* why);          // before a device reset, and at teardown
 extern unsigned g_draws;                    // bumped once per game draw (render thread)
+// The skip experiment: `stages skip odd|all <stage name>` drops the game's draws inside one named
+// stage, on every second present (one eye under a two-present method) or on all. It sizes a stage by
+// removing it: `Shadow Depths` on odd presents is the upper bound of sharing shadow depth between the
+// eyes. Default off, session only, and the picture is wrong while it is on.
+void set_skip(int mode, const wchar_t* name);   // 0 off, 1 odd presents, 2 all; the name is a prefix, any case
+int  skip_mode();
+void note_present();                        // render thread, once per present
+extern bool g_skipDraw;                     // read by the draw hooks: drop this draw
+extern unsigned g_skipped;                  // draws dropped (bumped by the draw hooks)
 }

@@ -650,7 +650,14 @@ static bool DvrGameCommand(const char* cmd, const char* args)
                 *(volatile uint32_t*)kEmitDrawEvents = on ? 1u : 0u;
             } else if (!strcmp(args, "gpu on")) dvr::stageprof::set_gpu(true);
             else if (!strcmp(args, "gpu off")) dvr::stageprof::set_gpu(false);
-            Log("stages: collector %s, GPU time %s, engine switch now %u | words: stages on|off, stages gpu on|off | a `perf/stages:` table "
+            else if (!strncmp(args, "skip ", 5)) {   // `stages skip odd|all <stage name>` / `stages skip off`
+                const char* a = args + 5;
+                const int mode = !strncmp(a, "odd ", 4) ? 1 : !strncmp(a, "all ", 4) ? 2 : 0;
+                wchar_t wname[48] = L"";
+                if (mode) { const char* n = a + 4; int i = 0; for (; n[i] && i < 47; ++i) wname[i] = (wchar_t)(unsigned char)n[i]; wname[i] = 0; }
+                dvr::stageprof::set_skip(mode, wname);
+            }
+            Log("stages: collector %s, GPU time %s, engine switch now %u | words: stages on|off, stages gpu on|off, stages skip odd|all <stage>|off | a `perf/stages:` table "
                 "follows every 5 s while on", dvr::stageprof::enabled() ? "ON" : "off", dvr::stageprof::gpu() ? "on" : "off",
                 *(volatile uint32_t*)kEmitDrawEvents);
         }

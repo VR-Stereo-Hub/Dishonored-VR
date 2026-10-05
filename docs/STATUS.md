@@ -23,6 +23,11 @@ the plan's restore words fixed first and the panel left closed. Faults to file: 
 second `hud/markers-sharp: REFUSED` Warn, the plan's fixed restore words, the stage profile's
 timestamp ring (half the intervals skipped) and 28-row cut. The installed ini now reads
 `Method=reentry`, `DLAA=0` (written by F10 in that session) with a 2114x2192 render ask.
+- Later the same day: run 2 prepared (`tools/perf-plans/audit-run2.txt`, about 9.5 minutes): the
+  open rows in the played configuration, plus two rows that size shadow sharing by dropping the
+  `Shadow Depths` stage in one eye and in both (`stages skip odd|all <stage>`, new, default off).
+  The plan now sets and checks its configuration and holds the F10 panel closed. Built, not run.
+  PERFORMANCE.md, top entry, section 10.
 No game launched by the session. No Linear ticket (no Linear access).
 
 ## 2026-10-04: pre-release performance audit (analysis; probe and plan built, nothing run)

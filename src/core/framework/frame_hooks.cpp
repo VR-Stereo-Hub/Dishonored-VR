@@ -212,6 +212,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         static bool hooked = false;
         if (!hooked) { hooked = true; dvr::vr::set_mirror_hook(&dvr::desktop_eye::on_present); }
     }
+    dvr::stageprof::note_present();   // the skip experiment's present parity
     dvr::perf::ab_tick(self);   // VR-67: the performance A/B walks its plan from here
     dvr::perf::part_mark("hk.abTick");
     if (g_cb.pre_tick) g_cb.pre_tick(self);

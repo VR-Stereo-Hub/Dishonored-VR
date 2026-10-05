@@ -1,0 +1,49 @@
+# Pre-release performance audit, RUN 2 (2026-10-05): only what run 1 left open, measured in the
+# PLAYED configuration (stereo afw, DLSS on with the fast model). PERFORMANCE.md, 2026-10-05.
+#
+# Run 1 was measured in the wrong configuration: the F10 panel was opened in the lead-in and its
+# Display tab rewrote the stereo method and DLSS. This plan sets the configuration itself when
+# gameplay is reached (`atstart`), holds the panel closed (`holdpanel`) and refuses to start if
+# the session is not what it expects (`expect`): a refusal opens the F10 panel after one minute.
+#
+# Armed for ONE launch by `[Perf] AbPlanOnce=<absolute path to this file>`.
+# After a save is loaded there are 60 seconds to reach the spot; then stand still, hands at rest,
+# for about 9 minutes. When the F10 panel opens by itself the plan is over: close it and quit.
+# Same spot and view as run 1 if possible. Do not pause.
+#
+# What the picture does, so nothing is a surprise:
+#   - `hud off`: the HUD goes back into the game image for 30 s.
+#   - the two shadow rows: moving shadows vanish in ONE eye, then in both, for 30 s each. That is
+#     the measurement (what the shadow depth render costs), not a fault.
+#   - `dlss off`: the image resizes twice (a second or two of hitching each time).
+#
+# One segment per line: label | apply (seam words, ';' between) | restore. No apply = a baseline.
+# Nothing is written to any ini while a row runs. Segments are 30 s with a 10 s warm-up because a
+# DLSS model change and a DLSS resize need several seconds to settle.
+seg 30000
+warm 10000
+delay 60000
+holdpanel
+atstart stereo afw; dlss on; dlss model fast; reshade effects on
+expect stereo afw
+expect dlss on
+expect dlssmodel fast
+atend stages skip off; stages off; stages gpu off; overlay on
+baseline A1
+hud off | hud off | hud on
+baseline A2
+hud sharp off | hud sharp off | hud sharp on
+baseline A3
+reshade effects off | reshade effects off | reshade effects on
+baseline A4
+dlss model k | dlss model k | dlss model fast
+baseline A5
+stage profile ON (stays on) | stages on; stages gpu on |
+baseline B1
+shadow depth dropped, one eye | stages skip odd Shadow Depths | stages skip off
+baseline B2
+shadow depth dropped, both eyes | stages skip all Shadow Depths | stages skip off
+baseline B3
+dlss off (native size) | dlss off | dlss on
+baseline B4 settling
+baseline B5
