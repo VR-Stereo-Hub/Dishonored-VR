@@ -1,3 +1,17 @@
+## 2026-10-04: depth-motion candidate installed for one boat comparison
+
+Installed v1.0.3-46-g4c34beb46, preserving the newer installed animation baseline
+01b763971 (build 44's baseline was 65b278d04). Proxy SHA256
+b964a5e46f815141499c9cfcc67d4dd187a38d72085d1c107a3d436bf8e002cc.
+The shader and 82-check suite are unchanged from the candidate below. Full backup
+and exact INI diff are in the STATUS installation entry. Only Method=afw and
+AfwDepthMotion=1 change; other settings stay at their current user values.
+
+The next single comparison is ON/OFF/ON of AFW: reduce moving-character trails
+on the same boat: less ghosting on people without worse scenery supports this
+candidate, unchanged remains open, worse rejects it and should be left OFF.
+Starts ON. No game launch here; matching new banner and headset result pending.
+
 ## 2026-10-04: original boat NPC trails; depth-consistency candidate (build only)
 
 Surface: the people on the boat, with lesser boat trails, in AFW's rebuilt eye.

@@ -1,3 +1,29 @@
+## 2026-10-04: AFW depth-motion candidate installed with latest animation fixes
+
+Installed optimized v1.0.3-46-g4c34beb46 from codex/afw-character-test. The
+previous install had advanced to v1.0.3-37-g01b763971 after build 44 was prepared;
+merged that exact animation update into the isolated test branch first, preserving
+ArmIKGameArmInAnim=1 and the cinematic-motion settings and semantics. AFW shader
+and host suite are identical to feature f5cb38628 (82 checks already passed).
+Full build and 11 built/installed exports pass; legacy remains OFF.
+
+Proxy SHA256 b964a5e46f815141499c9cfcc67d4dd187a38d72085d1c107a3d436bf8e002cc.
+Backup of previous DLL, full INI, both logs, ReShade configuration/presets and
+bridge: build/performance-audit/install-20261004-204533-afw-depth-motion/.
+Whole INI comparison has exactly two changes: [Stereo] Method=reentry -> afw,
+and AfwDepthMotion=1 added. Exact expected-byte match, 1,700 CRLF, no lone endings.
+All other preferences retained, including current DLAA/native resolution and
+shoulder height. ReShade config/bridge unchanged. Existing AfwFreshWorld=1 is
+retained but refused by normal builds; it cannot reactivate the failed mode.
+No game launch or staging/release merge.
+
+Next launch's ONE question: on the same boat, does AFW: reduce moving-character
+trails ON/OFF/ON reduce the people's ghosting without worsening scenery? Starts
+ON; Basic Display > Stereo rendering. Reduced supports the depth-dead-band
+correction; unchanged leaves unchanged-depth motion/fill open; worse means leave
+it OFF and reject the candidate. Hold other settings fixed. Read the new banner
+and log ourselves before interpreting the result.
+
 ## 2026-10-04: new depth-based AFW character-motion candidate, build only
 
 Latest boat burst 19:43:31 is matched to installed v1.0.3-36-g65b278d04 and
