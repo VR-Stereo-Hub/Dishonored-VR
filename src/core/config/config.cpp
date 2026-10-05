@@ -286,6 +286,10 @@ static bool WriteDefaultIni(const char* ini)
         "; 0 = legacy hooks, 1 = manual runtime (restart required). Depth effects need legacy hooks.\n"
         "; Scroll Lock toggles effects live. F10 > ReShade adjusts presets and shader settings.\n"
         "ManualRuntime=1\n"
+        "; LoadAllEffects=0: ReShade loads only the effects the selected preset has switched on, so\n"
+        "; F10 > ReShade lists those, effects load faster and less memory is used. 1 = every\n"
+        "; effect in the shader folders is compiled and listed (F10: Show all installed effects).\n"
+        "LoadAllEffects=0\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -828,6 +832,7 @@ static bool WriteDefaultIni(const char* ini)
         "RouteByDrawOrder=0\n"
         "DrawOrderHands=-1,-1,-1,-1,-1,-1,-1,-1\n"
         "[Hands]\n"
+        "HeartBack=0\n"
         "RoundedWrist=1\n"
         "RoundedWristDepth=0.570\n"
         "PaletteEyeMenuHalfStep=1\n"
@@ -956,11 +961,11 @@ static bool WriteDefaultIni(const char* ini)
         "ArmElbowOut=0.6\n"
         "; ArmIKGameArmInAnim=1: while a game animation owns a hand, that arm becomes the game's\n"
         "; own arm, blended in and out with the hand. 0 = the IK arm follows the animated wrist.\n"
-        "ArmIKGameArmInAnim=0\n"
+        "ArmIKGameArmInAnim=1\n"
         "; ArmIKGameArmShoulder: that game arm re-seated so its shoulder sits on your IK shoulder,\n"
         "; its wrist staying where the animation put it. 0 = off (the arm as the game draws it for\n"
         "; its own camera), 1 = every game animation except the choke, 2 = the choke as well.\n"
-        "ArmIKGameArmShoulder=0\n"
+        "ArmIKGameArmShoulder=1\n"
         "; OpenEmptyRightHand=1: with nothing in the right hand (the sword holstered) its fingers\n"
         "; take the left hand's open pose, mirrored, instead of the game's loose fist. 0 = the fist.\n"
         "OpenEmptyRightHand=1\n"
@@ -1335,7 +1340,7 @@ static bool WriteDefaultIni(const char* ini)
         "; ends), keeps the palm on a straight path and holds the hand through the return, over\n"
         "; HandBackBlendInMs / HandBackBlendOutMs. 0 = the linear HandBackBlendMs ramp above and\n"
         "; an instant return. F10 Advanced > Hands > Game arms during actions.\n"
-        "SmoothBlend=0\n"
+        "SmoothBlend=1\n"
         "HandBackBlendInMs=250\n"
         "HandBackBlendOutMs=350\n"
         "; CinematicArms=1 (experimental, F10 Advanced > Hands) keeps your tracked arms in\n"
@@ -1498,6 +1503,11 @@ static bool WriteDefaultIni(const char* ini)
         "; Render HUD and native markers at output resolution while upscaling. Advanced Display.\n"
         "UpscaleSharp=1\n"
         "MarkersSharp=1\n"
+        "; SemanticOwnership=1 routes each HUD draw by the game widget it belongs to, so the pieces\n"
+        "; of one widget stay on one layer and objective text stays with its marker. It arms at\n"
+        "; game start and refuses itself (the log says so) on a game build it does not recognise.\n"
+        "; 0 = the older rectangle and position rules only.\n"
+        "SemanticOwnership=1\n"
         "; SlotScale: each sink's texture is the render's size times this. The window subtends\n"
         "; about 50 degrees, so half is already more than the headset resolves.\n"
         "SlotScale=0.50\n"
@@ -2845,11 +2855,11 @@ static void LoadConfig()
     g_ikWidth=ikFloat("ArmShoulderWidthCm",36,10,80);
     g_ikLength=ikFloat("ArmLengthScale",1,.5f,2);
     g_ikElbowOut=ikFloat("ArmElbowOut",.6f,0,2);
-    g_ikGameArmInAnim = IniFloat(ini, "Hands", "ArmIKGameArmInAnim", 0) != 0.0f;
+    g_ikGameArmInAnim = IniFloat(ini, "Hands", "ArmIKGameArmInAnim", 1) != 0.0f;
     Log("config: [Hands] ArmIKGameArmInAnim=%d (%s)", g_ikGameArmInAnim.load() ? 1 : 0, g_ikGameArmInAnim.load()
         ? "a game animation that owns a hand shows the game's own arm on that side, blended by the hand-back weight"
         : "the IK arm follows an animated wrist from the tracked shoulder");
-    g_ikGameArmShoulder = (int)std::clamp(IniFloat(ini, "Hands", "ArmIKGameArmShoulder", 0), 0.0f, 2.0f);
+    g_ikGameArmShoulder = (int)std::clamp(IniFloat(ini, "Hands", "ArmIKGameArmShoulder", 1), 0.0f, 2.0f);
     Log("config: [Hands] ArmIKGameArmShoulder=%d (%s)", g_ikGameArmShoulder.load(), g_ikGameArmShoulder.load() == 0
         ? "off: the game's arm as it is drawn for the game's own camera" : g_ikGameArmShoulder.load() == 1
         ? "the game's arm is re-seated on the IK shoulder, wrist kept; not in the choke" : "the game's arm is re-seated on the IK shoulder, wrist kept; the choke too");
@@ -2960,6 +2970,7 @@ static void LoadConfig()
     CamShakeConfigure(ini);   // VR-172
     dvr::snap::configure(ini);   // VR-219: [Turning] snap turn
     LensConfigure(ini);
+    HbConfigure(ini);
     WmConfigure(ini);
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
     dvr::depthprobe::set_enabled(IniFloat(ini, "Diagnostics", "DepthProbe", 0) != 0.0f, "ini [Diagnostics] DepthProbe");
@@ -4317,6 +4328,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Lens","Trace",LensTraceEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Lens","FollowHead",LensFollowHead() ? "1" : "0",ini);
     { char v[16]; _snprintf(v,sizeof(v),"%d",LensRainPct()); WritePrivateProfileStringA("Lens","RainStrength",v,ini); }
+    WritePrivateProfileStringA("Hands","HeartBack",HbEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Mirror","Enabled",WmEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockRoll",CineRollEnabled() ? "1" : "0",ini);

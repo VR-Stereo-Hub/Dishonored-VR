@@ -1,3 +1,51 @@
+## 2026-10-04: ReShade audit - F10 lists the preset's effects, ReShade.ini is prepared at game start
+
+Reported: F10 > ReShade lists every installed effect instead of the selected preset's.
+
+**Findings.**
+1. *Every effect was loaded.* The launcher writes `SkipLoadingDisabledEffects=1` only into a
+   ReShade.ini it creates. An existing ReShade.ini is kept as it is, and the dev PC's (older
+   than that rule) had `SkipLoadingDisabledEffects=0`: ReShade compiled all 62 shader files for a
+   preset that uses three techniques, and F10 listed every technique.
+2. *An existing ReShade.ini never got the mod's shader folders.* The same ini had no
+   `dvr-reshade-shaders\custom` search path (and the folder did not exist), so a shader brought
+   in by a preset import would not have been found.
+3. *F10 "Performance mode" could not take effect.* ReShade 6.8.0 reads its configuration when a
+   runtime object is constructed and writes its own copy back when it is destroyed
+   (`source/runtime.cpp`: `load_config` in the constructor, `save_config` in the destructor).
+   The toggle called `ReShadeSetConfigValue` on the live runtime and queued an effect reload,
+   which does not re-read the configuration. Read from the source; the old build was not run
+   to observe it. The host test only checked the value in the ini cache.
+
+**Changes (proxy; the launcher scripts' behaviour is unchanged).**
+- Before `ReShade32.dll` is loaded, the proxy prepares ReShade.ini (`reshade: ReShade.ini
+  updated ...` names every change): `SkipLoadingDisabledEffects` from `[ReShade] LoadAllEffects`
+  (default 0 = only the selected preset's effects), `PerformanceMode` when
+  `[ReShade] PerformanceMode` has been set from F10, and the mod's shader and texture folders
+  that exist on disk are appended to the search paths (the player's own stay first; the custom
+  folders are created). Byte-exact edits (`core/gfx/reshade_ini.h`), UTF-8 kept, nothing else in
+  the file touched, one backup `ReShade.ini.before-dvr.bak` the first time.
+- F10 > ReShade lists the preset's effects (its `Techniques=` line plus anything switched on
+  since) and shows shader settings only for those. "Show all installed effects" loads and lists
+  everything so an effect can be added. A preset technique that ReShade did not load is named
+  ("Not loaded: ...") with what to do.
+- "Performance mode" and "Show all installed effects" rebuild the effect runtime between two
+  frames: destroy (ReShade writes its copy), edit ReShade.ini, create (ReShade reads it). The
+  new runtime is asked what it read and the log says HONOURED or not; if not, F10 says it
+  applies at the next start, which the start-up preparation guarantees.
+
+**Verified on the host with the real ReShade 6.8.0 DLL and a D3D9 device, no game**
+(`tools\reshade-manual-host.ps1`, 817 checks): an installed effect outside the preset is neither
+loaded nor listed by default; show-all loads and lists it and turning it off unloads it; the
+preset's effect stays on across each rebuild; performance mode is honoured live in both
+directions; the ini edits (case, sections, escaped commas, line endings, non-ASCII bytes).
+The preset-import script test passes. `tools\reshade-install-tests.ps1` was NOT run: it needs
+offline copies of the downloads.
+
+**Not run in the game or a headset.** First launch should log `reshade: ReShade.ini updated
+(before ReShade loads): SkipLoadingDisabledEffects=1 (changed) ...` once, then F10 should list
+the three techniques of the bundled preset.
+
 ## 2026-10-03: Display upscaler settings and ReShade compatibility
 
 Display now offers Off, NVIDIA DLSS and AMD FSR; Native AA/DLAA, Ultra Quality,

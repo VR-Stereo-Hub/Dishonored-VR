@@ -1,3 +1,200 @@
+## 2026-10-05: Heart backing accepted, PR ready for review
+
+The final natural-seam backing is headset-accepted on v1.0.3-55-gf8f2260ea.
+The archived previous-session log matches that build and confirms the five
+custom material channels loaded with exact native texture matches. The current
+log belongs to another combined test, v1.0.3-60-g35decd986, so it is not evidence
+for the backing. No new launch or installation was performed for this review.
+
+Finalize the Heart branch against staging without merging. The branch carries
+its existing HUD ownership, takedown defaults and ReShade prerequisite commits;
+the PR names those explicitly. Game-derived assets remain local and are not
+part of the PR. The backing requires the prepared model, rig and material files.
+
+Separate follow-up: the Heart's attached glow reportedly trails the mesh while
+walking. Inspect the shared particle/light follow path, including Possession
+and Blink, on a child branch. Hand motion alone was covered by the earlier
+attachment fix; locomotion alignment is not yet established.
+## 2026-10-05: Approved Heart material installed, awaiting in-game review
+
+The approved natural-seam Blender appearance now has a runtime material path.
+DVRHRT02 separates the 4,279 backing triangles from native-material details.
+The cap uses its own diffuse, normal, specular, specular-power and emissive
+maps, identified by exact BC1 content signatures for 24 native mip images
+(64 through 2048). Arbitrary sampler locations are supported. All bindings
+are restored before drawing the wires/details, preserving cap-first order.
+Unknown color passes refuse the addition instead of guessing a texture slot.
+
+Texture identity caches include a shadow-resource incarnation and successful
+upload count, and are cleared with weapon contracts on gameplay transitions.
+The code only owns D3D buffers/textures and adds no UObject or engine-memory
+writer. The shader, original Heart geometry and native body materials remain.
+The approved mesh retains 9,903 vertices, 19,439 triangles and its skin weights.
+
+Validation: optimized build passes; 17 model checks and 72 material checks
+pass. Real hidden D3D9 tests exercise five arbitrary sampler slots, duplicate
+bindings, full mip uploads and restoration after a deliberately failed draw.
+Paged D3D9Ex GPU tests pass, including new incarnation/write/read-only checks.
+A fuzzy mip-color matcher was rejected in favor of exact native compressed
+mips recovered with UModel from a reordered, isolated package copy. No game
+package is edited. Local material data and captures remain untracked under
+build/heart-backside-preview/seam-revision. Installed v1.0.3-55-gf8f2260ea
+with all three matching data files; SHA256 matches verified for every copy.
+The entire INI is byte-identical to its backup and expected configuration,
+with CRLF preserved and HeartBack=1 retained. DLL, INI, logs and previous Heart
+data are backed up together; latest-install.json records the installation.
+Exports (11) and lint pass. No game launch; in-game appearance remains unverified.
+Next launch: use the September 13 Hounds Pit save, equip the Heart and inspect
+the side seam for natural pink upper tissue and darker lower tissue continuity.
+
+## 2026-10-05: Heart seam material preview, original colors carried across join
+
+The v1.0.3-53 pale atlas remap is visually rejected and remains uninstalled.
+Side renders exposed a uniform peach backing against the original Heart's
+pink upper tissue and dark lower tissue. A new Blender-only material study
+uses dedicated 1024x1024 diffuse and tangent-normal textures. Original triangle
+UVs and tangent frames extend the adjacent tissue across all 65 boundary edges;
+a 14 mm transition joins a harmonic regional color field and subtle fine grain.
+The original mesh/material, camera and lighting are unchanged for comparison.
+Both sides and a rear three-quarter view have been rendered and inspected.
+Repeated mirrored source motifs were removed from the central backing texture.
+
+Local files: build/heart-backside-preview/seam-revision/Heart-natural-seam.blend,
+Heart_back_matched_D.png, Heart_back_matched_N.png, right-side.png, left-side.png,
+rear-three-quarter.png, side-comparison.png, and blend-seam.py. These remain
+untracked game-derived artifacts. This is a material preview, not an updated
+runtime build: the current Heart exporter/draw path only uses native textures
+and cannot reproduce this material yet. If approved for integration, implement
+and validate the custom texture path before claiming the build matches it.
+Installed build remains v1.0.3-50-g4cdd3b78d. No installation or game launch.
+
+## 2026-10-05: Lighter Heart backing candidate, build only
+
+The backing UVs now use a continuous pale flesh patch from the native Heart
+atlas instead of the dark lower patch. The exporter optionally matches native
+rim normals and feathers them into the backing over 12 mm, reducing the abrupt
+lighting seam. The local Blender material uses the same diffuse mapping as the
+export; its former preview-only vertex color blend is removed. The repeatable
+local authoring step is tools/heart-back-color.py followed by heart-back-export.py.
+
+Blender review used the actual exported mesh with its custom normals and native
+material. Attempts to fit boundary colors elsewhere in the atlas, including a
+continuous strip, produced mottled tangent-space normal detail and were rejected.
+The retained candidate improves the pale color match and seam shading; it does
+not add an independently baked diffuse texture or claim exact border color matching.
+All 9,903 positions and skin weights, 19,439 triangles and the rig are byte-identical
+to the installed asset. The model loader passes 14 checks with zero failures.
+Artifacts remain local under build/heart-backside-preview/color-revision.
+Build only: do not install this candidate without a subsequent instruction.
+
+## 2026-10-05: Heart backing deformation checked in Blender
+
+Blender 5.2 tested the installed-format backing geometry with its runtime
+8-bit skin weights on the original 22-bone Heart armature. Across 446 poses
+(rest, independent per-bone translations/rotations/scales, and an authored
+synthetic double pulse), all 65 rim vertices stayed attached: maximum separation
+0.0000167 mm. Boundary weight differences were below 0.00000003. The pulse moved
+the backing by up to 3.65 mm; its smallest cap triangle retained 73.9 percent of
+its rest area. Rendered rest/peak views show the rear details following the skin.
+
+This verifies skinning and rim continuity, not the native animation clip.
+The exported asset has no action, and UModel cannot decode the game's Edge
+animation data. The Blender action is explicitly labeled synthetic. Native
+heartbeat timing and deformation extremes remain unverified. Local artifacts
+are in build/heart-backside-preview/heartbeat: the saved blend, 24-frame GIF,
+rest/peak comparison, script and numeric report. No runtime or INI changes.
+The simulator opened before the Blender-only correction was closed without
+loading a save. The installed candidate remains v1.0.3-50-g4cdd3b78d.
+
+## 2026-10-04: Heart backing implemented and exercised in the simulator
+
+The approved local model now draws through the Heart's validated weapon passes,
+with its own vertex/index buffers and the game's current skin palette/materials.
+The branch preserves the installed arm, HUD and ReShade changes from 175cceda1.
+`[Hands] HeartBack=0` is the shipping default; the local installation has it ON.
+F10 Advanced > Hands and `heartback on|off|reload|status` control it live.
+
+Simulator validation used the September 13, 09:02 Hound Pits Pub save. All 2,583
+native vertices mapped to the local 22-bone reference within the 75-slot palette;
+the maximum relative weight error was 0.0000074. The added 9,903 vertices and
+19,439 triangles rendered successfully through wrist turns and a live OFF/ON
+comparison. The first candidate refused the extra constant-color stream; the
+revised candidate supports it and reported 14,755 draws with zero failures at
+the sampled status. The runtime fit reduces the new bulge near the gripping
+fingers while preserving all 65 original boundary positions and weights.
+
+The model-loader suite passes 14 checks, including malformed files and the local
+authored asset. Actual compositor screenshots and build/INI/log backups remain
+local under build/heart-backside-preview. The installation changed only
+HeartBack=1; later candidate installs preserved the entire INI byte for byte.
+CRLF is verified. Assets and captures are game-derived and remain untracked.
+
+Final candidate: `v1.0.3-50-g4cdd3b78d`, optimized, legacy off, installed and
+verified against its own log banner. Exports (11) and lint pass. The final run
+reported 30,714 successful backing draws and zero failures before the last
+angle capture. `final-rear`, `final-original` and `final-three-quarter` are the
+actual compositor captures. The selected save matches its backup hash.
+Next: review the delivered in-game screenshots.
+Headset perception, extreme animated grip poses and content distribution remain
+unverified. This is a local installed candidate, not a release. AFW stays shelved.
+Details: [Heart runtime evidence](dishonored/ENGINE_NOTES.md).
+
+## 2026-10-04: Heart backside model preview, awaiting visual review
+
+Created codex/heart-backside-preview directly from staging cc5feaca6.
+Located the shipped Heart skeletal mesh and textures in Startup.upk. A local
+Blender proposal closes the largest 65-edge rear opening with a rounded flesh
+wall, shallow vessels, sutures and retaining wires. Revised the material after
+visual feedback: source texture's darker flesh region, correct linear rim color,
+and matching roughness. Original front vertex positions and faces are exact.
+
+Rear before/after and front/three-quarter renders plus a packed Blender file are
+local under build/heart-backside-preview in the primary checkout. No game assets,
+DLL, INI or runtime code changed. Added geometry is a static visual proposal;
+skinning, animation and integration are pending explicit review of screenshots.
+The AFW cutscene candidate remains shelved on codex/performance-audit, with its
+build retained separately. See ENGINE_NOTES for asset discovery and validation.
+## 2026-10-04: ReShade - F10 lists the preset's effects; settings that apply; ini prepared at start
+
+Branch `claude/reshade-f10-audit`, stacked on `claude/hud-recouple` (PR #178, HUD test pending).
+Detail: INSTALLER.md, top entry.
+- F10 > ReShade listed every installed effect because ReShade loaded them all: an existing
+  ReShade.ini is never rewritten by the launcher and the dev PC's had
+  `SkipLoadingDisabledEffects=0`. The proxy now prepares ReShade.ini before ReShade loads
+  (preset-only loading, the mod's shader folders in the search paths) and F10 lists the preset's
+  effects, with "Show all installed effects" to add one.
+- "Performance mode" could not take effect from F10 (ReShade reads its config only when a runtime
+  is built). It and show-all now rebuild the runtime and verify what the new one read.
+- Host-verified against the real ReShade 6.8.0 DLL (817 checks). Not run in the game.
+- No Linear ticket: this session has no Linear access.
+
+## 2026-10-04: HUD widgets splitting and marker flicker - native ownership restored
+
+Branch `claude/hud-recouple`. Detail: dishonored/HUD_ANCHORS.md and FLICKER_REFERENCE.md, top
+entries; TRAPS.md, top entry.
+- Cause, measured from the ini backups and logs: `[Hud] SemanticOwnership` (the accepted widget
+  grouping of 2026-09-26) was default 0 and absent from the default ini; the dev PC's ini lost
+  the key when the installer rewrote it on 2026-09-27, and no session since armed the hooks.
+  HUD code is close to unchanged since v1.0.2.
+- Change: default 1, written in the default ini, one-time 0 -> 1 migration. No routing code
+  changed. Host suites pass. NOT yet run in a headset.
+- Next run: `hud/semantic: hooks=1` at startup, widgets in one piece, objective titles steady.
+- Installed on the dev PC: v1.0.3-45-g16881bd46; ini = the previous ini with
+  `SemanticOwnership=1` and `SemanticOwnershipRev=1` only, byte for byte (73882 bytes, 1701
+  CRLF). Backup pair and logs: `build/playtest-candidates/hud-recouple/replaced-20261004-224724/`.
+- No Linear ticket: this session has no Linear access.
+
+## 2026-10-04: accepted takedown arm levers on by default
+
+Branch `claude/hud-recouple`. `[Anim] SmoothBlend`, `[Hands] ArmIKGameArmInAnim` and `[Hands]
+ArmIKGameArmShoulder` (1 = not the choke) now default ON in the code and the default ini: all
+three were headset-confirmed in run 4. The two IK keys do nothing unless `[Hands] ArmIK=1`,
+which still defaults 0. `[Anim] CinematicArms` stays 0.
+- No release carries these keys, so an upgrade from 1.0.3 takes the new defaults. An ini that ran
+  a staging build after #177 has `SmoothBlend=0` and `ArmIKGameArmInAnim=0` written and keeps
+  them (TRAPS section 1): set them in F10 or delete the lines.
+- Default writer = packaged = golden ini; animation host checks pass.
+
 ## 2026-10-04: run 4 - takedown arms accepted; cutscene arms left as an opt-in
 
 Branch `claude/anim-blend-ik`, PR #177. Detail: dishonored/ANIM-HANDOFF-PLAN.md, top section.

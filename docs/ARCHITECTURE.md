@@ -1255,7 +1255,7 @@ Execute, and retires it at consumption. Synchronous drawing uses the native
 Display scope directly. Queue metadata is fixed-size, generation-bound, refuses
 ambiguous/reused identities and never requires render-thread UObject access.
 Unknown draws retain native rendering. The existing menu context route is separate.
-Default-off SemanticOwnership has an explicit local candidate enable and live A/B.
+SemanticOwnership (default on since 2026-10-04; it was default-off with a local candidate enable until then) keeps a live A/B.
 This is an ownership repair candidate; target depth and headset performance are
 not established by transport host tests. See HUD_ANCHORS, ENGINE_NOTES and PERFORMANCE.
 
@@ -1551,3 +1551,13 @@ re-attaches the components, which a bare bit write would skip. It is called only
 reflection resolves Actor.bHidden to the statically read +0x120/0x2 and the prologue
 matches, only for an arms-only body, and the game's own end-of-cinematic call restores it.
 See dishonored/ANIM-HANDOFF-PLAN.md and ENGINE_NOTES.
+
+### 2026-10-04: Heart completion uses local draw-owned geometry
+
+The Heart's missing rear wall is supplied as locally prepared skinned geometry
+inside the existing instance-validated weapon draw. Reusing the game's current
+palette and material passes preserves animation, lighting and depth behavior;
+the mod restores the original streams, indices and cull state before returning.
+Reference position and weight-field correspondence derives the palette mapping
+instead of assuming exported bone order equals shader slots. A missing or invalid
+reference leaves the original Heart drawing. Game-derived geometry remains local.

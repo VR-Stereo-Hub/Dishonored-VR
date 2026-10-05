@@ -4,6 +4,8 @@
 #include <memory>
 #include <string>
 #include <psapi.h>
+#include <vector>
+#include "core/gfx/reshade_ini.h"
 #include "../../../third_party/reshade/reshade_api.hpp"
 namespace dvr::reshade_runtime {
 namespace {
@@ -44,6 +46,83 @@ using GetConfig = bool (__cdecl*)(void*, void*, const char*, const char*, char*,
 using SetConfig = void (__cdecl*)(void*, void*, const char*, const char*, const char*);
 GetConfig getConfig = nullptr;
 SetConfig setConfig = nullptr;
+// [ReShade] LoadAllEffects: 0 (default) = ReShade loads only the effects the selected preset has
+// switched on, so F10 lists those and nothing else, effects load faster and a 32-bit game keeps
+// its memory. 1 = every effect in the shader folders is compiled and listed.
+bool loadAll = false;
+// ReShade reads its configuration ONCE, when a runtime object is constructed, and writes its
+// own copy back when that object is destroyed (source/runtime.cpp, 6.8.0: load_config in the
+// constructor, save_config in the destructor). So a value handed to ReShadeSetConfigValue on a
+// live runtime changes nothing this session and is overwritten at exit. A change is applied by
+// destroying the runtime, editing ReShade.ini, and creating a new one; `recreate` asks for that.
+bool recreate = false, verify = false;
+char liveNote[200] = {};
+bool read_text(const std::wstring& path, std::string* out) {
+    HANDLE f = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER size = {}; bool ok = GetFileSizeEx(f, &size) && size.QuadPart <= 4 * 1024 * 1024;
+    if (ok) { out->resize((size_t)size.QuadPart); DWORD got = 0; ok = out->empty() || (ReadFile(f, out->data(), (DWORD)out->size(), &got, nullptr) && got == out->size()); }
+    CloseHandle(f); return ok;
+}
+bool write_text(const std::wstring& path, const std::string& text) {
+    const std::wstring staged = path + L".dvr-new";
+    HANDLE f = CreateFileW(staged.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return false;
+    DWORD put = 0; const bool ok = WriteFile(f, text.data(), (DWORD)text.size(), &put, nullptr) && put == text.size();
+    CloseHandle(f);
+    if (!ok || !MoveFileExW(staged.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) { DeleteFileW(staged.c_str()); return false; }
+    return true;
+}
+bool is_dir(const std::wstring& path) {
+    const DWORD a = GetFileAttributesW(path.c_str());
+    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY);
+}
+// Make ReShade.ini say what dishonored_vr.ini asks for. Called before ReShade32.dll is loaded
+// (nothing of ReShade has the file cached yet) and between two runtimes. Only these keys are
+// touched; an existing ReShade.ini keeps everything else, and its own search paths stay first.
+void prepare_config(const char* when) {
+    const std::wstring ini = gameDirectory + L"ReShade.ini";
+    std::string text;
+    if (!read_text(ini, &text)) { DVR_INFO("reshade: ReShade.ini not readable (%s); nothing prepared", when); return; }
+    const std::string before = text;
+    loadAll = GetPrivateProfileIntW(L"ReShade", L"LoadAllEffects", 0, vrIni.c_str()) != 0;
+    const int performance = (int)GetPrivateProfileIntW(L"ReShade", L"PerformanceMode", -1, vrIni.c_str());
+    const bool skipChanged = reshade_ini::set(text, "GENERAL", "SkipLoadingDisabledEffects", loadAll ? "0" : "1");
+    const bool perfChanged = (performance == 0 || performance == 1) && reshade_ini::set(text, "GENERAL", "PerformanceMode", performance ? "1" : "0");
+    int effects = 0, textures = 0;
+    const std::wstring root = gameDirectory + L"dvr-reshade-shaders\\";
+    if (is_dir(root)) {
+        // The folders the launcher installs, and the player's own. A package that is not on disk
+        // is not added; the custom folders are created so an imported shader is always found.
+        CreateDirectoryW((root + L"custom").c_str(), nullptr);
+        CreateDirectoryW((root + L"custom\\Shaders").c_str(), nullptr);
+        CreateDirectoryW((root + L"custom\\Textures").c_str(), nullptr);
+        struct Pack { const wchar_t* dir; const char* path; };
+        const Pack fx[] = { { L"standard\\Shaders", ".\\dvr-reshade-shaders\\standard\\Shaders" }, { L"sweetfx\\Shaders\\SweetFX", ".\\dvr-reshade-shaders\\sweetfx\\Shaders\\SweetFX" },
+                            { L"prod80\\Shaders", ".\\dvr-reshade-shaders\\prod80\\Shaders" }, { L"custom\\Shaders", ".\\dvr-reshade-shaders\\custom\\Shaders\\**" } };
+        const Pack tex[] = { { L"standard\\Textures", ".\\dvr-reshade-shaders\\standard\\Textures" }, { L"sweetfx\\Textures\\SweetFX", ".\\dvr-reshade-shaders\\sweetfx\\Textures\\SweetFX" },
+                             { L"prod80\\Textures", ".\\dvr-reshade-shaders\\prod80\\Textures" }, { L"custom\\Textures", ".\\dvr-reshade-shaders\\custom\\Textures\\**" } };
+        std::vector<std::string> wantFx, wantTex;
+        for (const auto& p : fx) if (is_dir(root + p.dir)) wantFx.push_back(p.path);
+        for (const auto& p : tex) if (is_dir(root + p.dir)) wantTex.push_back(p.path);
+        effects = reshade_ini::add_list_items(text, "GENERAL", "EffectSearchPaths", wantFx);
+        textures = reshade_ini::add_list_items(text, "GENERAL", "TextureSearchPaths", wantTex);
+    }
+    if (text == before) {
+        DVR_INFO("reshade: ReShade.ini already as asked (%s): %s, search paths complete", when,
+                 loadAll ? "every installed effect is loaded" : "only the selected preset's effects are loaded");
+        return;
+    }
+    // One backup of the file as it was before this mod first changed it.
+    const std::wstring backup = ini + L".before-dvr.bak";
+    if (GetFileAttributesW(backup.c_str()) == INVALID_FILE_ATTRIBUTES) CopyFileW(ini.c_str(), backup.c_str(), TRUE);
+    const bool ok = write_text(ini, text);
+    DVR_LOG(DVR_CAT, ok ? ::dvr::log::Level::Info : ::dvr::log::Level::Warn,
+        "reshade: ReShade.ini %s (%s): SkipLoadingDisabledEffects=%d%s ([ReShade] LoadAllEffects=%d)%s; search paths added: %d effect, %d texture. "
+        "Nothing else in the file was touched; the original is ReShade.ini.before-dvr.bak",
+        ok ? "updated" : "COULD NOT BE WRITTEN", when, loadAll ? 0 : 1, skipChanged ? " (changed)" : "", (int)loadAll,
+        perfChanged ? (performance ? ", PerformanceMode=1 (changed)" : ", PerformanceMode=0 (changed)") : "", effects, textures);
+}
 // The native PURE D3D9 device rewrites its dispatch table during BeginStateBlock.
 // ReShade uses that API during setup. Retain only this module's detours, leaving
 // the native runtime's other dispatch changes intact. D3D9 base has 119 methods.
@@ -99,18 +178,28 @@ bool set_enabled_next_start(bool enabled) {
     else DVR_WARN("reshade: could not save next-launch setting error=%lu", GetLastError());
     return ok;
 }
-bool performance_mode() {
+// What the RUNNING runtime read at its construction, not what was last asked for.
+static bool running_flag(const char* key) {
     char value[16] = {}; size_t size = sizeof(value);
-    return getConfig && runtime && getConfig(nullptr,runtime,"GENERAL","PerformanceMode",value,&size) && value[0] == '1';
+    return getConfig && runtime && getConfig(nullptr,runtime,"GENERAL",key,value,&size) && value[0] == '1';
 }
-bool set_performance_mode(bool enabled) {
-    if (!api() || !setConfig) return false;
-    api()->save_current_preset();
-    setConfig(nullptr,runtime,"GENERAL","PerformanceMode",enabled ? "1" : "0");
-    api()->reload_effect_next_frame(nullptr);
-    DVR_INFO("reshade: performance mode %s; effect reload queued (F10)",enabled ? "on" : "off");
+bool performance_mode() { return running_flag("PerformanceMode"); }
+bool load_all_effects() { return runtime ? !running_flag("SkipLoadingDisabledEffects") : loadAll; }
+const char* live_note() { return liveNote[0] ? liveNote : nullptr; }
+// Both save the request in dishonored_vr.ini (applied to ReShade.ini before ReShade loads on
+// every launch, so a restart always honours it) and ask for the runtime to be rebuilt now.
+static bool request(const wchar_t* key, bool on, const char* what) {
+    if (vrIni.empty() || !WritePrivateProfileStringW(L"ReShade", key, on ? L"1" : L"0", vrIni.c_str())) {
+        DVR_WARN("reshade: could not save %s (dishonored_vr.ini not writable, error %lu)", what, GetLastError()); return false;
+    }
+    if (api()) api()->save_current_preset();
+    recreate = runtime != nullptr; liveNote[0] = 0;
+    DVR_INFO("reshade: %s %s (F10, saved); %s", what, on ? "on" : "off",
+             recreate ? "the effect runtime is rebuilt on the next frame so ReShade reads it" : "applied when ReShade next starts");
     return true;
 }
+bool set_performance_mode(bool enabled) { return request(L"PerformanceMode", enabled, "performance mode"); }
+bool set_load_all_effects(bool enabled) { return request(L"LoadAllEffects", enabled, "load every installed effect"); }
 void load_optional() {
     if (attempted) return;
     attempted = true;
@@ -127,7 +216,9 @@ void load_optional() {
         DVR_INFO("reshade: optional ReShade32.dll absent"); return;
     }
     available = true;
+    loadAll = GetPrivateProfileIntW(L"ReShade", L"LoadAllEffects", 0, vrIni.c_str()) != 0;
     if (!enabled_next_start()) { DVR_INFO("reshade: installed but disabled; enable it in F10 > ReShade and restart"); return; }
+    prepare_config("before ReShade loads");
     // What ReShade's own DllMain will check, read BEFORE the load so a refusal can be
     // explained: it refuses (LoadLibrary 1114) when no ReShade.ini exists for the exe and
     // it is not loaded under a proxy name, and when another ReShade is already loaded.
@@ -204,6 +295,14 @@ void render(IDirect3DDevice9* device) {
     Scope scope;
     if (!deviceHooks.device) deviceHooks.capture(device);
     RestoreHooks restoreHooks;
+    if (recreate && runtime) {
+        // The old runtime writes its own settings to ReShade.ini as it goes; ours go in after.
+        void* old = runtime; runtime = nullptr;
+        destroyRuntime(old); deviceHooks.restore();
+        prepare_config("F10 change, between two runtimes");
+        verify = true;
+    }
+    recreate = false;
     if (!runtime) {
         IDirect3DSwapChain9* swap = nullptr;
         if (FAILED(device->GetSwapChain(0, &swap))) return;
@@ -216,6 +315,19 @@ void render(IDirect3DDevice9* device) {
         }
         loadFailure[0] = 0;
         DVR_INFO("reshade: manual runtime ready; effects before VR capture, no native Present required");
+        if (verify) {
+            // A verified write is not an honoured one: ask the NEW runtime what it read.
+            verify = false;
+            const int performance = (int)GetPrivateProfileIntW(L"ReShade", L"PerformanceMode", -1, vrIni.c_str());
+            const bool skipOk = running_flag("SkipLoadingDisabledEffects") == !loadAll;
+            const bool perfOk = performance < 0 || running_flag("PerformanceMode") == (performance == 1);
+            if (skipOk && perfOk) liveNote[0] = 0;
+            else _snprintf_s(liveNote, _TRUNCATE, "ReShade kept its old setting for now. It applies the next time Dishonored starts.");
+            DVR_LOG(DVR_CAT, skipOk && perfOk ? ::dvr::log::Level::Info : ::dvr::log::Level::Warn,
+                "reshade: rebuilt runtime reads SkipLoadingDisabledEffects=%d (asked %d) PerformanceMode=%d (asked %d; -1 = not asked) - %s",
+                (int)running_flag("SkipLoadingDisabledEffects"), loadAll ? 0 : 1, (int)running_flag("PerformanceMode"), performance,
+                skipOk && perfOk ? "HONOURED" : "NOT honoured live; ReShade.ini holds the request and the next launch applies it before ReShade loads");
+        }
     }
     // ReShade's hooked D3D9 path uses the same BeginScene/on_present/EndScene order.
     const HRESULT hr = device->BeginScene();
