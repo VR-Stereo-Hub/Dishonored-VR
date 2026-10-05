@@ -1,3 +1,20 @@
+## 2026-10-04: AFW cutscene hand correction candidate
+
+Focus moved to cutscene hand flicker. The verified build-46 boat capture has
+103-degree world projection, authored camera records and valid hand masks, but
+AFW's ordinary foreground feed is zero. A cinematic guard still disables the
+foreground gain introduced after that guard was written. Existing hand-FOV
+instrument misses full-depth hand submissions; extend it read-only to marked
+hands so the next run can distinguish an actual lens change.
+
+New default-off AfwCutsceneHands restores the existing gain only to masked hands
+in authored-camera records, using rendered projection. Native GPU: 90 pass;
+hand-specific control 3.205 -> 0.014 px. Unknown masks, mixed camera owners,
+gameplay, near walls and world reconstruction controls pass. Existing depth
+snapshot misses remain a separate possible source of flicker. Headset unverified.
+See [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md) for evidence, limitations
+and the one-switch cutscene test. No game launch or integration/release merge.
+
 ## 2026-10-04: build 46 ghosting regression rejected; correction disabled
 
 Matched the new 20:47:47 capture/log to installed v1.0.3-46-g4c34beb46.

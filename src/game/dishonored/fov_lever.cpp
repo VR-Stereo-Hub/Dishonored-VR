@@ -12,6 +12,7 @@ static float AfwFgGainGet() { return g_afwFgGain.load(); }
 static void AfwFgGainSet(float g, const char* who)
 {
     if (!(g >= 0.80f && g <= 1.0f)) { Log("armslens: AFW foreground gain %.3f refused (0.80-1.00) (%s)", g, who ? who : "?"); return; }
+    dvr::afw::set_fg_gain(g);
     if (fabsf(g_afwFgGain.exchange(g) - g) > 0.0005f)
         Log("armslens: AFW foreground gain %.3f (%s): the hands are rebuilt at %.2f deg for a %.2f deg world", g, who ? who : "?",
             2.0f * atanf(tanf(ProjectionFovGet() * 0.5f * 0.0174533f) / g) * 57.29578f, ProjectionFovGet());

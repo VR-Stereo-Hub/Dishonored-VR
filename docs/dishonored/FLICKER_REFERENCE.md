@@ -1,3 +1,62 @@
+## 2026-10-04: AFW cutscene hands lose the ordinary foreground correction
+
+Surface: the hands during authored cutscenes under AFW; separate from moving NPC
+and boat-world trails. Reported flicker may be related to suppressed authored FOV.
+The latest existing burst afw-20261004-204747 is verified to installed build
+v1.0.3-46-g4c34beb46, SHA256
+b964a5e46f815141499c9cfcc67d4dd187a38d72085d1c107a3d436bf8e002cc.
+
+MEASURED: both camera records use authored writer 3. The rendered world and
+cinematic claim are 103 degrees, but fgFov=0 throughout the burst. Hand masks
+are valid and contain the visible hands. The code in FovLeverApply explicitly
+zeros the ordinary feed while cinematic recovery or the cinematic draw scope
+owns the view. The guard dates to run 7, when the feed followed a narrowed game
+sensor. Run 14 changed it to a fixed foreground gain independent of that sensor,
+but retained the cinematic guard. This is a specific suppressed correction,
+not proof that the game renders its hands at a different optical FOV.
+
+The old fgproj instrument reports no foreground draws here because these hands
+use full viewport depth. It therefore cannot rule out a native hand FOV change.
+The new read-only diagnostic also samples explicitly marked hand submissions;
+it changes no engine fields, render constants or draw decisions.
+
+OFFLINE EVIDENCE: first-pair controllers move under 0.04 mm over 10.008 ms.
+Restoring the existing 0.911 foreground gain using a 108.1427-degree equivalent
+correction reduces masked-hand RGB absolute error against the earlier native
+held eye from 1.818 to 0.959 left and 3.226 to 1.326 right (byte units, selected
+hand regions). This is a local alignment comparison, not same-instant truth,
+not a perceptual flicker score and not proof every cutscene needs the gain.
+Later burst frames stall by 185..654 ms and are not temporal ground truth.
+
+CANDIDATE: default-off [Stereo] AfwCutsceneHands, Basic Display > Stereo rendering
+> AFW: correct cutscene hands; afw cinehands on|off. Only when the ordinary feed
+is zero, both available source records are authored-camera captures and both
+source masks are known, derive hand tangents from the rendered view divided by
+the existing AfwForegroundGain. Unknown masks and mixed camera owners refuse it.
+Only marked foreground pixels use these tangents. Camera FOV suppression,
+gameplay/scope behavior, world selection, MSW, and engine-memory writers are
+unchanged. The rejected depth-motion option remains OFF on the test machine.
+Capture/replay records the switch, gain and applied correction; replay now reads
+the recorded writer and supports DVR_AFW_CUTSCENE_HANDS=0|1.
+
+HOST: 90 native GPU checks pass. Hand-only p95 improves 3.205 -> 0.014 pixels
+in the zero-feed control, with zero incorrect/missing hand pixels and a stable
+world. Controls cover option OFF, unity gain, gameplay writer, mixed owners,
+missing mask and a near world wall. The initial test's whole-frame percentile
+and two-pixel silhouette exclusion hid this small hand-only error; adding a
+separate foreground coordinate percentile makes that negative control fail.
+No product threshold was relaxed to pass the test. Existing world, wall, UI,
+controller-motion and MSW checks remain passing.
+
+OPEN: headset confirmation and depth availability. Before the dump, a 295-submit
+window has only 106 full rebuilds, 95 temporal-only and 94 fresh-only. These
+fallbacks may independently flicker; this candidate does not fix depth delivery.
+The projected-gain fix must not be described as solving all cutscene instability.
+One next-launch question after installation: in the same cutscene, does toggling
+AFW: correct cutscene hands ON/OFF/ON reduce the hand flicker? Reduced supports
+the lost-correction explanation; unchanged leaves depth/source fallback or native
+hand projection open; worse rejects the gain for that cutscene and means OFF.
+
 ## 2026-10-04: AFW depth-motion headset regression; disabled
 
 REPORTED: build 46 substantially worsens ghosting. This rejects the candidate;
@@ -3411,6 +3470,7 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
+| AFW cutscene hands flicker while world FOV is locked | Ordinary foreground gain is zero during authored ownership despite valid hand masks; actual hand projection was unmeasured | 2026-10-04 masked cutscene correction candidate; 90 host checks, headset pending; depth-source fallback remains separate |
 | AFW moving-boat trails concentrated on people | New DLSS-off capture: old rejection admits about 5 cm of depth mismatch at inspected NPC points; pure tangential motion remains separate | 2026-10-04 build 46 rejected after worse headset ghosting; installed AfwDepthMotion=0. Offline ablation implicates tightened general visibility rules; remaining guarded variant unaccepted. Broad AfwFreshWorld remains rejected |
 | Small flicker on newly active full IK arms, subtype uncertain | IK history mixed head-locate and hand-publication counters; surface/pose distinction still needs pixels | 2026-10-04 code/host defect corrected; headset effect pending. Basic IK/Display frame burst added; see newest entry |
 | AFW rebuilt hand/sword duplicates more deeply inside a wall | Background fill chooses a geometrically farther foreground seed | 2026-09-30 follow-up: fill fixed the solid duplicate; foreground-aware stale rejection removes the striped remainder in replay, 46/46 host tests; headset pending |

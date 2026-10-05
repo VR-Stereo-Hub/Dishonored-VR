@@ -1,3 +1,9 @@
+## Unreleased: experimental AFW cutscene-hand correction
+
+- Optional AFW: correct cutscene hands retains the usual foreground correction
+  during authored scenes when hand masks are available. The cutscene camera
+  framing is unchanged. Default off; headset validation is pending.
+
 ## Unreleased: rejected AFW moving-character experiment
 
 - The default-off AFW moving-character experiment worsened headset ghosting and

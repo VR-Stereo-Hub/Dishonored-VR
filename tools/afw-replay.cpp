@@ -143,6 +143,10 @@ int main(int argc, char** argv) {
         { char value[8]={};
           const bool on=GetEnvironmentVariableA("DVR_AFW_DEPTH_MOTION",value,sizeof(value)) ? value[0]=='1' : atoi(m["depthMotion"].c_str())!=0;
           dvr::afw::set_depth_motion(on,"replay"); }
+        { char value[8]={};
+          const bool on=GetEnvironmentVariableA("DVR_AFW_CUTSCENE_HANDS",value,sizeof(value)) ? value[0]=='1' : atoi(m["cutsceneHands"].c_str())!=0;
+          dvr::afw::set_cutscene_hands(on,"replay");
+          dvr::afw::set_fg_gain(m.count("fgGain") ? strtof(m["fgGain"].c_str(),nullptr) : 0.911f); }
         dvr::afw::set_debug(dbg, "replay"); dvr::afw::set_stereo(stereo, "replay"); dvr::afw::set_matrices(mtx, "replay");
         dvr::afw::set_world_scale(strtof(m["worldScale"].c_str(), nullptr));
         dvr::afw::set_body_depth(strtof(m["bodyUnits"].c_str(), nullptr), "replay");
@@ -178,7 +182,7 @@ int main(int argc, char** argv) {
             auto key = [&](const char* s) { return m[std::string(who) + "." + s]; };
             dvr::afw::Pose tg[2] = {pose_of(key("target0")), pose_of(key("target1"))};
             float vp[16], c5[3], rot[3]; vec(key("vp"), vp, 16); vec(key("c5"), c5, 3); vec(key("rot"), rot, 3);
-            dvr::afw::CaptureMeta cm; cm.recId = (uint32_t)atoi(key("rec").c_str());
+            dvr::afw::CaptureMeta cm; cm.recId = (uint32_t)atoi(key("rec").c_str()); cm.writer = atoi(key("writer").c_str());
             if (ID3D11Texture2D* ct = k == 0 ? hct : fct) dvr::afw::note_clean(g.dev, g.ctx, ct, k == 0 ? sh : sf);
             dvr::afw::note_capture(g.dev, g.ctx, k == 0 ? held : fresh, k == 0 ? ht : ft, k == 0 ? sh : sf, pose_of(key("pose")),
                                    key("bodyOk") == "1", strtof(key("bodyYaw").c_str(), nullptr), tg,

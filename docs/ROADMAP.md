@@ -14,6 +14,8 @@
 - [x] Reject build-46 AfwDepthMotion after worse headset ghosting; disable installed option.
 - [ ] Resolve replay parity and real-edge regression controls before another AFW motion candidate.
 - [ ] Resolve residual AFW moving-boat silhouette/fill and unchanged-depth motion.
+- [x] Isolate suppressed AFW cutscene-hand gain and build masked candidate with hand-only negative control.
+- [ ] Confirm cutscene hand correction on the headset; distinguish residual depth-source fallback.
 - [ ] Isolate and recover the reported steady FPS regression.
 
 ## Full-arm IK (2026-10-04)

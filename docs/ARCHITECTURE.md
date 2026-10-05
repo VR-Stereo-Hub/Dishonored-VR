@@ -1571,3 +1571,13 @@ opt-in uses the precision bound with existing silhouette neighborhoods. Static
 slopes and per-eye shading are explicit controls, including an all-fresh control
 that must fail. Capture/replay carries the choice. It remains default-off because
 unseen silhouettes and motion at unchanged depth are not solved by this rule.
+
+## 2026-10-04: keep cutscene hand correction separate from camera FOV suppression
+
+The old cinematic foreground-feed guard predates the fixed foreground gain.
+Test restoring that gain only for authored capture records with valid hand masks,
+using the rendered view tangents. Do not feed the suppressed camera sensor back
+into AFW or write the game's camera fields. Require a failing hand-only control;
+whole-frame percentiles can conceal a several-pixel error confined to the hands.
+Keep this default-off and require a headset comparison; incomplete depth delivery
+is a separate cause that the correction cannot eliminate.

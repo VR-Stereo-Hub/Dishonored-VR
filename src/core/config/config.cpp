@@ -37,6 +37,8 @@ static bool WriteDefaultIni(const char* ini)
         "[Stereo]\n"
         "; Experimental depth-based rejection of stale moving-world pixels; live F10 Display.\n"
         "AfwDepthMotion=0\n"
+        "; Experimental masked-hand correction during cutscenes; live F10 Display.\n"
+        "AfwCutsceneHands=0\n"
         "PairTrace=1\n"
         "DrawCallerTrace=1\n"
         "RingLedger=1\n"
@@ -2940,6 +2942,7 @@ static void LoadConfig()
     CineFovConfigure(ini);
     HandsWorldFovSet(GetPrivateProfileIntA("Screen", "HandsAtWorldFov", 1, ini) != 0, "ini");   // VR-39
     AfwFgGainSet(IniFloat(ini, "Stereo", "AfwForegroundGain", 0.911f), "ini");   // VR-39 run 14
+    dvr::afw::set_cutscene_hands(GetPrivateProfileIntA("Stereo","AfwCutsceneHands",0,ini)!=0,"ini");
     dvr::afw::set_depth_motion(GetPrivateProfileIntA("Stereo","AfwDepthMotion",0,ini)!=0,"ini");
     // Compatibility: retained build-34 keys are diagnosed and refused in normal builds.
     dvr::afw::set_fresh_world(GetPrivateProfileIntA("Stereo","AfwFreshWorld",0,ini)!=0,"ini");
@@ -3924,6 +3927,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Screen","ProjectionFov",v,ini);
     WritePrivateProfileStringA("Screen","HandsAtWorldFov",HandsWorldFovGet()?"1":"0",ini);   // VR-39
     _snprintf(v,64,"%.3f",AfwFgGainGet());
+    WritePrivateProfileStringA("Stereo","AfwCutsceneHands",dvr::afw::cutscene_hands() ? "1" : "0",ini);
     WritePrivateProfileStringA("Stereo","AfwDepthMotion",dvr::afw::depth_motion() ? "1" : "0",ini);
     WritePrivateProfileStringA("Stereo","AfwForegroundGain",v,ini);   // VR-39
     // 30.70: the hand drive's live-tuned values, so a good calibration sticks
