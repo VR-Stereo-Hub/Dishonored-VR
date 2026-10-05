@@ -1,3 +1,22 @@
+## 2026-10-05: Lighter Heart backing candidate, build only
+
+The backing UVs now use a continuous pale flesh patch from the native Heart
+atlas instead of the dark lower patch. The exporter optionally matches native
+rim normals and feathers them into the backing over 12 mm, reducing the abrupt
+lighting seam. The local Blender material uses the same diffuse mapping as the
+export; its former preview-only vertex color blend is removed. The repeatable
+local authoring step is tools/heart-back-color.py followed by heart-back-export.py.
+
+Blender review used the actual exported mesh with its custom normals and native
+material. Attempts to fit boundary colors elsewhere in the atlas, including a
+continuous strip, produced mottled tangent-space normal detail and were rejected.
+The retained candidate improves the pale color match and seam shading; it does
+not add an independently baked diffuse texture or claim exact border color matching.
+All 9,903 positions and skin weights, 19,439 triangles and the rig are byte-identical
+to the installed asset. The model loader passes 14 checks with zero failures.
+Artifacts remain local under build/heart-backside-preview/color-revision.
+Build only: do not install this candidate without a subsequent instruction.
+
 ## 2026-10-05: Heart backing deformation checked in Blender
 
 Blender 5.2 tested the installed-format backing geometry with its runtime

@@ -52,6 +52,20 @@ coef/=coef.sum(axis=1)[:,None]
 skin=weights[nearest].copy()
 for _ in range(1400):
     skin=(skin[neighbor]*coef[:,:,None]).sum(axis=1);skin[fixed]=weights[nearest[fixed]]
+# Match native normals at the rim and feather into the rear surface over 12 mm.
+# A custom split-normal layer is exported by calc_tangents below.
+if cap.get('native_seam_normals', False):
+    op=np.array([tuple(v.co) for v in orig.data.vertices])
+    on=np.array([tuple(v.normal) for v in orig.data.vertices])
+    fixedpos=pos[fixed]
+    fixednative=np.array([np.argmin(((op-p)**2).sum(axis=1)) for p in fixedpos])
+    normals=[]
+    for v in mesh.vertices:
+        d=np.linalg.norm(fixedpos-np.array(v.co),axis=1);k=int(np.argmin(d))
+        x=min(float(d[k])/.012,1);blend=1-x*x*(3-2*x)
+        n=np.array(v.normal)*(1-blend)+on[fixednative[k]]*blend
+        n/=max(np.linalg.norm(n),1e-12);normals.append(tuple(n))
+    mesh.normals_split_custom_set_from_vertices(normals)
 mesh.calc_loop_triangles();faces=[tuple(t.vertices) for t in mesh.loop_triangles]
 tree=BVHTree.FromPolygons([Vector(p) for p in pos],faces,all_triangles=True)
 def skin_at(p):
