@@ -56,6 +56,13 @@ as a `DVR_INSPECT problem:` line. `export_model.py` writes one object; for `.psa
 the add-on's own builder directly, because `bpy.ops.psa.export` only works through its UI
 `invoke` and fails headless with "No armatures".
 
+`grab_verify.py` checks the grab animation (VR-33-HANDS-AND-WEAPONS.md, "The grab
+animation") on the extracted hand: build the CLI with `.\tools\grab-pose-host.ps1`, then
+`.\tools\blender-run.ps1 tools\blender\grab_verify.py -- --psk <Skm_Player.psk> --cli
+build\grab-pose-tests\grab-pose-cli.exe`. It drives the production `grab_pose.h` through the
+CLI, compares it with a joint-by-joint reference, and writes `verification\grab-verify.json`
+and a contact sheet (`grab-verify-sheet.png`).
+
 Your own one-off Blender script runs the same way: `.\tools\blender-run.ps1 <script.py>
 [-Blend <file>] -- <args>`; it sees `DVR_MODEL_WS` in its environment and exits non-zero
 on an uncaught exception.

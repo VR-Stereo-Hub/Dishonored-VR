@@ -689,6 +689,141 @@ Hand vertices near the cut are partly weighted to forearm bones, so arm and wris
 
 **Build 673 result: VR-183 and VR-184 headset-confirmed.** The reticle lines up with a held item again, the hands stay still on the wrist while power animations move the fingers, and the wrist cut and cap no longer bend on either hand.
 
+## The grab animation (2026-10-05, branch `claude/grab-hand-anim`, not yet run in the game)
+
+A grip that the physical pickup takes (PLAN-physical-interaction.md) plays a grab on that hand:
+the fingers shape flat, close into a fist with the knuckles leading and the fingertips trailing,
+stay closed while the grip is held, and return to the pose the hand had. Code: `hands/grab_pose.h`
+(the maths and the timing, no game reads) and "THE GRAB" in `hands/mesh_split.cpp` (the palette
+rows, beside the open right hand). `[Hands] GrabAnim` (default 0, a render lever), the five
+`GrabAnim*Ms` times, F10 > Hands ("Grab animation", a "Try it" button, the times under Advanced),
+seam `grab on|off`, `grab test left|right`, `grab time <shape> <close> <hold> <release> <lag>`.
+
+* **The poses.** Flat: the left hand's open fingers (live while the left hand is empty or on a
+  power, otherwise the last ones seen), mirrored for the right hand through the open hand's
+  measured pairing. Fist: the right hand's own game fingers (a fist around the sword grip, a
+  loose fist when empty), mirrored for the left. Base: whatever this draw would show.
+* **Joint by joint.** Each finger bone is blended against its PARENT and the chain is rebuilt from
+  the wrist out. The palette has no hierarchy and its order is not the skeleton's (the two sides
+  even differ: `ms/wrist:` lines), so the parents are found from the mesh and the right hand's
+  game pose: candidates are the bones nearer the wrist (straight-line centroid distance) that
+  share a vertex with the bone, and the winner is the one whose relative motion leaves a point
+  between the two centroids in place (`parent_score`). Logged as `hands/grab: right finger tree`.
+* **The opening time** is `GrabAnimShapeMs` scaled by how far the hand is from flat (the largest
+  joint angle, against 60 degrees): a hand that is already open starts closing at once.
+* **Takedowns and chokes:** `dvr::anim::hand_owned` stops a grab on that hand at once.
+
+**Verified offline** (`tools\grab-pose-host.ps1`: 222 host checks; `tools\blender\grab_verify.py`
+on the extracted `Skm_Player` mesh, driving the production header through `grab-pose-cli.exe`,
+against a joint-by-joint forward-kinematics reference with a synthetic fist):
+
+| | max vertex distance from the reference | max gap at a finger joint |
+|---|---|---|
+| joint by joint (the shipped design) | 0.000 | 0.000 |
+| every bone against the wrist, screw blend (the first design) | 12.5 | 8.6 |
+| every bone against the wrist, element-wise blend | 9.1 | 0.8 |
+
+(game units; the index finger is 10.8 long and its tip travels 13.5.) The parent inference
+recovered 15 of the 16 real parents; the miss is the thumb's end bone (2 vertices, weight 0.03).
+Fingertip speed is a smooth bell from zero to zero in every phase (peak 198 units/s closing; 280
+opening from a fist over the scaled 150 ms, where a fixed 70 ms opening had peaked at 574).
+
+**Graveyard, from the offline check, never built into a game run:**
+
+1. **Every finger bone blended against the wrist.** A fingertip bone's curl against the wrist is
+   the sum of its three joints' (about 240 degrees for a fist); a rotation blend takes the short
+   way round, so the tip turned about 120 degrees backwards mid-grab and the joints opened 8.6
+   unit gaps. Blending against the parent keeps every joint under about 110 degrees.
+2. **Parent picked by the raw joint residual.** Two neighbouring knuckles curl almost alike, so
+   every point between them drifts by the same small amount and they scored as well as a real
+   joint: the middle and ring knuckles took a neighbour as parent. The residual is now divided by
+   how far the segment's ends move (a real joint: ends swing, joint stays; siblings: all drift alike).
+3. **Chain depth measured along the arm.** The thumb points sideways, so its end bone sat "before"
+   its own parent along the arm axis. Depth is the straight-line distance from the wrist.
+
+**Not established (needs a run):** that the game's right-hand fist and the left hand's open pose
+give a natural-looking grab on THIS rig (the offline fist was synthetic); how the sword looks while
+its hand opens around it (the weapon is not hidden yet: plan step 4); the inferred tree from a real
+game pose (read the `right finger tree` line and its worst fit).
+
+**First in-game run (simulator, 2026-10-05, Hound Pits Pub save of 2026-09-13).** The grab
+played on the right hand holding the sword: 70 degrees from flat at the worst joint, so the full
+150 ms opening, then the close, hold and release, about 860 ms in all (`hands/grab: RIGHT hand
+plays` and `grab done`). Two faults found and fixed in the commit after it:
+
+1. **Not drawn under full-arm IK.** With `[Hands] ArmIK=1` the hands are drawn by
+   `arm_ik_draw.inc`, which builds its own hand palette; the grab was hooked only into the
+   per-class path, so a grab played nothing (no `plays` line). `GrApply` now runs on the IK
+   hand palette too, next to the open right hand. The run itself was captured with the left
+   controller marked untracked, which makes IK stand down to the per-class path.
+2. **A stale press replayed late.** The press made while IK drew the hands was picked up 245 s
+   later when the per-class path ran, and showed the fist for one frame. A press first seen more
+   than a second old is now ignored and logged.
+
+Also seen: the simulator's eyes alternate exposure frame to frame (FLICKER_REFERENCE, top entry).
+
+## The ready hand (2026-10-05, branch `claude/grab-hand-anim`, built, not yet run)
+
+While a hand is close enough that its grip would pick something up or use it, the hand shows
+it: what it holds is not drawn and its fingers ease open (100 ms, min-jerk) to the sheathed
+hand's open pose. A grip then plays the grab from flat; afterwards the hand opens again if it
+is still in reach, or closes back to the game's pose with its item drawn again if not (a looted
+item is gone, so its target is). Code: "THE READY HAND" in `hands/mesh_split.cpp`, the eligibility
+publish in `physical_pickup.cpp`, `WaReadyHide` in `weapon_attach.cpp`. `[Hands] GrabReadyOpen`
+and `GrabReadyHide` (default 0, render levers), F10 > Hands under "Grab animation", seam
+`grab ready open|hide on|off`; `grab` with no word prints the per-hand state.
+
+* **Eligible** = the pickup's ready mask (the game has focused the target and that hand is in
+  reach), with time hysteresis: ready after 2 consecutive ready game frames, kept 150 ms after
+  the last. A game animation owning the hand (takedown, choke) is never touched.
+* **What is hidden.** Every held model is a weapon contract with a hand (`WaHandFor`: the sword
+  in the right hand; the crossbow, pistol, grenade, spring razor and the Heart in the left), and
+  a held weapon is drawn at exactly two places: the placed contract draw and `WaPatchAndDraw`
+  (its sibling passes). Both ask `GrabHideHeld(w->hand)` before drawing, AFTER the contract's
+  delta is published, so all passes of that weapon drop together. A pass the module does not
+  place is already suppressed (`AttachSuppressUnplaced=1`), and a world instance on the same
+  buffers (a fired bolt, a placed razor) is vetoed before either site and stays drawn. Not
+  hidden in this build: the power and Heart glow effects (`fx_follow.cpp`, separate draws).
+* **The item comes back** only once the fingers have closed again and no grab is playing, and
+  the hide fails OPEN: a flag not refreshed for 100 ms (the hands stopped being drawn) is ignored.
+* **The left hand** opens to its own open pose as last seen (empty or on a power); until it has
+  been seen open this session it is not opened (logged) but its item is still hidden.
+* Both draw paths (per-class and full-arm IK) run it, ahead of the grab.
+
+**To check in a run:** `hands/ready: RIGHT hand READY`, `held item HIDDEN`, `drawn again`; `wa: '<asset>'
+NOT drawn - the ... hand is in reach`; FLICKER_REFERENCE section 1's rows for a weapon copy at
+the native position and a weapon-shaped hole in AFW's rebuilt eye are the faults to expect.
+
+**Simulator run, 2026-10-05** (build `v1.0.3-80-gefdb9db0a`, full-arm IK on, Hound Pits save of
+2026-09-13, the right hand holding the sword, a real book on the floor reached with `pickup near`):
+
+* Reach: `hands/ready: RIGHT hand READY`, `held item HIDDEN`, `wa: 'Wpn_PlySword01' NOT drawn`;
+  the captures show the sword gone with no copy left at the native position, and the hand open.
+* Grip: grip swallowed, Interact pressed, the grab played from flat (`0 deg from flat ... shape 0
+  ms`), the book's page opened on the right hand; ready ended at once (the note screen) and the
+  item stayed hidden until the grab finished (`a grab is still playing`), then `drawn again`.
+* Still in reach after a grab (a grab played without interacting): the hand stayed ready and the
+  sword hidden (`eligible R 1, hiding R 1`) until the hand moved away, then `drawn again`.
+* The left hand went READY on the same book (it held nothing drawn, so nothing was hidden).
+* Walking past things made a hand ready for half a second and back, cleanly.
+* Pickup beat (now printed without a target): own cost about 21 us a frame, worst 221 us, no
+  frame over 250 us in 12 beats; pawn or talk targets refused 0 (no NPC was near).
+* Not seen in this run: the weapon returning in view after a looted item (a book opens the note
+  screen, during which the game itself shows no weapon), the left hand hiding a held item, the
+  AFW eye under the hide, and a takedown with a hand ready.
+
+**The open pose, fixed (2026-10-05, after a headset report of the Heart grip on both hands).** The
+open pose is now the left hand's fingers sampled ONLY with both hands empty (the sheathed look),
+saved to `dishonored_vr_open_hand.bin` in the data dir (keyed to the finger pairing) and loaded at
+the start of the next session; until one exists, the mesh's reference pose (an open hand). The
+existing open right hand uses the same saved pose whenever the left hand is not empty (a power,
+the Heart), instead of mirroring the left hand's grip. `hands/openpose:` lines say which source is
+in use. TRAPS, 2026-10-05.
+
+**Faster, and one hand only (2026-10-05, after a headset session).** The grab's default times are
+halved to 75 / 110 / 90 / 130 / 20 ms (shape, close, hold, release, lag), which read as more of a
+grab than a reach; the offline check scales with them unchanged (every phase scaled alike). Only
+the hand that picked the target is ever ready: the other hand's item stays drawn.
 ## Attached effects during locomotion (2026-10-05, host-validated candidate)
 
 Heart, Possession and Blink effects share fx_follow.cpp, which used an older

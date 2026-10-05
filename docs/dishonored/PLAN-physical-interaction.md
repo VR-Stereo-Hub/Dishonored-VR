@@ -1,7 +1,9 @@
 # Plan: the grip as the interaction button, and a hand that shows it
 
 Status: step 2 BUILT (2026-10-05, compiles, not yet run in the simulator or the headset); steps
-3 onward not built. Written 2026-10-05 on `claude/fast-dlss-physical-pickup` (draft PR #181),
+3-6 BUILT together on `claude/grab-hand-anim` at the maintainer's request (eligibility per hand,
+the held item hidden and the hand opened while eligible, both hands, plus a grab animation on
+the press): VR-33-HANDS-AND-WEAPONS.md, "The grab animation" and "The ready hand". Not yet run. Written 2026-10-05 on `claude/fast-dlss-physical-pickup` (draft PR #181),
 after four headset sessions of the first part. Read it top to bottom before touching code;
 section 9 is the order of work, section 10 has the maintainer's answers.
 

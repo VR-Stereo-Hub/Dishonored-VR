@@ -1,3 +1,16 @@
+## 2026-10-05: "empty or on a power" also meant "holding the Heart"
+
+The ready hand's open pose was sampled from the left hand whenever `g_rflSecondaryKind` read 0
+(nothing) or 1 (a power). With the Heart out the left hand reads 1 - the Heart sits in the power
+slot - so the Heart grip was taken for the open pose and shown on BOTH hands (the existing open
+right hand mirrors the same source). Reported from the headset as "sometimes the holding-the-Heart
+pose instead of the sheathed one".
+- `g_rflSecondaryKind == 1` is "something in the power slot", not "an open hand". A pose that must
+  look empty is sampled only with BOTH hands empty (`g_rflPrimaryKind == 0` and the left `== 0`).
+- A sampled pose that other features show should be saved and reloaded, not re-sampled from
+  whatever the hand happens to hold: `dishonored_vr_open_hand.bin`, keyed to the finger pairing,
+  with the mesh's reference pose as the fallback (VR-33-HANDS-AND-WEAPONS.md, "The ready hand").
+
 ## 2026-10-04: a setting written where its reader never looks again (ReShade)
 
 F10's ReShade "Performance mode" wrote the value with `ReShadeSetConfigValue` and queued an

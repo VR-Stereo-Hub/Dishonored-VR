@@ -1,3 +1,25 @@
+## 2026-10-05: the simulator's left eye alternates between two exposures, frame to frame (OBSERVED in the simulator, not investigated, no headset report)
+
+1. **Symptom identity:** seen while capturing the grab animation, not reported by a player.
+   Every simulator capture had one eye bright and neutral and the other darker and orange
+   (mean luma about 93 vs 35-42), and WHICH eye was dark swapped between captures 3 frames
+   apart (left dark in 15 of 20, then a run of left bright). The two left-eye images share one
+   viewpoint (after brightness normalisation a dark left frame matches a bright left frame
+   0.34 vs 0.67 against a right frame), so this is a per-eye exposure or tone difference, NOT
+   swapped eyes. Whole view, both eyes, no geometry difference.
+2. **Reproduction identity:** build `v1.0.3-74-g1c564a6ad` (Release, local test branch:
+   #178 + #179 + #180 + #181 + the grab branch), `dvr-xrsim` at about 93 Hz, Hound Pits
+   Pub save of 2026-09-13, `capture every 3` at 516x552 and full size. The run's log is
+   `build\worktrees\anim-blend\build\audit-run\results-grab-sim-20261005\` (local).
+3. **Hypothesis:** none tested. Candidates by the section 1 table: an eye-adaptation or
+   tonemap state carried per eye pass (the scene renders twice a frame), or a capture
+   artifact of the simulator. Counterprediction for "a real per-eye exposure state": the
+   same alternation in a headset run's per-eye luma, and the dark eye following the
+   re-entry pair order rather than the capture schedule.
+4. **Change identity:** none.
+5. **Results:** simulator only; no desktop or headset check ran.
+6. **Status:** OPEN, unclassified. Recorded so the next per-eye brightness report starts here.
+
 ## 2026-10-04: objective marker text flickers - it changes LAYER, native HUD ownership was off (MEASURED cause, fix built, headset pending)
 
 1. **Symptom identity:** objective marker text flickers in gameplay, and pieces of one HUD

@@ -163,6 +163,40 @@ static void OvlTabHands()
         if (dvr::ovl::checkbox("Open right hand when it is empty", &g_ohOn))
             ConfigWriteKey("Hands", "OpenEmptyRightHand", g_ohOn ? "1" : "0", "F10 Hands");
         OvlTip("With the sword put away, the right hand relaxes open like the left instead of making a fist.");
+        {
+            bool grab = GrabAnimEnabled();
+            if (dvr::ovl::checkbox("Grab animation", &grab)) {
+                GrabAnimSet(grab, "F10"); ConfigWriteKey("Hands", "GrabAnim", grab ? "1" : "0", "F10 Hands");
+            }
+            OvlTip("When a grip picks something up or uses it, that hand opens flat and closes into a fist, and stays closed while you hold the grip.");
+            bool rOpen = GrabReadyOpenEnabled(), rHide = GrabReadyHideEnabled();
+            if (dvr::ovl::checkbox("Open the hand when in reach", &rOpen)) {
+                GrabReadySet(rOpen, rHide, "F10"); ConfigWriteKey("Hands", "GrabReadyOpen", rOpen ? "1" : "0", "F10 Hands");
+            }
+            OvlTip("A hand close enough to grab something opens like the sheathed hand, so you can see the grip will work.");
+            if (dvr::ovl::checkbox("Hide what the hand holds when in reach", &rHide)) {
+                GrabReadySet(rOpen, rHide, "F10"); ConfigWriteKey("Hands", "GrabReadyHide", rHide ? "1" : "0", "F10 Hands");
+            }
+            OvlTip("The weapon or item in that hand disappears while it can grab, and comes back when it moves away.");
+            if (grab) {
+                ImGui::SameLine();
+                if (ImGui::Button("Try it")) GrabAnimCommand("test right");
+                if (OvlAt(kOvlA)) {
+                    float t[5]; GrabAnimTimes(t);
+                    bool ch = false;
+                    ch |= dvr::ovl::slider_float("Grab: open (ms)", &t[0], 0.f, 400.f, "%.0f");
+                    ch |= dvr::ovl::slider_float("Grab: close (ms)", &t[1], 40.f, 1000.f, "%.0f");
+                    ch |= dvr::ovl::slider_float("Grab: hold (ms)", &t[2], 0.f, 2000.f, "%.0f");
+                    ch |= dvr::ovl::slider_float("Grab: release (ms)", &t[3], 40.f, 1000.f, "%.0f");
+                    ch |= dvr::ovl::slider_float("Grab: fingertip lag (ms)", &t[4], 0.f, 200.f, "%.0f");
+                    if (ch) {
+                        GrabAnimSetTimes(t);
+                        GrabAnimWriteTimes("F10 Hands");
+                    }
+                    OvlTip("How long each part of the grab takes. Press Try it to see the change on the right hand.");
+                }
+            }
+        }
         if (OvlAt(kOvlA)) {
             ImGui::BeginDisabled(fullArmIK);
             bool wristChanged = dvr::ovl::checkbox("Rounded wrist ends", &g_msRoundWrist);

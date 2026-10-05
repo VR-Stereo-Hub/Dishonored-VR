@@ -10481,3 +10481,30 @@ First headset session 2026-10-05: targets were found from both hands, the game f
   arm, while lane 2, the left arm, stays free (powers, Blink). So while a body is carried only
   the hand on the free lane is offered a target; the module reads which lane holds it rather
   than assuming the side, and logs `pickup: carry gate` on every change. Not yet seen in a log.
+* **How highlight and focus work, from the script declarations (2026-10-05).** The controller
+  holds ONE focused actor (`m_pCrosshairActor`), one highlight actor (`m_pCrosshairHighlightActor`),
+  `m_bCanInteractWithCrosshairActor`, a `m_CrosshairStatus` enum (pickup, loot, usable, movable,
+  corpse, locked door, note, ...) and the Use state machine (`m_pUseInteractionFSM`) that acts on the
+  focused actor. The highlight itself lives on each object: `m_HighlightFlags` and a highlight mesh
+  (`m_pHighlightStaticMeshComponent` / `m_pHighlightMesh`) on `DisPickup_Base`, the movables,
+  usables, launchers, climbables and traps, with the material and `m_bAllowedToHighlight` in
+  `DisTweaks_InteractableInterface`, whose `m_fMaxDistance` default is 200 uu (about 1.85 m). The
+  level-script action `DisSeqAct_Highlight` (highlight / unhighlight a usable object) shows the
+  engine CAN highlight several objects at once outside the crosshair. Every interface function is
+  native (the interface declares only the `CanInteractParams` / `EndInteractParams` structs), so a
+  direct highlight or can-interact call needs the native entry found first (not done).
+* **The selection rework (2026-10-05, built, not yet run).** Still ONE engine focus, now chosen
+  the way Half-Life: Alyx chooses: each hand takes its own nearest thing, measured from the PALM
+  (7 cm along the hand's forward from the grip pose) to the nearest point of the thing's
+  collision box, for every kind; the two hands' picks are compared as a fraction of their kind's
+  reach, and the better one is aimed at. The engine's check now traces from that palm (pulled
+  back 15 cm) to the thing, not from the eyes, so the thing the hand reaches for is the first one
+  the ray meets - which is what should make the lower of two stacked books reachable (the earlier
+  stacked-book attempt aimed from the head and the hand at the origin and took the game's focus as
+  the target; this is a different mechanism, still to be judged in a headset). A refusal leaves
+  that one object out for 1 s (it was 3 s doubling to a minute) and the next nearest is tried.
+  Reach defaults went up: loot 45 cm, books 55, doors, carried things and usables 35. Only the
+  picking hand is marked ready: every hand within 1.25 reach used to be, and a later "both hands
+  when it is each hand's nearest" exception still hid the crossbow in the left hand during a
+  right-hand grab (headset, 2026-10-05: both hands READY in the same millisecond), so it went too. Pointing is unchanged: with no hand
+  near anything, the engine's own cursor trace runs as before.

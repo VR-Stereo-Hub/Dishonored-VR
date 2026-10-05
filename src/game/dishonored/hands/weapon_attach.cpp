@@ -434,6 +434,23 @@ static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
 
 // ---- recognition by buffer identity -----------------------------------------
 
+// THE READY HAND (mesh_split.cpp): while a hand is in reach of a grab, what it holds is not
+// drawn. Asked at BOTH places a held weapon is drawn (the placed contract draw below and every
+// sibling pass here), so every pass of it goes together and no copy is left at the native
+// position; a pass this module does not place is already suppressed (AttachSuppressUnplaced).
+// A world instance on the same buffers (a fired bolt, a placed razor) never reaches either site.
+static volatile LONG g_waReadyHidden = 0;
+static bool WaReadyHide(const WaMesh* w, HRESULT* hr)
+{
+    if (!GrabHideHeld(w->hand)) return false;
+    InterlockedIncrement(&g_waReadyHidden);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+        "wa: '%s' NOT drawn - the %s hand is in reach of a grab (the ready hand); %ld pass(es) hidden so far",
+        w->asset, w->hand ? "RIGHT" : "LEFT", (long)g_waReadyHidden);
+    if (hr) *hr = D3D_OK;
+    return true;
+}
+
 // Apply a known delta to whatever palette this shader declares. Shared by the
 // buffer-identity path and the non-indexed path: both already know WHICH mesh
 // they are looking at and need only the register and the delta.
@@ -443,6 +460,7 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
                            UINT numVertices, UINT startIndex, UINT startVertex,
                            UINT primCount, HRESULT* hr)
 {
+    if (WaReadyHide(w, hr)) return true;
     const int start = (g_pcLayBones >= 0) ? g_pcLayBones : g_pcLayBonesPartial;
     const int cnt   = (g_pcLayBones >= 0) ? g_pcLayBonesN : g_pcLayBonesNPartial;
     if (start < 0 || cnt <= 0 || (cnt % 3) != 0 || start > 256 - cnt ||
@@ -1510,6 +1528,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     // same place - so the depth and shadow copies take the identical delta
     // instead of being left at the native position.
     w->dm = delta; w->dmPresent = (uint32_t)dvr::frame::count(); w->dmOk = true;
+    if (WaReadyHide(w, hr)) { g_waWhy = "hidden: the ready hand"; return true; }   // after publishing the delta: the siblings stay consistent
     static float source[WA_MAX_REGS*4], patched[WA_MAX_REGS*4];
     if (FAILED(dev->GetVertexShaderConstantF(w->boneReg, source, w->regs))) {
         InterlockedIncrement(&g_waNoSource); return false;
