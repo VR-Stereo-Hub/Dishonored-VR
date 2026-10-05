@@ -41,6 +41,20 @@ defaults):** default window scale 1.42 -> 1.21 and offset, prompt scale 1.32 -> 
 rune marker edge inset 0.26 -> 0.22, the wheel side panels' alpha set. The 2026-09-27 backup
 holds the old values.
 
+**2026-10-05, first headset run with the change (log only; build v1.0.3-54-gd0c57b1b9, a local
+merge that carries this branch).** `config: [Hud] SemanticOwnership=1`, then
+`hud/semantic: hooks=1; native child ownership copied before queue publication`, no REFUSED
+line. Over a 15 minute session (14 of them standing at one spot in gameplay, reentry, DLSS off,
+an objective routed every present: `hud/layout: routed this window: vitals=11528
+objective=524`): `hud/semantic: roots=31..32 active=1 required=7 ambiguous=0` on all 300 beat
+lines, `hud/task-parent ... moved=2138 refused=0`, and **no `hud/why ... CHANGED` line at
+all** (the 2026-10-04 log had eight owner changes in six seconds). Scope: one view, no
+interaction prompt near the reticle in it, so the prompt-against-objective case that produced
+the flips was not re-created; whether the widgets looked whole is perceptual and was not
+reported with the log. Separate fault seen in the same log: `hud/markers-sharp: REFUSED
+owner=serial-overlay reason=no reduced reentry upscaler and AFW clean sources off` is a Warn
+every second while DLSS is off under reentry (842 lines); it is a state and should log once.
+
 ## 2026-09-27: sharp HUD and markers default on, Advanced controls
 
 After the accepted marker test, both UpscaleSharp and MarkersSharp default to 1

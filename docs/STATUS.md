@@ -14,6 +14,11 @@ entries; TRAPS.md, top entry.
   CRLF). Backup pair and logs: `build/playtest-candidates/hud-recouple/replaced-20261004-224724/`.
 - No Linear ticket: this session has no Linear access.
 
+- 2026-10-05, first headset log with the change (build v1.0.3-54-gd0c57b1b9): hooks armed
+  (`hud/semantic: hooks=1`), no owner change (`hud/why ... CHANGED`) in 15 minutes, no ambiguity.
+  One view only and no perceptual report yet: still headset-pending. Detail in HUD_ANCHORS.md
+  and FLICKER_REFERENCE.md, top entries.
+
 ## 2026-10-04: accepted takedown arm levers on by default
 
 Branch `claude/hud-recouple`. `[Anim] SmoothBlend`, `[Hands] ArmIKGameArmInAnim` and `[Hands]
