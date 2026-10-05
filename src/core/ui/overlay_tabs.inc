@@ -1531,6 +1531,12 @@ static void OvlTabDisplay()
             ConfigWriteKey("Stereo", "LateTagRepair", lateTag ? "1" : "0", "F10 Display");
         }
         OvlTip("Fix for swapped eyes after closing a note (VR-80). Leave on.");
+        bool silentGrace = g_sdSilentGrace;
+        if (dvr::ovl::checkbox("Keep stereo through one quiet camera interval", &silentGrace)) {
+            SceneDrawSetSilentGrace(silentGrace, "F10 Display");
+            ConfigWriteKey("Stereo", "CameraSilentGrace", silentGrace ? "1" : "0", "F10 Display");
+        }
+        OvlTip("A stall or a catch-up game frame no longer costs a single-eye frame. A/B for a rare one-eye flicker.");
         bool fid = dvr::frameid::enabled();
         if (dvr::ovl::checkbox("Frame-identity trace", &fid)) {
             dvr::frameid::set_enabled(fid);

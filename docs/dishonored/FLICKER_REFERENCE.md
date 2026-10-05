@@ -1,3 +1,58 @@
+## 2026-10-05: the gameplay camera-silent gate measures from the previous draw's RETURN, so a present stall or a catch-up tick costs a single-eye tick (MEASURED cause, candidate built, headset pending)
+
+1. **Symptom identity:** the generator behind two existing rows, not a new symptom. Under
+   afw: the hands and weapon step sideways in ONE eye for one present (the held eye is
+   rebuilt from a capture two ticks old instead of one; the rebuild still lands at the
+   current head pose, so it is a content-age step, not a frozen eye). Under reentry: a
+   held present (`HoldUntagged=3` repeats the previous layer, so no mono flash). Both
+   eyes' geometry otherwise steady. Rows: "Occasional single-draw bursts and held frames
+   during gameplay" (VR-77) and the residual rate left after the pickup scan fix (the
+   2026-10-05 pickup entry below).
+2. **Reproduction identity:** build `v1.0.3-85-g4a452e2b2` Release (local test branch,
+   newest headset log on the dev PC, copied to the local log archive), Quest 3 over VDXR
+   1.0.10 at 144 Hz, 1832x1900 rendered to 2750x2850 (DLSS Quality, transformer model),
+   `[Stereo] Method=afw` for 0-66 s and 413-661 s and `reentry` between. 7 gameplay
+   `gates -> SINGLE draw (camera silent ...)` in about 10 minutes (0.7/min), each followed
+   by `xr: present handed in NO frame` and, under afw, `reentry: pushed eye -1 TWICE`
+   (5 of them) or `+1 TWICE` (1). Bursts of 20 in a second while paused are the pause
+   gate and are not this.
+3. **Hypothesis and counterprediction:** `SceneDrawDecide` compares the c5 serial at
+   decision time with `g_sdLastDrawC5Serial`, which is stored when the previous draw
+   RETURNS, so the uploads made during that draw are discarded and the gate asks whether
+   the IDLE interval between the previous draw's return and this tick carried an upload.
+   Two things empty that interval without the camera being still: a present-thread stall
+   (the game thread cannot upload while blocked behind the present) and a catch-up tick
+   (0.9-2.8 ms game frames). The same defect class was fixed for the present-progress
+   guard (VR-229: entry baseline plus one grace interval) and for the paused scene
+   (`pause_scene_freshness.h`), never for gameplay. Counterprediction, if the gates were a
+   genuinely still camera: the tick before each gate would also show no upload and its
+   length would be ordinary. Measured against the log: gate #3 followed a 46 ms present
+   gap (a 36 ms xrEndFrame, the 5.7 s stall of the audit entry above), gates #1, #2 and #7
+   followed game frames of 0.9-2.8 ms, the ticks before them all carried uploads. Under
+   reentry the same gate exists and costs a held frame instead of an eye.
+4. **Change identity:** `[Stereo] CameraSilentGrace` (default 0 = the shipped rule; 1 in
+   the installed ini for the next run), live `reentry silentgrace on|off`, F10 Display
+   "Keep stereo through one quiet camera interval". The policy is
+   `dvr::stereo::camera_silent()` in `core/gfx/draw_present_progress.h` (the VR-229
+   progress class reused: an upload counted from the stub's entry, one quiet interval
+   forgiven after observed progress, never a second). It is purely additive: a tick the
+   shipped rule accepts is accepted; a load screen, quiet on every interval, still drops
+   to a single draw from its second interval. `reentry: beat ... silentGrace=on N` counts
+   the ticks it kept, `reentry: camera-silent grace - kept the second draw ...` prints
+   every 2 s while it acts. Commit: this branch (`claude/flicker-audit`).
+5. **Results:** host only. `tools\camera-silent-host.ps1`: 254,276 checks, the shipped rule
+   fails the in-draw, stalled-interval and catch-up schedules (the negative control: the
+   suite can print the unwelcome answer), the grace rule passes them, every grace-only
+   tick has an upload within the previous two intervals, the lever only adds permission.
+   Not run: simulator, desktop, headset. A headset run decides with `reentry: beat`
+   `silentGrace=on N` rising while `gates -> SINGLE draw (camera silent` in gameplay and
+   `pushed eye -1 TWICE` fall towards zero; a still camera (standing, not moving the
+   head) must still read as SINGLE from its second quiet interval.
+6. **Status:** candidate, default OFF, headset pending. Adjacent and NOT built: under afw
+   the alternation restarts on the left after any single tick (`scene_draw.cpp`, the
+   aer pair rule), so one single tick costs the right eye up to 4 ticks of content age
+   where continuing the alternation would cost 3. A lower-priority lever of its own.
+
 ## 2026-10-05: the simulator's left eye alternates between two exposures, frame to frame (OBSERVED in the simulator, not investigated, no headset report)
 
 1. **Symptom identity:** seen while capturing the grab animation, not reported by a player.
@@ -3348,7 +3403,7 @@ pose metadata without reopening the disproved historical theories.
 | Flicker on crouch, downhill movement, or falls | Z clamp breaks ownership of an already-offset camera vector | VR-69 clamp reconciliation confirmed |
 | About a second of weapon flicker after resuming from a pause, swaps fine | The menu ran the level-load transition: identity dropped and relearned, plus a UI rescan hold | VR-93, section 3.13. Relearning fixed behind `AttachKeepOnMenu`, the hold behind `UiKeepOnMenu`; both headset-confirmed for pauses, both ship OFF. Books are not covered |
 | Sustained flicker after closing a note, worst crouched; the scene jumps right in the right eye and left in the left (an eye swap), or later left eye only | **A late tag**: a present shows a draw's image before that draw's tag reaches the ring, the ring runs one tag behind until a drain, and under `SharedWait=0` the unlabelled image is held out of its eye. Ledger signature `EMPTY REFUSE` then `TOOK` | **VR-80 fixed, headset-confirmed** behind `[Stereo] LateTagRepair` (the repair plus the capture-slot relabel). Section 3.15, "The solution". Why the push-to-present margin collapses after a crouched close is open (VR-99), as is an occasional single frame. Section 3.14 is the separate zero-`c5` case (VR-97) |
-| Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
+| Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling. 2026-10-05: ONE GENERATOR MEASURED - the gameplay camera-silent gate's baseline is the previous draw's RETURN, so a present-thread stall or a catch-up tick empties the interval it tests (`gates -> SINGLE draw (camera silent` after a 46 ms present gap or a sub-3 ms game frame) | VR-77 open; VR-76 fixes its mirror consequence. `[Stereo] CameraSilentGrace` candidate (default OFF, host-verified, headset pending): see the 2026-10-05 camera-silent entry |
 | Object occluded in one eye vanishes from both (a head behind the sword in the left eye gone from the right; doors, mechanisms) | Both reentry passes share one view state, so one eye's occlusion-query results cull the other eye | VR-79 2026-09-24: `occlusion off` (the engine's TOGGLEOCCLUSION switch) HEADSET-CONFIRMED to fix it but reads laggier. CANDIDATE `[Stereo] Occlusion=pereye`: the right eye gets its own engine view state, so each eye culls only what it cannot see (ENGINE_NOTES "VR-79"). Not yet headset-checked |
 | Grass (and some other objects) invisible for one or two frames while walking in a straight line | OPEN. NOT the VR-79 per-eye view state: it also blinks with the engine's own culling (native), in BOTH eyes (headset 2026-09-24). Remaining suspect: older than VR-79, likely the early report of grass and objects vanishing up close | VR-226. Eliminated: pereye (reproduces under native). Next: whether `occlusion off` stops it (occlusion) or not (distance/near culling, streaming) |
 | Trails/smear while walking with experimental Temporal AA | Camera parallax in history reprojection; c5/world sign at the consumer | 2026-09-26: depth-vector candidate measured on simulator, normal yaw confirmed; default OFF, headset OPEN. See PERFORMANCE and PLAN-motion-vectors-dlss |
@@ -3880,8 +3935,9 @@ compiled fallback. Check loader, generated default, persistence, and consumer.
 |---|---|---|
 | `[Stereo] Method=reentry`, `Armed=1` | Sequential native scene redraw | Mono/arm-off removes stereo; not a neutral comparison |
 | `[Stereo] C5Pair=1` | Ring versus c5 arbitration | `reentry c5pair on\|off`; an A/B can deliberately restore bad pairing |
-| `[Stereo] LateTagRepair` | 0 shipped, 1 on the test PC: VR-80 late-tag repair plus capture-slot relabel | `reentry latetag on\|off`, F10 Display; needs `C5Pair=1`; the relabel refuses in sync and `SharedWait=1` |
-| `[Stereo] RingLedger` | 0; per-present ring records in bounded windows, 10 s reconcile | Diagnostic only; windows are event-biased, so their distributions are not rates |
+| `[Stereo] LateTagRepair`, `SingleTagRepair` | 1 (promoted 2026-09-13): VR-80 late-tag repair plus capture-slot relabel; held OFF while aer/afw runs (ring order is the claim there) | `reentry latetag on\|off`, F10 Display; needs `C5Pair=1`; the relabel refuses in sync and `SharedWait=1` |
+| `[Stereo] CameraSilentGrace` | 0 shipped (2026-10-05 candidate): the gameplay camera-silent gate forgives one quiet interval after observed camera progress, so a present stall or a catch-up tick is not a single-eye tick | `reentry silentgrace on\|off`, F10 Display; `reentry: beat` `silentGrace=`; a still camera must still read SINGLE from its second quiet interval |
+| `[Stereo] RingLedger` | 1 shipped; per-present ring records in bounded windows, 10 s reconcile | Diagnostic only; windows are event-biased, so their distributions are not rates |
 | `[Stereo] HoldUntagged=3` | Bounded suppression of brief mono delivery | `stereo hold <n>`; 0 restores mono interruptions |
 | `[VR] DesktopEyeSource=draw` | Current-backbuffer pin | `desktopeye draw\|tag\|status`; source switches invalidate held pixels |
 | `desktopeye on\|off` | Host desktop copy gate | Separate from `vrmirror on\|off` runtime hook gate |

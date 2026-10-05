@@ -156,6 +156,10 @@ static volatile LONG g_sdDoublingNow = 0;
 static uint32_t g_sdPairId = 0;
 static bool  g_sdGateSceneLive = false;    // [Stereo] GateOnSceneLive
 static float g_sdSceneQuietMs  = 400.0f;   // [Stereo] SceneQuietMs
+// [Stereo] CameraSilentGrace (default 0, F10 Display, `reentry silentgrace on|off`): the
+// camera-silent gate counts c5 uploads from draw entry to draw entry and allows one quiet
+// interval, as the present guard does (core/gfx/draw_present_progress.h says why).
+static bool  g_sdSilentGrace   = false;
 static LONG  g_sdGatedByScene  = 0;   // doubled on scene liveness, not the verdict
 static double g_sdC5LastMoveMs = 0.0;
 static uint32_t g_sdC5LastSerial = 0;

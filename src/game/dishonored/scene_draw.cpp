@@ -111,6 +111,12 @@ static uint64_t       g_sdSumPeriodUs = 0, g_sdSumCall1Us = 0, g_sdSumCall2Us = 
 static uint32_t       g_sdMinPeriodUs = UINT32_MAX, g_sdMaxPeriodUs = 0, g_sdBeatTicks = 0;
 static dvr::stereo::DrawPresentProgress g_sdPresentProgress;
 static uint32_t g_sdProgressInside = 0, g_sdProgressGrace = 0;
+// The same record for the c5 upload serial: the camera-silent gate's entry-to-entry view
+// ([Stereo] CameraSilentGrace). Fed at every draw entry, lever on or off, so a live toggle
+// starts from real history. g_sdSilentGraceBeat counts the ticks the lever kept stereo that
+// the return baseline would have sent single (this beat / lifetime).
+static dvr::stereo::DrawPresentProgress g_sdCameraProgress;
+static uint32_t g_sdSilentGraceBeat = 0, g_sdSilentGraceTotal = 0;
 #include "core/gfx/pause_scene_freshness.h"
 static dvr::stereo::PauseSceneFreshness g_sdPauseScene;
 static dvr::stereo::MenuSceneFreshness g_sdMenuScene;
@@ -208,7 +214,8 @@ static void SceneDrawBeat()
         "silent=%lu stall=%lu session=%lu test=%lu exit=%lu drawTid=%lu presentTid=%lu%s%s"
         " | p2write refused=%lu of %lu (lifetime %lu; a refused write = pass 2 drew from pass 1's camera) cam=%p"
         " | game: period %.1f ms (min %.1f max %.1f) call1=%.1f ms (max %.1f) call2=%.2f (max %.2f) "
-        "progressInsideDraw=%u progressGrace=%u (inside-draw progress / one queued interval, this beat) | "
+        "progressInsideDraw=%u progressGrace=%u (inside-draw progress / one queued interval, this beat) "
+        "silentGrace=%s%u (ticks [Stereo] CameraSilentGrace kept stereo, this beat; 0 with the lever off by design) | "
         "outside=%.1f (the world tick + the render-thread sync, unsplit here; the perf line's idle says whether "
         "the render thread waits for this thread)%s",
         g_sdBeatDraws / s, g_sdBeatSecond / s, (presents - g_sdBeatPresents) / s, g_sdCall2Us, g_sdCall2MaxUs,
@@ -220,7 +227,8 @@ static void SceneDrawBeat()
         (unsigned long)g_sdBeatP2Refused, (unsigned long)g_sdBeatSecond, (unsigned long)g_sdP2WriteRefused, (void*)g_camObj,
         g_sdSumPeriodUs / 1000.0 / n, g_sdMinPeriodUs == UINT32_MAX ? 0.0 : g_sdMinPeriodUs / 1000.0,
         g_sdMaxPeriodUs / 1000.0, g_sdSumCall1Us / 1000.0 / n, g_sdCall1MaxUs / 1000.0,
-        g_sdSumCall2Us / 1000.0 / n, g_sdCall2MaxUs / 1000.0, g_sdProgressInside, g_sdProgressGrace, g_sdSumOutsideUs / 1000.0 / n,
+        g_sdSumCall2Us / 1000.0 / n, g_sdCall2MaxUs / 1000.0, g_sdProgressInside, g_sdProgressGrace,
+        g_sdSilentGrace ? "on " : "off ", g_sdSilentGraceBeat, g_sdSumOutsideUs / 1000.0 / n,
         g_sdCall1MaxUs >= 5000 ? " (call1 large: the game thread blocks INSIDE its own draw - render-command "
                                  "back-pressure)" : "");
     if (InterlockedCompareExchange(&g_sdAlternate, 0, 0) || g_sdBeatAerL || g_sdBeatAerR)
@@ -248,13 +256,26 @@ static void SceneDrawBeat()
     // disarms a healthy renderer whenever a session drops would have been a
     // booby trap, so it is removed rather than tuned.
     g_sdBeatDraws = g_sdBeatSecond = 0;
-    g_sdProgressInside = 0; g_sdProgressGrace = 0;
+    g_sdProgressInside = 0; g_sdProgressGrace = 0; g_sdSilentGraceBeat = 0;
     g_sdBeatP2Refused = 0;
     g_sdBeatPresents = presents;
     g_sdCall2MaxUs = 0;
     g_sdCall1MaxUs = 0;
     g_sdSumPeriodUs = g_sdSumCall1Us = g_sdSumCall2Us = g_sdSumOutsideUs = 0;
     g_sdMinPeriodUs = UINT32_MAX; g_sdMaxPeriodUs = 0; g_sdBeatTicks = 0;
+}
+
+// [Stereo] CameraSilentGrace: config load, F10 Display and the seam word all come through
+// here, so the log names who changed it. The game thread reads the flag once per tick.
+static void SceneDrawSetSilentGrace(bool on, const char* who)
+{
+    if (on == g_sdSilentGrace) return;
+    g_sdSilentGrace = on;
+    Log("reentry: camera-silent grace %s (%s; [Stereo] CameraSilentGrace=%d) - %s", on ? "ON" : "off", who ? who : "?",
+        on ? 1 : 0,
+        on ? "c5 uploads are counted from draw entry to draw entry and one quiet interval is allowed, so a present-thread "
+             "stall or a catch-up tick no longer makes a single draw; a load screen is still refused from its second interval"
+           : "an upload must arrive between the previous draw's return and this draw's entry (the shipped rule)");
 }
 
 // One tick's decision, made at depth 0 BEFORE pass 1's tag (game thread only).
@@ -316,7 +337,22 @@ static SdDecision SceneDrawDecide(uint32_t callerRet)
     if (dvr::camera::eyetest_active() || dvr::camera::postest_active()) { ++g_sdSkipTest; d.why = "eyetest/postest running"; return d; }
     // The camera-silent hole: a c5 upload must have arrived since the previous
     // tick's draws (a load screen draws no scene). The serial counts uploads.
-    if (dvr::camera::render_pos_serial() == g_sdLastDrawC5Serial) {
+    // Which interval is asked is the lever's (draw_present_progress.h): since the
+    // previous draw RETURNED (shipped), or entry to entry with one quiet interval
+    // allowed ([Stereo] CameraSilentGrace).
+    const bool uploadSinceReturn = dvr::camera::render_pos_serial() != g_sdLastDrawC5Serial;
+    if (!dvr::stereo::camera_silent(g_sdSilentGrace, uploadSinceReturn, g_sdCameraProgress)) {
+        if (!uploadSinceReturn) {   // only the lever can reach here: the return baseline would have refused
+            ++g_sdSilentGraceBeat; ++g_sdSilentGraceTotal;
+            DVR_LOG_EVERY_MS(dvr::log::Cat::present, dvr::log::Level::Info, 2000,
+                "reentry: camera-silent grace - no c5 upload since the previous draw returned, but %s: the tick "
+                "stays stereo (%u so far; with the lever off each of these is a SINGLE tick, a held present and, "
+                "under afw, a stale right eye)",
+                g_sdCameraProgress.advanced ? "uploads arrived while that draw ran"
+                                            : "the interval before had uploads and one quiet interval is allowed",
+                g_sdSilentGraceTotal);
+        }
+    } else {
         const bool pauseRecent=g_sdPauseScene.recent(dvr::hudlayout::pause_scene_freshness(),UiSurfaceContext(),
             dvr::hudlayout::menu_head_look(3),MaimNowMs());
         const bool menuRecent=g_sdMenuScene.recent(dvr::hudlayout::menu_scene_freshness(),UiSurfaceContext(),
@@ -548,6 +584,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         // pass 2 will run, so a present can never carry a -1 whose +1 sibling
         // was skipped (41.1: the resume-window one-sided stream).
         g_sdDrawEntryC5=dvr::camera::render_pos_serial();
+        g_sdCameraProgress.begin(g_sdDrawEntryC5);
         if(UiSurfaceContext()!=3 || callerRet!=kViewportDrawGameplayRet || UiSurfaceOwnsPresentation()) g_sdPauseScene.clear();
         g_sdMenuScene.begin(callerRet==kViewportDrawGameplayRet && UiSurfaceHeadLook() && UiSurfaceRidesHud() &&
             !UiSurfaceOwnsPresentation() && dvr::vr::session_live() && !g_gameExiting,
@@ -932,6 +969,13 @@ static bool SceneDrawCommand(const char* args)
         bool on;
         if (DvrOnOff(a1, &on)) { dvr::stereo::set_reentry_c5_guard(on); return true; }
         Log("reentry: c5guard on|off (now %s)", dvr::stereo::reentry_c5_guard() ? "on" : "off");
+        return true;
+    }
+    if (n >= 1 && !strcmp(sub, "silentgrace")) {   // the camera-silent gate's A/B ([Stereo] CameraSilentGrace)
+        bool on;
+        if (DvrOnOff(a1, &on)) { SceneDrawSetSilentGrace(on, "seam"); return true; }
+        Log("reentry: silentgrace on|off (now %s; kept stereo %u tick(s) so far)", g_sdSilentGrace ? "on" : "off",
+            g_sdSilentGraceTotal);
         return true;
     }
     if (n >= 1 && !strcmp(sub, "c5pair")) {   // 41.1 (session 9): the within-tick invariant's A/B
