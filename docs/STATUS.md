@@ -1,4 +1,4 @@
-## 2026-10-05: Hand-effect locomotion correction, build only
+## 2026-10-05: Hand-effect locomotion correction installed
 
 Heart backing PR #182 is ready for review against staging and remains unmerged.
 Child branch codex/hand-effects-locomotion starts from its accepted tip. The
@@ -27,11 +27,18 @@ below 0.001 uu position error. UModel and UE Explorer's library confirm the
 Heart required module and both Possession hand-cast required modules use local
 space. Details, rejected arm-only correction and limits: ENGINE_NOTES.
 
-The user requests a build only. Do not install this candidate or change the
-installed INI/assets. No game launch or in-game validation of this fix occurred.
-Build/exports/lint results and the artifact identity are recorded in the local
-build/heart-backside-preview/effects-candidate manifest after final compilation.
-Later, when installation is requested, use one question per launch: with the
+Installed on subsequent user authorization: v1.0.3-58-g3c61de512, DLL SHA-256
+C0AD7618BEBE303209470A8565185D064CA03567C6F9B0F157FAAE0F7031CB18.
+The previous DLL, complete INI, current and previous logs, and Heart assets are
+backed up together under the local effects-candidate/install-20261005-075916.
+The entire installed INI matches both its backup and expected bytes; CRLF is
+verified and there are zero INI changes. Approved Heart assets match hashes.
+Compatibility: explicit DlssModel=0 retains its meaning; AbPlanOnce is empty.
+The newer combined build's physical pickup and VisibilityMaskProbe features
+are absent here; the retained probe key is ignored. Hand animation policy is
+unchanged. No game was launched; headset validation remains pending.
+
+Next launch asks one question: with the
 Heart held still relative to the body, does its glow remain inside while walking
 and strafing? Stable alignment supports the fix; continued drift requires the
 new parent-travel diagnostics before changing another mechanism. Possession
