@@ -10171,8 +10171,8 @@ First headset session 2026-10-05: targets were found from both hands, the game f
   The test is a walk of `UStruct::SuperField` (+0x44) from the object's class, comparing each
   class object's own name, cached per class pointer.
 * **Finding them without a frame paying for it.** A whole GObjects walk costs milliseconds, so
-  the list is built by an incremental pass: 1000 slots a frame, a full sweep in about a
-  second. The entries are read directly under a structured exception handler, not checked
+  the list is built by an incremental pass: up to 500 slots and 60 us a frame, a full sweep
+  in a few seconds. Class tests compare name indices (text once per name). The entries are read directly under a structured exception handler, not checked
   for readability one by one: the first build did that through `RegionMemo`, which is a
   VirtualQuery per object here, and cost 2.4 ms a tick (TRAPS, 2026-10-05). An entry is
   trusted only while its GObjects slot still holds the same pointer AND that object's class

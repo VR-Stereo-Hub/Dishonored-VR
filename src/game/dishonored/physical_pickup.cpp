@@ -42,10 +42,31 @@ static PpEntry* g_ppList = g_ppArrA; static uint32_t g_ppListN = 0;
 static PpEntry* g_ppBuild = g_ppArrB; static uint32_t g_ppBuildN = 0;
 // class pointer -> lootable, direct mapped; a collision only recomputes.
 struct PpClassSlot { uint8_t* cls; uint8_t verdict; };
-static PpClassSlot g_ppClass[2048];
+static PpClassSlot g_ppClass[8192];
+// name index -> "is one of the lootable base names", direct mapped (0 = empty, 1 = no, 2 = yes).
+// A class name is turned into text ONCE; after that the chain walk compares integers.
+struct PpNameSlot { uint32_t idx; uint8_t verdict; };
+static PpNameSlot g_ppName[8192];
+static uint32_t g_ppNameBudget = 0;                    // text lookups left this frame
 static uint32_t g_ppCursor = 0, g_ppSweeps = 0, g_ppFaults = 0;
 static double   g_ppSweepStartMs = 0, g_ppLastSweepMs = 0;
-static double   g_ppCostUsSum = 0, g_ppCostUsMax = 0; static uint32_t g_ppCostN = 0;   // this module's own cost a frame
+// This module's own cost a frame, and how often it was not small.
+static double   g_ppCostUsSum = 0, g_ppCostUsMax = 0; static uint32_t g_ppCostN = 0, g_ppCostOver250 = 0, g_ppCostOver1000 = 0;
+static uint32_t g_ppSliceCut = 0;                      // slices ended by the time budget
+// The NEAR list: the listed items within a few metres of the camera, refreshed by a rotating
+// pass over the whole list (a chunk a frame). The per-frame distance test reads only these, so
+// its cost does not grow with the number of pickups in a level.
+constexpr uint32_t kPpNearMax = 128;
+static PpEntry  g_ppNearA[kPpNearMax], g_ppNearB[kPpNearMax];
+static PpEntry* g_ppNear = g_ppNearA; static uint32_t g_ppNearN = 0;
+static PpEntry* g_ppNearBuild = g_ppNearB; static uint32_t g_ppNearBuildN = 0;
+static uint32_t g_ppNearCursor = 0;
+static const PpEntry* g_ppNearSrc = NULL;              // the list the rotation is walking
+// The last 8 frames: this module's cost and the time since the frame before. Printed when the
+// re-entry gate reports a camera-silent single draw, so the log says whether a slow frame of OURS
+// came before it or not (it records the gaps with pickup switched off too, where the cost reads 0).
+static float    g_ppRingCostUs[8] = {}, g_ppRingGapMs[8] = {};
+static uint32_t g_ppRingAt = 0;
 
 // The target (game thread only).
 static uint8_t* g_ppTarget = NULL;
@@ -74,50 +95,74 @@ static bool PpGameplay()
 // loops read them directly and a structured exception handler is the backstop for a pointer
 // that is not. Plain data only inside them.
 
-// Does this class derive from a lootable base? Walks the SuperField chain, cached per class.
-// Called only from inside the guarded loops.
-static bool PpClassLootableRaw(uint8_t* cls)
+// Is this name one of the lootable base names? 2 yes, 1 no, 0 not known yet (the frame's budget of
+// text lookups is spent: ask again in a later sweep).
+static uint8_t PpNameVerdict(uint32_t nameIdx)
 {
-    PpClassSlot& slot = g_ppClass[((uintptr_t)cls >> 4) & 2047];
-    if (slot.cls == cls) return slot.verdict != 0;
-    bool yes = false;
+    PpNameSlot& slot = g_ppName[(nameIdx * 2654435761u) >> 19];
+    if (slot.idx == nameIdx && slot.verdict) return slot.verdict;
+    if (!g_ppNameBudget) return 0;
+    --g_ppNameBudget;
+    const char* n = RealName(nameIdx);
+    const uint8_t v = (n && (!strcmp(n, "DisPickup_Base") || !strcmp(n, "DisProjectile_Arrow"))) ? 2 : 1;
+    slot.idx = nameIdx; slot.verdict = v;
+    return v;
+}
+
+// Does this class derive from a lootable base? Walks the SuperField chain, cached per class.
+// 2 yes, 1 no, 0 not known yet. Called only from inside the guarded loops.
+static uint8_t PpClassLootableRaw(uint8_t* cls)
+{
+    PpClassSlot& slot = g_ppClass[(((uintptr_t)cls >> 4) * 2654435761u) >> 19];
+    if (slot.cls == cls) return slot.verdict;
+    uint8_t v = 1;
     uint8_t* c = cls;
     for (int depth = 0; c && depth < 32; ++depth) {
         if (((uintptr_t)c & 3) || (uintptr_t)c < 0x10000) break;
-        const char* n = RealName(*(uint32_t*)(c + kNameOff));
-        if (n && (!strcmp(n, "DisPickup_Base") || !strcmp(n, "DisProjectile_Arrow"))) { yes = true; break; }
+        const uint8_t nv = PpNameVerdict(*(uint32_t*)(c + kNameOff));
+        if (nv == 0) return 0;                          // unknown: not cached, asked again next sweep
+        if (nv == 2) { v = 2; break; }
         c = *(uint8_t**)(c + kSuperFieldOff);
     }
-    slot.cls = cls; slot.verdict = (uint8_t)(yes ? 1 : 0);
-    return yes;
+    slot.cls = cls; slot.verdict = v;
+    return v;
 }
 
-// One slice of the sweep. Returns the new count; *fault says the handler ran.
-static uint32_t PpSweepSlice(void** objs, uint32_t from, uint32_t to, PpEntry* out, uint32_t n, bool* fault)
+// One slice of the sweep. Returns the new count; *fault says the handler ran; *next is where the
+// slice stopped (the time budget can end it early: the clock is read every 64 slots).
+static uint32_t PpSweepSlice(void** objs, uint32_t from, uint32_t to, PpEntry* out, uint32_t n, bool* fault,
+                             uint32_t* next, int64_t qpcDeadline)
 {
+    uint32_t i = from;
     __try {
-        for (uint32_t i = from; i < to; ++i) {
+        for (; i < to; ++i) {
+            if ((i & 63u) == 63u) {
+                LARGE_INTEGER t; QueryPerformanceCounter(&t);
+                if (t.QuadPart >= qpcDeadline) { ++g_ppSliceCut; break; }
+            }
             uint8_t* o = (uint8_t*)objs[i];
             if (!o || ((uintptr_t)o & 3) || (uintptr_t)o < 0x10000) continue;
             uint8_t* cls = *(uint8_t**)(o + kClassOff);
             if (!cls || ((uintptr_t)cls & 3) || (uintptr_t)cls < 0x10000) continue;
-            if (!PpClassLootableRaw(cls)) continue;
+            if (PpClassLootableRaw(cls) != 2) continue;
             if (n < kPpMax) { out[n].obj = o; out[n].idx = i; out[n].cls = cls; ++n; }
         }
-    } __except (EXCEPTION_EXECUTE_HANDLER) { *fault = true; }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { *fault = true; i = to; }
+    *next = i;
     return n;
 }
 
 // The incremental sweep: `budget` GObjects slots a call.
-static void PpSweep(void** objs, uint32_t num, uint32_t budget, double nowMs)
+static void PpSweep(void** objs, uint32_t num, uint32_t budget, double nowMs, int64_t qpcDeadline)
 {
     if (g_ppCursor >= num) g_ppCursor = 0;
     if (g_ppCursor == 0) { g_ppBuildN = 0; g_ppSweepStartMs = nowMs; }
     const uint32_t end = (num - g_ppCursor > budget) ? g_ppCursor + budget : num;
-    bool fault = false;
-    g_ppBuildN = PpSweepSlice(objs, g_ppCursor, end, g_ppBuild, g_ppBuildN, &fault);
+    bool fault = false; uint32_t next = end;
+    g_ppNameBudget = 24;                                 // class names turned into text this frame, at most
+    g_ppBuildN = PpSweepSlice(objs, g_ppCursor, end, g_ppBuild, g_ppBuildN, &fault, &next, qpcDeadline);
     if (fault) ++g_ppFaults;                             // the rest of this slice is skipped until the next sweep
-    g_ppCursor = end;
+    g_ppCursor = next;
     if (g_ppCursor >= num) {
         g_ppCursor = 0;
         PpEntry* t = g_ppList; g_ppList = g_ppBuild; g_ppBuild = t;
@@ -125,12 +170,31 @@ static void PpSweep(void** objs, uint32_t num, uint32_t budget, double nowMs)
         g_ppLastSweepMs = nowMs - g_ppSweepStartMs;
         // A class pointer can be reused by another class after a level change; the verdicts
         // are cheap to rebuild, so they do not outlive a few dozen sweeps.
-        if ((g_ppSweeps & 63u) == 63u) memset(g_ppClass, 0, sizeof(g_ppClass));
+        if ((g_ppSweeps & 63u) == 63u) { memset(g_ppClass, 0, sizeof(g_ppClass)); memset(g_ppName, 0, sizeof(g_ppName)); }
         if (++g_ppSweeps == 1)
             Log("pickup: first sweep done - %u lootable actor(s) among %u objects in %.0f ms of game time "
-                "(%u slots a frame, guarded direct reads, %u fault(s))",
+                "(up to %u slots and 60 us a frame, guarded direct reads, %u fault(s); a first sweep is slow on purpose: "
+                "it may turn only 24 class names into text a frame)",
                 g_ppListN, num, g_ppLastSweepMs, budget, g_ppFaults);
     }
+}
+
+// One chunk of the rotating near-list pass: entries still alive and within `radius2` of the camera.
+static uint32_t PpNearSlice(void** objs, uint32_t num, const PpEntry* list, uint32_t from, uint32_t to, uint32_t locOff,
+                            const float* camera, float radius2, PpEntry* out, uint32_t n, bool* fault)
+{
+    __try {
+        for (uint32_t k = from; k < to; ++k) {
+            const PpEntry& e = list[k];
+            if (e.idx >= num || (uint8_t*)objs[e.idx] != e.obj) continue;
+            if (*(uint8_t**)(e.obj + kClassOff) != e.cls) continue;
+            float loc[3]; memcpy(loc, e.obj + locOff, 12);
+            const float dx = loc[0] - camera[0], dy = loc[1] - camera[1], dz = loc[2] - camera[2];
+            if (!(dx * dx + dy * dy + dz * dz <= radius2)) continue;
+            if (n < kPpNearMax) out[n++] = e;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { *fault = true; }
+    return n;
 }
 
 // The nearest listed item within reach of a hand, and the engine's focused actor. Plain data.
@@ -237,6 +301,26 @@ static void PhysicalPickupTick()
     if (frame == lastFrame) return;
     lastFrame = frame;
     const double now = MaimNowMs();
+    {
+        static double lastNow = 0; static uint32_t silentWas = 0xffffffffu;
+        g_ppRingAt = (g_ppRingAt + 1) & 7;
+        g_ppRingGapMs[g_ppRingAt] = lastNow > 0 ? (float)(now - lastNow) : 0.0f;
+        g_ppRingCostUs[g_ppRingAt] = 0.0f;
+        lastNow = now;
+        if (silentWas == 0xffffffffu) silentWas = g_sdSkipSilent;
+        if (g_sdSkipSilent != silentWas) {
+            silentWas = g_sdSkipSilent;
+            const float* g = g_ppRingGapMs; const float* c = g_ppRingCostUs; const uint32_t a = g_ppRingAt;
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 400,
+                "pickup/silent: camera-silent single draw #%u. The 8 game frames up to now, oldest first - gap since the "
+                "frame before in ms: %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f | this module's cost in us: %.0f %.0f %.0f %.0f "
+                "%.0f %.0f %.0f (the newest frame has not run yet). Pickup %s. A long gap with small costs is not this module",
+                (unsigned)silentWas,
+                g[(a + 1) & 7], g[(a + 2) & 7], g[(a + 3) & 7], g[(a + 4) & 7], g[(a + 5) & 7], g[(a + 6) & 7], g[(a + 7) & 7], g[a],
+                c[(a + 1) & 7], c[(a + 2) & 7], c[(a + 3) & 7], c[(a + 4) & 7], c[(a + 5) & 7], c[(a + 6) & 7], c[(a + 7) & 7],
+                g_ppOn.load() ? "ON" : "off");
+        }
+    }
     if (!PpGameplay()) { if (g_ppTarget) PpDropTarget("not in gameplay, or off", now, false); g_ppReadyMask.store(0); return; }
 
     // This module's own cost, every frame it does work: the number the first build lacked.
@@ -247,6 +331,9 @@ static void PhysicalPickupTick()
             LARGE_INTEGER b; QueryPerformanceCounter(&b);
             const double us = (double)(b.QuadPart - a.QuadPart) * 1e6 / (double)f.QuadPart;
             g_ppCostUsSum += us; ++g_ppCostN; if (us > g_ppCostUsMax) g_ppCostUsMax = us;
+            g_ppRingCostUs[g_ppRingAt] = (float)us;
+            if (us > 250.0) ++g_ppCostOver250;
+            if (us > 1000.0) ++g_ppCostOver1000;
         }
     } cost;
 
@@ -254,7 +341,7 @@ static void PhysicalPickupTick()
     const uint32_t num = *(uint32_t*)(kGObjHdr + 4);
     if (!objs || ((uintptr_t)objs & 3) || num < 1000 || num > 4000000) { if (g_ppTarget) PpDropTarget("no object table", now, false); return; }
     dvr::crash::probe_begin();                              // a fault inside the guarded loops is not a crash
-    PpSweep(objs, num, 1000, now);
+    PpSweep(objs, num, 500, now, cost.a.QuadPart + cost.f.QuadPart * 60 / 1000000);   // at most 60 us of sweep a frame
     dvr::crash::probe_end();
 
     static uint32_t locOff = 0, focusOff = 0, hiddenOff = 0, hiddenMask = 0; static bool hiddenAsked = false;
@@ -276,7 +363,21 @@ static void PhysicalPickupTick()
     const float keep  = reach * 1.25f;                            // the held target's hysteresis
     PpPick pick;
     dvr::crash::probe_begin();
-    PpNearest(objs, num, g_ppList, g_ppListN, locOff, hiddenOff, hiddenMask, hand, handOk, reach, keep, g_ppTarget,
+    {   // the rotating near-list pass: 192 listed items a frame, those within 2.5 m of the camera kept
+        if (g_ppNearSrc != g_ppList || g_ppNearCursor > g_ppListN) { g_ppNearSrc = g_ppList; g_ppNearCursor = 0; g_ppNearBuildN = 0; }
+        const uint32_t to = (g_ppListN - g_ppNearCursor > 192u) ? g_ppNearCursor + 192u : g_ppListN;
+        const float radius = 2.5f * g_posScaleUU;
+        bool fault = false;
+        g_ppNearBuildN = PpNearSlice(objs, num, g_ppList, g_ppNearCursor, to, locOff, camera, radius * radius,
+                                     g_ppNearBuild, g_ppNearBuildN, &fault);
+        if (fault) ++g_ppFaults;
+        g_ppNearCursor = to;
+        if (g_ppNearCursor >= g_ppListN) {
+            PpEntry* t = g_ppNear; g_ppNear = g_ppNearBuild; g_ppNearBuild = t;
+            g_ppNearN = g_ppNearBuildN; g_ppNearBuildN = 0; g_ppNearCursor = 0;
+        }
+    }
+    PpNearest(objs, num, g_ppNear, g_ppNearN, locOff, hiddenOff, hiddenMask, hand, handOk, reach, keep, g_ppTarget,
               now < g_ppBlockUntilMs ? g_ppBlock : NULL, g_peCtrl, focusOff, &pick);
     dvr::crash::probe_end();
     if (pick.fault) ++g_ppFaults;
@@ -314,13 +415,15 @@ static void PhysicalPickupTick()
 
     static double nextBeat = 0;
     if (now >= nextBeat) {
-        nextBeat = now + 30000;
-        Log("pickup: beat - %u lootable actor(s) listed, sweep %u took %.0f ms of game time, trace driven %ld time(s), "
-            "grips swallowed %u, Interact pressed %u, reach %.0f cm | own cost %.1f us a frame (max %.0f over %u frames; "
-            "it must stay in the tens: the first build cost 2400 and starved an eye), guarded-read faults %u",
-            g_ppListN, g_ppSweeps, g_ppLastSweepMs, (long)g_ppRayDriven, g_ppSwallowed.load(), g_ppFired.load(),
-            g_ppReachM.load() * 100.0f, g_ppCostN ? g_ppCostUsSum / g_ppCostN : 0.0, g_ppCostUsMax, g_ppCostN, g_ppFaults);
-        g_ppCostUsSum = 0; g_ppCostUsMax = 0; g_ppCostN = 0;
+        nextBeat = now + 10000;
+        Log("pickup: beat - %u lootable actor(s) listed (%u within 2.5 m), sweep %u took %.0f ms of game time, trace driven %ld time(s), "
+            "grips swallowed %u, Interact pressed %u, reach %.0f cm | own cost %.1f us a frame, max %.0f, over 250 us in %u and "
+            "over 1000 us in %u of %u frames (a frame of several ms on the game thread alone is what starves an eye: both "
+            "counts must read 0 or close to it), slices cut by the 60 us budget %u, guarded-read faults %u",
+            g_ppListN, g_ppNearN, g_ppSweeps, g_ppLastSweepMs, (long)g_ppRayDriven, g_ppSwallowed.load(), g_ppFired.load(),
+            g_ppReachM.load() * 100.0f, g_ppCostN ? g_ppCostUsSum / g_ppCostN : 0.0, g_ppCostUsMax, g_ppCostOver250,
+            g_ppCostOver1000, g_ppCostN, g_ppSliceCut, g_ppFaults);
+        g_ppCostUsSum = 0; g_ppCostUsMax = 0; g_ppCostN = 0; g_ppCostOver250 = 0; g_ppCostOver1000 = 0; g_ppSliceCut = 0;
     }
 }
 

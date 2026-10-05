@@ -19,6 +19,10 @@ Branch `claude/fast-dlss-physical-pickup` (off staging), two commits.
   cost 2.4 ms of every game tick and the camera-silent gate starved the right eye about once
   every two seconds. Rewritten to guarded direct reads with its own cost in the log; that fix
   is built and not yet run. FLICKER_REFERENCE and TRAPS, top entries.
+- Second headset session on that fix: the flicker remained. Script cost was back to normal but
+  the camera-silent rate only halved (16.7 a minute against 0.2 to 0.7 without the pickup code).
+  OPEN. A third build bounds the scan to 60 us a frame and logs the frames before every
+  camera-silent draw (`pickup/silent`); toggling the F10 checkbox in one session is the A/B.
 - No Linear ticket (no Linear access in this session). MLAA under DLSS is left as it is by
   decision. Not installed.
 

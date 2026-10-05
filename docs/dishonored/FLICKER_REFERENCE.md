@@ -1,4 +1,4 @@
-## 2026-10-05: right-eye flicker on the hands and weapons with physical pickup - the pickup scan starved the game thread (MEASURED cause, fix built, headset pending)
+## 2026-10-05: right-eye flicker on the hands and weapons with physical pickup - the pickup build raises the camera-silent rate (OPEN: first fix halved it, second built)
 
 1. **Symptom identity:** a strong flicker on the hands and the weapons, reported in the right
    eye, sideways. Surface: the eye image itself (the right eye's swapchain misses a present),
@@ -40,10 +40,39 @@
    gate back to a few firings in ten minutes. If the gate still fires about once every two
    seconds with the cost back to normal, this entry's cause is wrong and the pickup's ray
    override or pad filter is next.
-7. **Status and remaining scope:** cause measured, fix headset-pending. Not explained and
-   not new: why a slow game tick produces a camera-silent draw at all under AFW (VR-77's
-   scheduling question), and the baseline rate of 2 to 10 firings a session without the
-   pickup code.
+7. **Second run, same day (build v1.0.3-62-ga90921e46, the guarded scan): the prediction held
+   in part and the flicker did not go.** Reported: still in the right eye, now seen moving
+   the other way. Measured over about 90 s of stereo gameplay: `pe/cost` 44-56 us an event
+   (back to normal), but `own cost 318.9 us a frame (max 7862 over 3816 frames)` where tens
+   were predicted, and 25 camera-silent single draws, 22 stale right eyes.
+
+   | Session | camera-silent per minute of stereo gameplay |
+   |---|---:|
+   | audit run 2, no pickup code | 0.2 |
+   | the session before the pickup, no pickup code | 0.7 |
+   | first pickup build (2.4 ms a tick) | 31.6 |
+   | guarded scan (0.32 ms a frame) | 16.7 |
+
+   An eightfold cut in cost halved the rate: the rate does not follow the mean cost, so the
+   mean is not the mechanism. What remains inside the module: a direct-mapped class cache of
+   2048 slots for about 3000 classes (half of them evicted and re-derived every sweep, each
+   re-derivation turning up to eight class names into text), which can make single frames
+   much dearer than the mean; that is a hypothesis, the run has no per-frame record. Not
+   eliminated: that something other than cost in the pickup path is the trigger.
+8. **Third change (built, not run):** the class test compares name INDICES (a name is turned
+   into text once, at most 24 a frame), both caches hold 8192 entries, the sweep stops after
+   60 us in any frame, and the per-frame distance pass reads only the items within 2.5 m of
+   the camera (a rotating pass keeps that list). Two instruments, because two predictions
+   have now been wrong: the beat line counts the frames that cost over 250 us and over 1000
+   us, and `pickup/silent:` prints, at every camera-silent single draw, the gaps between the
+   last eight game frames and this module's cost in each. It prints with pickup switched off
+   as well (cost 0), so one session with the F10 checkbox toggled is an A/B of the rate.
+9. **Status and remaining scope:** OPEN. The pickup build raises the camera-silent rate by a
+   factor of 25 to 150 and the cause inside it is not isolated. Decided by the next log:
+   `pickup/silent` lines with small costs before the gate mean the cost theory is wrong; the
+   rate with pickup off against on, in one session, says whether the module is involved at
+   all. Not explained and not new: why a game-thread delay produces a camera-silent draw
+   under AFW (VR-77's scheduling question), and the baseline 0.2 to 0.7 a minute.
 
 ## 2026-10-04: menu-triggered full-arm disappearance, separate from minor flicker
 
@@ -3239,7 +3268,7 @@ pose metadata without reopening the disproved historical theories.
 | World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |
 | Desktop window alternates left/right views throughout stereo | Each eye draw reaches the game's Present; missing desktop pin | Original VR-53 pin implemented; later VR-76 correction confirmed |
 | Single-frame rightward hand/weapon jump, clearest in desktop window | Current D3D9 pixels classified by a previous-present capture tag; single-draw bursts trigger raw leaks | VR-76 confirmed, `DesktopEyeSource=draw` default |
-| Hands and weapons flicker sideways in the RIGHT eye about once every second or two under AFW, after a new per-frame feature was added; `gates -> SINGLE draw (camera silent ...)` then `pushed eye -1 TWICE` at that rate | The game tick got slower: read `pe/cost` (us an event, mid ticks) against a session without the feature BEFORE looking at the eye path | 2026-10-05: the physical pickup scan cost 2.4 ms a tick; fix built, headset pending; top entry |
+| Hands and weapons flicker sideways in the RIGHT eye about once every second or two under AFW, after a new per-frame feature was added; `gates -> SINGLE draw (camera silent ...)` then `pushed eye -1 TWICE` at that rate | The game tick got slower: read `pe/cost` (us an event, mid ticks) against a session without the feature BEFORE looking at the eye path | 2026-10-05 OPEN: the first pickup build cost 2.4 ms a tick; cutting it to 0.32 ms only halved the rate; a bounded scan and a `pickup/silent` instrument are built; top entry |
 | One eye lags and flickers sideways (world AND weapon) all the time on a slow GPU, since 1.0.2; `stereo: beat` lopsided with `none/s` ~25 | Capture waits time out and REFUSE (1.0.2, 1d2ee24a5); the refusals land on one eye | `TimeoutRefuse=0` REPORTED fixing the strong flicker (2026-10-03); `[Capture] AutoDepth` measured removing the hitch (2026-10-04); top entry |
 | Rare single one-eye flicker while moving sideways; ledger `TOOK` right after the same eye, then `pushed eye TWICE` | The c5 within-tick arm misreads a cross-tick step when the walk per tick is ~2 ipd | 2026-10-04 candidate `[Stereo] C5SameEyeGuard`, host-verified (599 -> 0 wrong eyes); headset pending; top entry |
 | One eye appears frozen, swapped, or behind after pause/load/rearm | Tag-ring skew, capture freshness, c5 arbitration, or one-sided tag generation | VR-80 late-tag repair confirmed; distinct reload R/0 capture repair headset-confirmed on build 215 (18:01:15), latest record below. Residual generation/timing remains open |
