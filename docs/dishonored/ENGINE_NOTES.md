@@ -1,3 +1,36 @@
+## 2026-10-04: Heart rear shell, local modeling preview
+
+UModel's Startup.upk object list identifies SkeletalMesh Heart, materials
+Heart_Mat and Heart_lens_Mat, and Heart_D/N/S/SP/E plus HeartLens_D/N textures.
+Export only that mesh and those textures into an ignored local output directory.
+The glTF import has 2,583 vertices and 3,681 triangles. Welding coincident UV seam
+positions for inspection exposes 249 open edges; the largest connected rear
+opening contains 65. Small separate component and vessel boundaries also remain.
+
+The proposal uses a constrained triangulation of that rear perimeter with a
+rounded posterior surface, shallow vessels, an incision and retaining wires.
+The original mesh and rig stay separate and unchanged. The new wall has 2,173
+vertices and 4,279 triangles. All 65 rim coordinates match exactly; joining copies
+for validation reduces total boundary edges from 249 to 184. Original vertex
+coordinates and polygon indices compare exactly, and the new wall has no
+zero-area triangles. This is not a claim that every original part is watertight.
+
+Color revision: use a darker flesh region of the existing Heart_D atlas, with
+Heart_N detail and matching roughness. Convert sampled sRGB rim colors to linear
+before assigning the vertex color attribute. The initial unconverted edge colors
+made the new material too pale. Blender lighting and a simplified lens material
+are previews, not an exact recreation of UE3's complete material.
+
+Reproduction tools: heart-back-inspect.py then heart-back-preview.py, both run
+inside Blender with `-- <local-output-directory>`. The directory contains
+originals/Startup/SkeletalMesh3/Heart.gltf and its buffer, plus exported textures
+under originals/Startup/Texture2D. Inspection creates heart-original-inspection.blend;
+the preview creates Heart-backside-proposal.blend, paired renders and a report.
+These outputs contain game-derived data and are never committed. Scripts are ours.
+
+Preview scope ends at screenshots. No engine hooks, memory writes, package edits,
+DLL build/install or INI changes. Added parts are not skinned or animation-tested.
+Review the revised color and shape before planning any runtime implementation.
 ## 2026-09-27: read-only pause submenu identity
 
 Local class declarations expose DisGFxMoviePlayerMenuBase.m_bIsInSaveMenu and

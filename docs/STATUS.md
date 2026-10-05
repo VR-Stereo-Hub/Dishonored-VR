@@ -1,3 +1,18 @@
+## 2026-10-04: Heart backside model preview, awaiting visual review
+
+Created codex/heart-backside-preview directly from staging cc5feaca6.
+Located the shipped Heart skeletal mesh and textures in Startup.upk. A local
+Blender proposal closes the largest 65-edge rear opening with a rounded flesh
+wall, shallow vessels, sutures and retaining wires. Revised the material after
+visual feedback: source texture's darker flesh region, correct linear rim color,
+and matching roughness. Original front vertex positions and faces are exact.
+
+Rear before/after and front/three-quarter renders plus a packed Blender file are
+local under build/heart-backside-preview in the primary checkout. No game assets,
+DLL, INI or runtime code changed. Added geometry is a static visual proposal;
+skinning, animation and integration are pending explicit review of screenshots.
+The AFW cutscene candidate remains shelved on codex/performance-audit, with its
+build retained separately. See ENGINE_NOTES for asset discovery and validation.
 ## 2026-10-04: run 4 - takedown arms accepted; cutscene arms left as an opt-in
 
 Branch `claude/anim-blend-ik`, PR #177. Detail: dishonored/ANIM-HANDOFF-PLAN.md, top section.
