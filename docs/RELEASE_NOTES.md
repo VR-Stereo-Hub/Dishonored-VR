@@ -1,9 +1,8 @@
-## Unreleased: experimental AFW moving-character correction
+## Unreleased: rejected AFW moving-character experiment
 
-- Basic Display adds AFW: reduce moving-character trails. It rejects old world
-  pixels when depth shows motion, while preserving static eye-specific shading.
-  Off by default; silhouette artifacts and motion at unchanged depth can remain.
-  Headset validation is pending.
+- The default-off AFW moving-character experiment worsened headset ghosting and
+  is disabled on the test installation. It remains research code in this draft;
+  do not treat its synthetic checks as evidence of a character-ghosting fix.
 
 ## Unreleased: HUD performance and ReShade preset controls
 

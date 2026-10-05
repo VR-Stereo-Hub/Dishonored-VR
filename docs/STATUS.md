@@ -1,3 +1,22 @@
+## 2026-10-04: build 46 ghosting regression rejected; correction disabled
+
+Matched the new 20:47:47 capture/log to installed v1.0.3-46-g4c34beb46.
+The headset reports substantially worse ghosting; all capture records show the
+option ON and accepted matrices. DLAA was active, unlike the previous burst.
+Same-input replay ON/OFF changes 9.21% of pixels over one byte; restoring only
+the two tightened general visibility thresholds reduces that to 3.97%.
+This identifies broad side effects, not acceptance of the remaining variant.
+
+Archived DLL, whole INI and both logs in build/performance-audit/boat-204747/.
+Installed AfwDepthMotion is now 0. Full INI comparison has exactly that one
+change, byte match and CRLF verified. Build 46 and all other settings retained.
+No new build or game launch. Original boat trails remain unresolved.
+
+Next: resolve capture/replay parity and construct a real-edge regression fixture
+before another source-selection candidate. No new headset run requested. See
+[FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md) for ablation evidence,
+metric failures and limits. Draft PR remains unmerged; no staging/VR-Main change.
+
 ## 2026-10-04: AFW depth-motion candidate installed with latest animation fixes
 
 Installed optimized v1.0.3-46-g4c34beb46 from codex/afw-character-test. The

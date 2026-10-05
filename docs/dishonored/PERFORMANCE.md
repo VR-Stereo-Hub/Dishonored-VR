@@ -1,3 +1,12 @@
+## 2026-10-04: depth-motion candidate rejected on image quality
+
+Build 46 substantially worsens reported ghosting and the installed option is
+now OFF. Prior synthetic GPU timings remain measurements of that workload,
+not a reason to retain the candidate. New 20:47:47 burst has DLAA active;
+readback ages grow to 185..654 ms, so do not infer steady FPS from the burst.
+Same-input replay and isolated visibility-threshold ablation are documented
+in FLICKER_REFERENCE. No new performance gain or accepted correction claimed.
+
 ## 2026-10-04: targeted AFW depth-motion candidate cost
 
 The new default-off AfwDepthMotion experiment targets old world samples whose
