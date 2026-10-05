@@ -34,7 +34,8 @@ timestamp ring (half the intervals skipped) and 28-row cut. The installed ini no
   than native; the ReShade preset is about 6 % of the rate; the HUD hand-off wait is backpressure;
   MLAA still runs under DLSS (the option write at launch never reaches the renderer); no shadow
   depth stage exists to share in the measured scene (the skip rows dropped nothing).
-  Open: the maintainer's decisions on the fast model as default and on fixing the MLAA policy.
+  Decided: the fast model becomes the default (#181); MLAA under DLSS stays as it is. The audit
+  is closed; this branch holds the record and the tools.
 No game launched by the session. No Linear ticket (no Linear access).
 
 ## 2026-10-04: pre-release performance audit (analysis; probe and plan built, nothing run)

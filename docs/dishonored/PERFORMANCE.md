@@ -393,6 +393,12 @@ Standing after both runs:
 
 Not measured: the same rows in a second, character-heavy scene; what the outside load was.
 
+Decisions taken on this evidence (2026-10-05): the fast model becomes the shipped default
+(`claude/fast-dlss-physical-pickup`, #181); MLAA under DLSS is left as it is, its cost being
+small; the hidden-area mask, the HUD sink skip, the engine switches and shadow sharing are not
+pursued. The outside load was most likely another session's offline render on the same PC
+(reported, not measured).
+
 ## 2026-10-04: pre-release audit - where the frame goes in the played configuration, and what is left
 
 Branch `claude/performance-audit` (off staging). No game launched: every number is from logs
