@@ -187,18 +187,77 @@ static void OvlTabHands()
             dvr::anim::set_mantle(mantleHands);
             ConfigWriteKey("Anim", "MantleHandBack", mantleHands ? "1" : "0", "F10 Hands");
         }
+        bool smooth = dvr::anim::smooth_blend();
+        if (dvr::ovl::checkbox("Smooth transitions in and out of game animations", &smooth)) dvr::anim::set_smooth_blend(smooth);
+        OvlTip("Eases your hand into a game animation (takedowns, trigger sword swings, mantles) and back to the controller, "
+               "with the palm on a straight path. Off: the original quick linear blend and an instant return.");
+        if (smooth) {
+            ImGui::Indent();
+            float inMs = (float)dvr::anim::blend_in_ms(), outMs = (float)dvr::anim::blend_out_ms();
+            bool a = dvr::ovl::slider_float("Into the animation (ms)", &inMs, 0.0f, 1000.0f, "%.0f");
+            bool done = ImGui::IsItemDeactivatedAfterEdit();
+            a |= dvr::ovl::slider_float("Back to your hand (ms)", &outMs, 0.0f, 1000.0f, "%.0f");
+            done |= ImGui::IsItemDeactivatedAfterEdit();
+            if (a || done) dvr::anim::set_blend_ms((unsigned)(inMs + .5f), (unsigned)(outMs + .5f), done);   // live; saved on release
+            OvlTip("Longer feels softer but lags the animation's start; the return can usually be longer than the entry.");
+            ImGui::Unindent();
+        }
+        const bool ikArms = g_ikOn.load();
+        if (ikArms)
+            ImGui::TextDisabled("Full-arm IK is on: your arms are always drawn whole, so arm hiding does not apply.");
+        ImGui::BeginDisabled(ikArms);
         bool takedownArms = dvr::anim::takedown_arms_hidden();
         if (dvr::ovl::checkbox("Hide arms in takedowns (hands still animate)", &takedownArms)) {
             dvr::anim::set_takedown_arms_hidden(takedownArms);
             ConfigWriteKey("Anim", "HideTakedownArms", takedownArms ? "1" : "0", "F10 Hands");
         }
-        OvlTip("Assassinations on the ground and from the air, chokes and combat kills show the game's animated hands "
-               "without forearms, cut at your Sleeve length, like mantling. Off shows the game's full arms.");
+        ImGui::EndDisabled();
+        OvlTip(ikArms ? "Not used while full-arm IK draws the arms; it applies again if IK is off or falls back to hands."
+                      : "Assassinations on the ground and from the air, chokes and combat kills show the game's animated hands "
+                        "without forearms, cut at your Sleeve length, like mantling. Off shows the game's full arms.");
+        bool cineArms = dvr::anim::cinematic_arms();
+        if (dvr::ovl::checkbox("Your arms in cutscenes (experimental)", &cineArms)) dvr::anim::set_cinematic_arms(cineArms);
+        OvlTip("Off: cutscenes and conversations are left exactly as the game shows them. On: your tracked arms stay visible and "
+               "movable, a hidden body is shown again, and the game takes the arms when it animates them. Not reliable yet: "
+               "the arms can be taken or returned at the wrong moment. Replaces the option below while on.");
+        if (cineArms) {   // the gate that decides "the game is animating the arms": live while dragged, saved on release
+            ImGui::Indent();
+            dvr::anim::CineGate g = dvr::anim::cine_gate();
+            float holdS = g.holdMs * 0.001f, startMs = (float)g.startMs; int samples = (int)g.samples;
+            bool a = dvr::ovl::slider_float("Game keeps the arms after they stop (s)", &holdS, 0.0f, 15.0f, "%.1f");
+            bool done = ImGui::IsItemDeactivatedAfterEdit();
+            OvlTip("How long a still pose stays with the game before the arms come back to you. Raise it if the arms return "
+                   "while a scene is still holding them somewhere.");
+            a |= dvr::ovl::slider_float("Arm motion that hands them over (uu/s)", &g.start, 2.0f, 100.0f, "%.0f");
+            done |= ImGui::IsItemDeactivatedAfterEdit();
+            a |= dvr::ovl::slider_float("Arm motion that counts as still (uu/s)", &g.stop, 0.0f, 50.0f, "%.0f");
+            done |= ImGui::IsItemDeactivatedAfterEdit();
+            a |= dvr::ovl::slider_float("Motion must last (ms)", &startMs, 0.0f, 1000.0f, "%.0f");
+            done |= ImGui::IsItemDeactivatedAfterEdit();
+            a |= dvr::ovl::slider_int("...over this many frames", &samples, 1, 10);
+            done |= ImGui::IsItemDeactivatedAfterEdit();
+            OvlTip("A pose that snaps into place is one frame of motion. More frames ignore more of those.");
+            a |= dvr::ovl::slider_float("Ignore the default stance within (uu)", &g.refPoseUu, 0.0f, 10.0f, "%.1f");
+            done |= ImGui::IsItemDeactivatedAfterEdit();
+            OvlTip("The game's arms are never taken while they sit in the unposed default stance. 0 turns this off.");
+            if (a || done) {
+                if (g.stop > g.start) g.stop = g.start;
+                g.holdMs = (unsigned)(holdS * 1000.0f + .5f); g.startMs = (unsigned)(startMs + .5f); g.samples = (unsigned)samples;
+                dvr::anim::set_cine_gate(g, done);
+            }
+            const dvr::anim::CineGateLive live = dvr::anim::cine_gate_live();
+            if (!live.fresh) ImGui::TextDisabled("Now: no arm drawn to measure.");
+            else ImGui::TextDisabled("Now: game arm motion %.0f uu/s, default stance %.1f uu away, %s.", live.joint, live.refPose,
+                                     live.veto ? "default stance ignored" : live.open ? "the game has the arms" : "you have the arms");
+            ImGui::Unindent();
+        }
+        ImGui::BeginDisabled(cineArms);
         bool cineHands = dvr::anim::cinematic_enabled();
         if (dvr::ovl::checkbox("Game hands and arms in cinematics", &cineHands)) {
             dvr::anim::set_cinematic(cineHands);
             ConfigWriteKey("Anim", "CinematicHandBack", cineHands ? "1" : "0", "F10 Hands");
         }
+        ImGui::EndDisabled();
         bool melee = dvr::anim::hand_anim_melee();
         if (dvr::ovl::checkbox("Sword swing animation on the tracked hand", &melee)) dvr::anim::set_hand_anim_melee(melee);
         OvlTip("A TRIGGER sword attack plays the game's swing clip on the hand, then returns it to the controller. "
@@ -1532,6 +1591,28 @@ static void OvlTabIK()
     OvlTip("Connects your hands to IK arms. Hands and fingers keep their animations. Each shoulder adjusts independently at the limits of your reach.");
     ImGui::TextWrapped("IK status: %s",on?g_ikStatus.load():"Disabled - using your normal hand and sleeve settings.");
     if(on)ImGui::TextWrapped("Full arms are automatic when IK is active. If unavailable, the status above explains why only fallback hands appear.");
+    bool gameArm=g_ikGameArmInAnim.load();
+    if(dvr::ovl::checkbox("Game's own arm during game animations",&gameArm)){
+        g_ikGameArmInAnim=gameArm;
+        ConfigWriteKey("Hands","ArmIKGameArmInAnim",gameArm?"1":"0","F10 IK");
+        Log("ik: ArmIKGameArmInAnim=%d (live, saved)",gameArm?1:0);
+    }
+    OvlTip("When a takedown, choke or swing animation takes a hand, that arm becomes the game's own arm, blended in and out with the hand. "
+           "Off: the IK arm reaches from your shoulder to the animated hand, which can twist in poses like the choke.");
+    if(gameArm){
+        ImGui::Indent();
+        int seat=g_ikGameArmShoulder.load();
+        const char* seats[]={"As the game draws it","On your shoulder (not the choke)","On your shoulder (always)"};
+        if(ImGui::Combo("Game arm's shoulder",&seat,seats,3)){
+            g_ikGameArmShoulder=seat;
+            char v[4];_snprintf_s(v,sizeof(v),_TRUNCATE,"%d",seat);
+            ConfigWriteKey("Hands","ArmIKGameArmShoulder",v,"F10 IK");
+            Log("ik: ArmIKGameArmShoulder=%d (live, saved)",seat);
+        }
+        OvlTip("The game draws its arm for its own camera, so its shoulder can sit in front of yours. On your shoulder moves it there "
+               "and keeps the hand where the animation put it.");
+        ImGui::Unindent();
+    }
     if(OvlSec("Shoulder position",kOvlB,"Moves the resting shoulder pair together. Reach can move either shoulder from this position.")){
         auto control=[](const char* label,const char* key,std::atomic<float>& value,float lo,float hi,const char* format){
             float current=value.load();

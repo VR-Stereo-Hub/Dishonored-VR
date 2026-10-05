@@ -1,3 +1,90 @@
+## 2026-10-04: run 4 - takedown arms accepted; cutscene arms left as an opt-in
+
+Branch `claude/anim-blend-ik`, PR #177. Detail: dishonored/ANIM-HANDOFF-PLAN.md, top section.
+- Headset-confirmed on v1.0.3-38-ga206226b7: smooth hand-backs, the game's own arm in game
+  animations, and that arm re-seated on the IK shoulder (not in the choke).
+- `[Anim] CinematicArms` (tracked arms in cutscenes) was not accepted. It stays default 0,
+  labelled experimental in F10 Advanced > Hands, and with it off nothing of it runs (the arm
+  motion sampler is now gated on it too). The gate's open fault is recorded: it measured
+  nothing while the game owned the arms, so every opening closed on the hold.
+- Shipped defaults are unchanged: SmoothBlend, ArmIKGameArmInAnim and ArmIKGameArmShoulder
+  are still 0 in the default ini (on in the dev PC's ini). Turning them on for players is a
+  separate decision.
+- Installed: v1.0.3-40-gb6a256aca; ini = the run-4 ini with `CinematicArms=0` only, byte for
+  byte (73858 bytes, 1700 CRLF). Settings changed in F10 during run 4 are kept (`Method=afw`,
+  DLSS quality 5 at 2114x2192). Backup of the run-4 pair and its logs:
+  `build/playtest-candidates/anim-blend-ik/run4-replaced-20261004-222443/`.
+
+## 2026-10-04: run 3 read - the cutscene gate followed the player; game arm re-seated
+
+Branch `claude/anim-blend-ik`, draft PR #177 (stacked on #176), not merged. Detail, numbers and
+the next run's four questions: dishonored/ANIM-HANDOFF-PLAN.md, top section.
+- **Found in the run-3 log:** the CinematicArms motion gate measured the player's own hand (it
+  tracked the controller's speed; exactly 0.0 uu/s whenever the game owned the arms in a
+  conversation; all 15 openings closed on the hold after 1.8..2.2 s). The mod's hand control
+  moves palette bones behind the wrist too. This is the conversation reset AND the short hold.
+- **Changed:** the game's arm motion is measured between the bones of an arm with the mod's
+  single rigid write excluded (host-tested); an opening needs 3 different measurements; arms in
+  the reference pose are never handed over (1.0 uu, a guess, logged); hold 1500 -> 5000 ms. All
+  six values are in F10 Hands > Your arms in cutscenes with a live readout.
+- **New lever `[Hands] ArmIKGameArmShoulder`** (default 0; 1 = not the choke; 2 = always): the
+  game's arm is re-seated on the IK shoulder about the game's own wrist. `ik/gamearm:` logs the
+  shoulder offset in body axes whether it is on or off.
+- Host: animation 138 catalog checks plus the new gate/estimator cases, arm IK 1085, default
+  writer = packaged = golden ini, lint, 11 exports. Release builds. No game launched.
+- **Not known yet:** the start/stop speeds in the new instrument's units; whether the default
+  stance is the reference pose; the size and direction of the shoulder offset per takedown.
+- TRAPS: an instrument that measured its own side's motion.
+- **Installed for the fourth run:** v1.0.3-38-ga206226b7 (clean banner). The game folder held a
+  different candidate, v1.0.3-46-g4c34beb46 (`codex/afw-character-test`), with `[Stereo]
+  Method=afw` and `AfwDepthMotion=0`; that DLL, its whole ini and all ten logs are backed up with
+  a hash manifest in `build/playtest-candidates/anim-blend-ik/replaced-afw46-20261004-211103/`
+  and restore as a pair. The installed ini is the run-3 ini plus `ArmIKGameArmShoulder=1`, byte
+  for byte (73856 bytes, 1700 CRLF, no bare LF or CR): so `Method=reentry` again, as in run 3,
+  and no `AfwDepthMotion` (this build does not read it). No `CinematicMotion*` key is in the
+  ini, so the compiled 5000 ms hold and the other gate defaults apply. Check on the next run:
+  the banner, and `config: [Anim] CinematicMotionStart=20.0 ... HoldMs=5000`,
+  `config: [Hands] ArmIKGameArmShoulder=1`.
+
+## 2026-10-04: smooth hand-backs, IK arm rules, cutscene arms (built, not run)
+
+Branch `claude/anim-blend-ik` (off `claude/tools-workflows`). Two default-off levers with F10
+toggles; detail and launch questions in dishonored/ANIM-HANDOFF-PLAN.md (top section).
+- `[Anim] SmoothBlend`: eased entry/return with their own durations (250/350 ms), palm on a
+  straight path, hands held through the return. Found in the code: the return blend was
+  never shown, because the hand mask dropped on the tick the return began (an instant snap).
+- Full-arm IK already draws whole arms past every hide/split rule; F10 now says so and greys
+  the takedown hide option while IK is on.
+- `[Anim] CinematicArms`: tracked arms in cinematics, the game takes them only while it
+  animates them (upper/left action or matinee blend). Static IDA reading (cm1..cm4,
+  ENGINE_NOTES): a hide-player cinematic hides the whole pawn through Actor.bHidden; the
+  lever unhides an arms-only pawn through the game's own setter after reflection agrees
+  with the static offset. Whether conversations use that hide is not established; the
+  `cine/arms:` line answers it on the first run.
+- Host: 138 animation checks (24 new, with a negative control), golden/release/default
+  writer byte-identical, 11 exports, lint, Release build. No game launch.
+- Installed d3d9.dll sha256 3dd87455... over the performance candidate v1.0.3-34-g63a890a76,
+  at the maintainer's request. Its banner reads v1.0.3-33-gdb8d3ced4-dirty: it was built
+  from the uncommitted tree before df42ff55d, whose code it matches.
+- First run: transitions reported right. Choke right hand twisted (open-hand mirroring ran
+  on a game-owned hand) and no arm control in conversations (matinee flag on for the whole
+  scene): both fixed in the next commit; detail in ANIM-HANDOFF-PLAN.
+- Second run (v1.0.3-36): choke arm still twisted (IK arm under the game's wrist), no arms in
+  the boat ride (full-body pawn left hidden), no hand-back for scripted arm clips. Next build:
+  `ArmIKGameArmInAnim` (game's own arm while it animates a hand), full-body unhide, and a
+  motion gate on the game's own arm bones (the BioShock Remastered approach), with its
+  thresholds logged per second for tuning. Backup of DLL, addon, shim, loader, whole ini and all ten logs with
+  a hash manifest: `build/playtest-candidates/anim-blend-ik/replaced-perf-20261004-191254/`
+  (anim-blend worktree). Whole-ini diff is exactly SmoothBlend=1, HandBackBlendInMs=250,
+  HandBackBlendOutMs=350, CinematicArms=1; CRLF throughout; DLSS helper kept.
+  Not carried by this build: `[Stereo] AfwFreshWorld=1` stays in the ini but is not read
+  (that lever lives only on codex/performance-audit), nor its ReShade fix that keeps
+  disabled effects loaded (saving a ReShade preset from F10 here can drop disabled effects
+  from it) or its HUD transfer savings.
+- Headless IDA (previous commit's workflow) verified on the dev PC: first analysis of
+  Dishonored.exe 38 min, 63,921 functions, x86 decompiler licensed, the ProcessEvent
+  known-good matches and decompiles; each later script opens the saved .i64 in 4 s.
+
 ## 2026-10-04: headless IDA and Blender workflows, local tool file
 
 Branch `claude/tools-workflows` (off staging). Tools only; no mod code, no game launch.

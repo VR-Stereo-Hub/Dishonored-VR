@@ -1538,3 +1538,16 @@ Headless IDA output is NOT kept in the repo, unlike the workflow it was adapted 
 here a decompile is game-derived text. The scripts are kept; each output is stamped
 with the md5 it ran against so a game update shows on the first line.
 See `docs/IDA_WORKFLOW.md` and `docs/MODEL_WORKFLOW.md`.
+
+### 2026-10-04: hand-back smoothing takes only the measured fixes; cutscene arms use the game's setter
+
+SmoothBlend ports two fixes from the retired HandOrigin branch, the mask/owner hold through
+the return and the straight palm path, because each fixes a defect that branch measured;
+its entry translation (moving the clip to start at the tracked palm) was never accepted and
+is not ported. Easing and the separate durations are new. All of it sits behind one lever
+so SmoothBlend=0 is the previous code path exactly. CinematicArms unhides the pawn by
+calling the engine's own SetHidden (0x00587FA0), not by writing the bit: the setter also
+re-attaches the components, which a bare bit write would skip. It is called only after
+reflection resolves Actor.bHidden to the statically read +0x120/0x2 and the prologue
+matches, only for an arms-only body, and the game's own end-of-cinematic call restores it.
+See dishonored/ANIM-HANDOFF-PLAN.md and ENGINE_NOTES.

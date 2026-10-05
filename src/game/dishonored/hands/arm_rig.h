@@ -150,6 +150,33 @@ inline bool pose_arm(const Rig& rig,const Chain& chain,Vec nominal,Vec pole,Vec 
     }
     return true;
 }
+// ArmIKGameArmShoulder: the game's own arm, moved so its shoulder sits on the IK shoulder while
+// its wrist stays exactly where the game put it. The game draws its arm for its own camera and
+// body; the IK shoulder hangs from the tracked head, so the two shoulders differ and the game's
+// arm showed its shoulder out in front (run 3, 2026-10-04). One transform for the whole arm,
+// about the wrist: a stretch along the shoulder-wrist line (so the cross-section at the wrist
+// keeps meeting the hand), then the smallest rotation that points that line at the IK shoulder.
+// The elbow's bend and side are the game's. Stretch and angle are bounded; `residual` is what
+// the bounds left between the two shoulders.
+struct ShoulderFit {Xform move{};float angle=0,stretch=1,offset=0,residual=0;bool ok=false;};
+inline ShoulderFit shoulder_fit(Vec nativeShoulder,Vec wrist,Vec target,float minStretch,float maxStretch,float maxAngle){
+    ShoulderFit out;out.move.r=hf::identity3();
+    Vec from=nativeShoulder-wrist,to=target-wrist;
+    const float a=length(from),b=length(to);
+    if(!finite(nativeShoulder)||!finite(wrist)||!finite(target)||!(a>1)||!(b>1))return out;
+    out.offset=length(target-nativeShoulder);
+    out.stretch=std::clamp(b/a,minStretch,maxStretch);
+    Vec d=from*(1/a),e=to*(1/b);
+    Vec axis=cross(d,e);const float sine=length(axis),cosine=std::clamp(dot(d,e),-1.f,1.f);
+    out.angle=std::min(atan2f(sine,cosine),maxAngle);
+    Mat3 turn=sine>1e-5f?axis_angle(axis,out.angle):hf::identity3();
+    float v[3]={d.x,d.y,d.z};Mat3 grow=hf::identity3();
+    for(int r=0;r<3;++r)for(int k=0;k<3;++k)grow.m[r*3+k]+=(out.stretch-1)*v[r]*v[k];
+    out.move.r=hf::mul3(turn,grow);
+    put(wrist-rotate(out.move.r,wrist),out.move.t);
+    out.residual=length(point(out.move,nativeShoulder)-target);
+    out.ok=true;return out;
+}
 // Every vertex must match a reference position, then every active slot must
 // match ONE unique reference weight field over the ENTIRE vertex population.
 // This catches shuffled palettes, duplicate/ambiguous slots and foreign meshes.

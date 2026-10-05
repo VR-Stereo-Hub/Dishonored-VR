@@ -292,3 +292,20 @@ Before interpreting the launch, verify the log banner against the installed
 build. Read `ik/map`, `ik: reference validated`, `ik: ACTIVE` or fallback lines.
 Archive current and previous logs before a relaunch. Separate later launches
 cover native hand animation, tab persistence, rapid head turns and menu/load.
+
+## The game's own arm during game animations, 2026-10-04
+
+`[Hands] ArmIKGameArmInAnim=1` (F10 IK): while a game animation owns a hand, that arm's slots
+blend from the IK solution to the game's own skin matrices by the hand-back weight. At full
+ownership the arm is the game's exactly. Accepted in a headset for the choke.
+
+`[Hands] ArmIKGameArmShoulder` (F10 IK, under it; default 0): the game poses its arm for its own
+camera and body, so its shoulder is not where the IK shoulder is, and it was reported in front
+of it in every takedown but the choke. 1 re-seats the game's arm on the IK shoulder about the
+game's own wrist (`shoulder_fit`: a stretch along the shoulder-wrist line within 0.80..1.25,
+then the smallest rotation within 45 degrees), in every game animation except the choke; 2
+includes the choke. The hand stays where the clip put it. `ik/gamearm:` logs the offset between
+the two shoulders in body axes and what the re-seat did, with the lever on or off.
+Headset-confirmed at 1 on 2026-10-04 (two front fatalities re-seated, two chokes left alone;
+the shoulders measured 8 to 27 uu apart, the IK shoulder 5 to 14 uu higher). Detail:
+ANIM-HANDOFF-PLAN.md, "Third headset run" and "Fourth headset run".

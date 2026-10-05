@@ -1,3 +1,254 @@
+## Fourth headset run: takedowns accepted, cutscene arms shelved behind the toggle (2026-10-04)
+
+Build v1.0.3-38-ga206226b7 (banner and both config lines confirmed in the log), ini = run 3 plus
+`ArmIKGameArmShoulder=1`.
+- **Takedowns: reported correct.** Two front fatalities, two chokes (one into a carry). The
+  re-seat ran in the fatalities and stood down in the chokes (`choke=1 ... not applied`), as
+  designed. `ik/gamearm:` (54 lines): the IK shoulder and the game's shoulder were 8 to 27 uu
+  apart in most samples (up to 47 on one arm mid-clip); the steadiest part is height, the IK
+  shoulder 5 to 14 uu above the game's, while the forward part swings from -18 to +25 through a
+  clip. So the game's shoulder is mostly LOWER, and in front or behind by turns. HEADSET-CONFIRMED:
+  SmoothBlend, ArmIKGameArmInAnim, ArmIKGameArmShoulder=1.
+- **Cutscene arms: not accepted; `[Anim] CinematicArms` stays an opt-in.** It ships 0, sits in
+  F10 Advanced > Hands > Game arms during actions as "Your arms in cutscenes (experimental)",
+  and with it off nothing of the feature runs: no unhide, no gate, no name walk, and the arm
+  motion sampler does not measure. Cutscenes and conversations are then exactly the game's
+  (`CinematicHandBack` and the per-state rules, as before this branch).
+- **What the log says about the new gate (MEASURED, cause OPEN).** 6 openings instead of 15,
+  at 30 to 183 uu/s between bones with the arms 7 to 20 uu from the reference pose, so the
+  openings were not the reference pose. All 6 lasted 5.4 s: every one closed on the 5 s hold
+  again. At each close the line reads motion 0.0 and reference-pose distance -1 (not
+  measurable): while the game owned the arms the new instrument measured nothing. Either the
+  sampler is not reached or the palette cannot be inverted in that state; not established.
+  Equal-length episodes are a timer (TRAPS), so the gate still cannot tell a held pose from an
+  ended clip. The reference-pose veto fired on 937 samples, so some stance in the run IS within
+  1 uu of the reference pose. Player-owned seconds still show between-bones motion up to 760
+  uu/s: either real game motion under the player's hands or the single-rigid-write assumption
+  does not hold; not separated.
+- **If this is picked up again:** first make the instrument report while the game owns the
+  arms (log why `arm_motion` returned no bones there), then decide from a per-joint log whether
+  the player's write is one rigid move.
+
+## Third headset run: the gate was watching the player (2026-10-04)
+
+Build v1.0.3-37-g01b763971, SmoothBlend=1, CinematicArms=1, ArmIK=1, ArmIKGameArmInAnim=1.
+Log: 323 `cine/motion:` lines, 15 gate openings, 3 takedowns. Reported: cutscenes close to
+right and the choke right; in conversations the arms were taken by the game into still default
+stances (one with the arms pointing backwards) and the player's arm position reset; the arms
+came back to the player while a scene still held them; in every takedown but the choke the
+game's arm showed its shoulder too far forward.
+
+**1. The motion gate measured the player's own hand. MEASURED, from the log.**
+- `swing: beat peak10s` (the controller's peak speed per 10 s) against `cine/motion` in the
+  same windows, player-owned: controller 0.01 m/s -> arm speed max 0.6..1.6 uu/s; 0.07 m/s ->
+  7..17; 0.14 m/s -> 1..7; 0.48..0.71 m/s -> 17..340; 1.2..1.9 m/s -> 50..87. The instrument
+  follows the controller. Against the cinematic camera's rotation rate the same seconds
+  correlate at 0.10 (authored) and 0.25 (composed with the head), so it is not the camera.
+- In every whole second the game owned the arms in a conversation, the speed is exactly 0.0 in
+  16 of 21; the other 5 are real game motion (max 24..213 uu/s). The game's arms in a
+  conversation are a still stance.
+- All 15 openings lasted 1.78 to 2.19 s: the opening delay, a hold of 1500 ms that started at
+  once because the measured speed fell to 0 the moment the game took the arms, the release.
+  Not one opening was kept open by motion.
+- Each change of owner is one frame of 600..2700 uu/s (the mod's write starting or stopping).
+So: the mod's hand control moves palette bones behind the wrist as well as the hand (the first
+design assumed it wrote hand bones only), any hand movement above 0.2 m/s for 120 ms opened the
+gate, the game showed its still stance, and the hold gave the arms back 1.5 s later. Both
+complaints (the reset in conversations, the short hold) are this one fault. Hypotheses checked:
+"a snap is one huge spike" is true of the owner changes but they did not open the gate (it
+already needed 120 ms); what opened it was sustained player motion. "The stance is the
+reference pose" could NOT be measured from this log: it carries no palette. The new build logs it.
+
+**The new instrument** (`arm_motion`, anim_policy.h; `MsSampleArmSpeed`). What the mod writes is
+one rigid move of one bone and everything below it, per arm, whichever bone the control sits on
+(not established which; the design does not need it). That leaves an arm's bones in at most two
+groups that are rigid inside themselves. An animation bends more than one joint. The speed is
+therefore measured between the bones of one arm (bone b's points in bone a's frame, which no
+common rigid move changes), and the answer is the largest relative speed left once the single
+fastest split is granted to the mod: the second-largest edge of the minimum spanning tree over
+the pairwise speeds. Limit, by construction: a clip that moves exactly one joint reads as
+still. Host checks: the mod's translation, its rotation and a whole-arm move read 0 while the
+old instrument reads over 50; two joints read as motion, also under the mod's write on top.
+- An opening also needs `CinematicMotionSamples` (3) DIFFERENT measurements above the
+  threshold: a pose snap is one measurement, however long a stalled sampler keeps showing it.
+- `CinematicRefPoseUu` (1.0): arms within that distance of the reference pose (measured the
+  same way, the mod's write excluded) are never handed over, and an open gate closes at once.
+  The 1.0 is a guess, not a measurement: `cine/motion` now logs the distance's range a second.
+- `CinematicMotionHoldMs` 1500 -> 5000. Run 3 cannot supply this number: no opening was ever
+  kept open by game motion, so no frozen-pose duration was recorded. 5 s covers the 2.5 and 4.5 s
+  the BioShock Remastered mod measured. The start/stop speeds (20/8) are unchanged and are
+  NOT yet measured in the new instrument's units; the only game-motion numbers run 3 has are the
+  old instrument's 24..213 uu/s.
+- F10 Hands > Your arms in cutscenes: hold, both speeds, duration, frame count, default-stance
+  distance, live while dragged and saved on release, with a live readout (motion, distance,
+  who has the arms). Seam: `anim cinegate [<start> <stop> <startMs> <holdMs> [samples] [refPoseUu]]`.
+- Log: `cine/gate:` on every opening and closing with the numbers that caused it; `cine/motion`
+  now carries the new motion, the old fastest point beside it, the reference-pose distance,
+  the veto count and the openings.
+
+**2. The game's arm and the IK shoulder (`[Hands] ArmIKGameArmShoulder`, default 0).**
+Why, from the code: at full game ownership the arm slots are the game's palette exactly, and
+the game poses that arm for its own camera and body. The IK shoulder is the tracked head plus
+the F10 shoulder offsets in an upright body frame. Nothing ties the two, so the shoulder jumps
+by their difference as the hand-back blends in. Run 3's log does not carry that difference
+(only the IK's own reach shift: 17.8 / 20.1 uu in the choke, 0 in the drop assassination, where
+the head was pitched 45 degrees down and the neck model had moved the eye 22 uu forward).
+The fix (`shoulder_fit`, arm_rig.h): one transform for the game's arm, about the game's own
+wrist: a stretch along the shoulder-wrist line (so the cross-section at the wrist still meets
+the hand), then the smallest rotation that puts the shoulder on the IK shoulder. The hand stays
+exactly where the clip put it; the elbow's bend and side stay the game's. Bounded (stretch
+0.80..1.25, 45 degrees); what the bounds leave is logged. It blends in with the hand-back
+weight like the arm itself, and the IK arm it blends from already has that shoulder.
+1 = every game animation except the choke, which was judged right as it was and is kept
+byte-for-byte (latched from the choke state until its hand-back has returned); 2 = the choke
+too. `ik/gamearm:` logs, twice a second while the game has an arm, the IK shoulder minus the
+game's shoulder in body axes (forward/right/up, uu) and the turn, stretch and left-over of the
+re-seat, with the lever on or off. Not chosen: moving the whole arm rigidly with its hand,
+which takes the hand off the clip's contact point by the same distance.
+
+**Next run, one question each.**
+1. A conversation, hands moving freely: do the arms stay with the player? `cine/gate:` should
+   not appear; `cine/motion` should read motion near 0 with the fastest point high.
+2. A scripted arm clip (the walk-in, the boat): does the game take the arms and keep them while
+   it holds a pose? `cine/gate: OPEN` then no CLOSED until 5 s after the last motion. If the
+   clip is NOT taken, read the `between bones` max in those seconds against the 20 uu/s start.
+3. A default stance shown after a clip: read `reference-pose distance` there. Under 1 and
+   vetoed = the stance is the reference pose; well above = it is an authored pose and the veto
+   cannot see it.
+4. A stab takedown and the choke: is the shoulder where the IK shoulder is, and is the choke
+   unchanged? `ik/gamearm:` gives the offset the re-seat removed.
+
+## Second headset run: choke arm, boat ride, scripted arm clips (2026-10-04)
+
+Build v1.0.3-36-g65b278d04, two runs: the intro (boat ride, Dunwall Tower) in
+dishonored_vr.prev.log, takedowns in dishonored_vr.log.
+- **Choke: right hand still turned.** Open hand never ran this time (0 `hands/openright`
+  lines), so that was not the whole cause. `ik: ACTIVE ... hand blend 0.000/0.000` during the
+  choke: the wrist is exactly the game's choke pose, but the arm under it is IK-solved from the
+  tracked shoulder, while the game's arm reaches around the neck from its own shoulder and
+  elbow, so the game's wrist sits twisted on the IK forearm. New lever `[Hands]
+  ArmIKGameArmInAnim` (F10 IK, "Game's own arm during game animations"): the arm slots blend
+  to the game's own arm by the hand-back weight (a skin-matrix lerp; the IK slots carry the
+  length scale, which the proper-rotation blend refuses). At full game ownership the arm is the
+  game's exactly; it eases back to IK with the hand.
+- **Boat ride: no arms.** It is `StatePlayerMasterSoiree`, cinematicMode=1, body mode 1, pawn
+  hidden by the game. The first build only unhid arms-only (body 0) and re-hid it here. The game
+  shows the full-body pawn itself in conversations (pawn visible, arms drawn), so body 1 is now
+  allowed; HIDDEN (2) never. Not yet known: whether a cutscene camera owns the view there (the
+  first-person arms draw only for their owner's view); `cine/motion` now logs the view target.
+- **Scripted arm clips (picking Emily up): no hand-back.** No arm action, no matinee-node
+  change, no distinct state, and it ran with cinematicMode=1 in an ordinary state. The BioShock
+  Remastered mod met the same absence of a flag (its M7-S4) and used MOTION: the model-space
+  movement of a bone the mod does not write, with a hold for poses a clip freezes mid-scene. Here
+  the mod writes only hand bones (single-bone SkelControls), so the game's upper-arm and forearm
+  bones are measured from the native palette (`MsSampleArmSpeed`, centroid plus two 10 uu
+  levers so rotation counts). A gate (`MotionGate`, host-tested) opens above
+  `CinematicMotionStart` (20 uu/s) for `CinematicMotionStartMs` (120) and closes below
+  `CinematicMotionStop` (8) after `CinematicMotionHoldMs` (1500). A cutscene now also includes
+  bCinematicMode in an ordinary state. All four are first guesses: `cine/motion:` logs the speed
+  max/mean per second, the gate, the input locks and the view target, so a run sets them.
+  The BioShock Infinite mod (UE3) hands the arms to the game for the whole of any cutscene camera
+  or input lock; that gives no player control in cutscenes, so here both are logged, not used.
+
+## First headset run of SmoothBlend / CinematicArms (2026-10-04)
+
+Build banner v1.0.3-33-gdb8d3ced4-dirty (built before the commit; code = df42ff55d), IK on,
+SmoothBlend=1, CinematicArms=1. Two runs (dishonored_vr.prev.log, dishonored_vr.log).
+- **SmoothBlend: transitions reported as right**, entry and return, takedowns and trigger
+  swings.
+- **Choke: the right hand looked turned about 180 degrees at its target and the IK arm
+  twisted.** The log shows the sword unequipped at the choke (`rfl/state: equipment CHANGED
+  ... -> none`) and `hands/openright: right hand OPEN ... 15 finger bone(s) posed from the
+  left` during it: the empty-right-hand mirroring ran on a hand the game owned, replacing
+  the choke grip with the left hand's mirrored pose, and the IK arm follows that wrist.
+  Fixed: `OhActive()` stands down while `hand_owned(1)` (through the return too). Open hand
+  is for the player's own empty hand, never a game animation's.
+- **Cutscenes: no control.** In every conversation the matinee pose blend reads
+  `m_bEnabled=1` from entry to exit (`cine/arms: master=StatePlayerMasterInDialog ...
+  matineeBlend=1`), so the game kept the hands the whole scene (`reason=cinematic: the game
+  animates the arms`). The arms WERE drawn (`arm mesh last drawn 16 ms ago`, pawn not
+  hidden, body mode 1). Fixed: the matinee flag no longer triggers a hand-back; only an
+  upper/left arm action does. `cine/matinee:` now logs ActiveChildIndex, BlendTimeToGo and
+  m_bDoBlend on change inside cinematics, next to the actions and the sequence, to find what
+  marks an authored arm clip (a matinee-driven gesture would currently stay with the player).
+  The mod's own SkelControl writes the game's hand bones while the player owns them, so
+  "the native pose moves" cannot be the signal: it would detect the player.
+- **Hide-player cinematic (level start): unhidden, NOT honoured.** bHidden went 1 -> 0
+  through the setter, but the arm mesh did not draw in the second after. Likely cause, not
+  measured: the first-person mesh is `bOnlyOwnerSee`, so it does not render while the view
+  target is a cinematic camera rather than the pawn. The pawn then became unreadable
+  (level transition). No visible fault reported from it.
+
+## Smooth hand-backs, IK arms and cutscene arms (2026-10-04, built, not headset-run)
+
+Branch `claude/anim-blend-ik`. Two levers, both default OFF with a live F10 toggle
+(Advanced > Hands > Game arms during actions) and a seam word.
+
+**Why the hand-back snapped (read from the code, not a run).**
+1. *Snap out.* When the release hysteresis ended, `tick()` dropped `handMask` to 0 on the
+   same tick the return blend began, and `weight_for()` answers 1 for an unmasked hand. The
+   150 ms return was computed and never shown: the hand jumped to the controller.
+   `ownedMask` dropped at the same moment, so the base pose under the hand changed too.
+2. *Corners.* The blend was a linear 150 ms ramp both ways: full speed from the first frame
+   and a dead stop at the last.
+3. *Arc.* The correction's translation was interpolated about the mesh origin, so a palm far
+   from it swings through an arc and overshoots. The retired HandOrigin branch measured it
+   (run155: median 8.9 uu, max 98 uu off the straight path).
+
+**`[Anim] SmoothBlend=1`** (seam `anim smooth on|off`, `anim blendms <entry> <return>`):
+smootherstep easing (zero speed and acceleration at both ends), separate
+`HandBackBlendInMs` (250) and `HandBackBlendOutMs` (350), a reversal mid-blend covers only
+the remaining distance; the palm moves on the straight line between its native and its
+controller position (`blend_transform_palm`); the hands and `ownedMask` stay with the game
+until the return reaches the controller (`render_hand_mask`). From the retired branch only
+the two measured defect fixes were taken (mask hold, palm path). Its HandOrigin entry
+translation, never accepted in a headset, was not. Off = the original code path exactly.
+The IK arm needs nothing extra: its endpoint is the wrist under the final, blended hand
+correction, so a smoothed hand gives a smoothed arm.
+
+**IK and the arm-hiding rules.** With full-arm IK active the draw already replaces the arm
+mesh with the whole IK-solved arm before any split or hide is consulted (`MsDraw`), so
+HideTakedownArms and the split-hand geometry choices have no visible effect. F10 now says so
+and greys the takedown option while IK is on; the rules still apply if IK falls back to hands.
+Per-state "Show game arms" still decides WHO poses the hand (the game or the controller), so
+it stays live under IK.
+
+**`[Anim] CinematicArms=1`** (seam `anim cinearms on|off`): in a cinematic master state the
+state no longer hands the arms back by itself. The game takes them, through the same blend,
+only while it animates them: an upper or left-arm action (the conversation's unequip, an item
+use) or `m_pMatineeBlender.m_bEnabled` (a matinee posing the pawn). The lane-0 rule and
+`Arms.0.<cinematic state>` are bypassed while it is on; CinematicHandBack is greyed.
+Visibility: a hide-player cinematic hides the whole pawn (ENGINE_NOTES, "a hide-player
+cinematic hides the whole pawn"), so with the lever on and the body in arms-only mode the
+pawn is unhidden through the game's own setter (`kActorSetHidden`), on the script lane, after
+reflection resolves `Actor.bHidden` to exactly the statically read +0x120/0x2 and the setter's
+prologue matches. It is re-hidden if the lever goes off or the body leaves arms-only while the
+cinematic runs; the game unhides it itself when the cinematic ends.
+With the lever on, `cine/arms:` logs every cinematic transition (bCinematicMode, pawn bHidden,
+body mode, matinee blend, how long since the arm mesh last drew; off, nothing runs at all) and reports one
+second after an unhide whether the arm mesh actually drew (HONOURED / NOT honoured).
+
+**Not established.** Whether conversations (`InDialog`) hide the pawn or only lower the arms
+out of view: the dev-PC log shows no arm draw in dialogue, nothing more. If a conversation
+does not set bHidden, CinematicArms gives the hands to the player but there may be nothing
+drawn; the first `cine/arms:` line answers it. Body mode FULL_BODY (seen in dialogue) is
+never unhidden: that would show the third-person body at the camera.
+
+Host: 138 animation checks (24 new: easing ends and monotonicity, entry/return durations,
+reversal share, shape survives a reset, palm on the straight line within 0.001 uu with a
+negative control in which the old blend leaves it by more than 5 uu, mask held through the
+return). Default writer, packaged profile and golden ini byte-identical; 11 exports; lint.
+Release builds. No game launched.
+
+**Next launch, one question each:**
+1. SmoothBlend on (IK on): does a trigger sword attack and a takedown now ease in and come
+   back to the controller without a jump? A jump at the END is the mask/owner path
+   (`anim: ... reason=returning to tracked hands` should appear between release and
+   controller); a jump at the START is the entry, judged with the In slider.
+2. CinematicArms on, in the first conversation or cutscene: read `cine/arms:`. pawnHidden=1
+   then an UNHIDDEN line and HONOURED = the hide was the cause and the arms are back;
+   pawnHidden=0 with no recent arm draw = the arms are lowered or culled, a different cause.
+
 ## The player's sequence vocabulary, by name (2026-10-04)
 
 Source: `tools\model-export.ps1` (UModel) over the cooked packages, plus the `anim: gen=...

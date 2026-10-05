@@ -4,6 +4,7 @@
 #include <limits>
 using namespace dvr::ik;
 static int checks=0,failures=0;
+static Vec unit_copy(Vec v){unit(v);return v;}
 static void check(bool ok,const char* name){++checks;if(!ok){++failures;printf("FAIL: %s\n",name);}}
 static bool near(Vec a,Vec b,float eps=.002f){return length(a-b)<eps;}
 int main(int argc,char** argv){
@@ -15,6 +16,21 @@ int main(int argc,char** argv){
     check(near(center,{8,-9,0}),"shared right offset is not mirrored");
     Solution sol;
     Vec pole{-.3f,-1,.6f},outward{0,0,1};
+
+    {   // ArmIKGameArmShoulder: the game's arm re-seated on the IK shoulder, wrist untouched
+        Vec ns{10,0,40},w{0,-30,60},tg{-6,-4,38};
+        ShoulderFit f=shoulder_fit(ns,w,tg,.8f,1.25f,1.0f);
+        check(f.ok&&near(point(f.move,w),w),"shoulder fit keeps the game's wrist");
+        check(f.ok&&f.residual<.01f&&near(point(f.move,ns),tg),"shoulder fit lands on the IK shoulder");
+        check(fabsf(f.offset-length(tg-ns))<.001f,"shoulder fit reports the offset it removed");
+        Vec mid=(ns+w)*.5f,side=mid+unit_copy(cross(ns-w,Vec{0,0,1}))*3;
+        check(fabsf(length(point(f.move,side)-point(f.move,mid))-3)<.02f,"shoulder fit keeps the arm's thickness");
+        ShoulderFit same=shoulder_fit(ns,w,ns,.8f,1.25f,1.0f);
+        check(same.ok&&same.angle<1e-4f&&fabsf(same.stretch-1)<1e-5f&&near(point(same.move,{3,4,5}),{3,4,5}),"shoulder fit is identity when the shoulders agree");
+        ShoulderFit far=shoulder_fit(ns,w,{-200,90,0},.8f,1.25f,.6f);
+        check(far.ok&&far.stretch<=1.2501f&&far.angle<=.6001f&&far.residual>1&&near(point(far.move,w),w),"shoulder fit is bounded and says what is left");
+        check(!shoulder_fit(w,w,tg,.8f,1.25f,1.0f).ok&&!shoulder_fit(ns,w,{NAN,0,0},.8f,1.25f,1.0f).ok,"shoulder fit refuses a degenerate arm");
+    }
     check(solve({0,0,0},{30,0,0},pole,outward,{},25,26,.5f,sol),"reachable solve");
     check(near(sol.shoulder,{}),"reachable shoulder stays nominal");
     check(near(sol.wrist,{30,0,0}),"wrist stays exact");

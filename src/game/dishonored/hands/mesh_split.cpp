@@ -3081,7 +3081,8 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         // out of the hand's local space into the draw's camera-relative world
         // so any other member of the same view can consume it. Published here,
         // AFTER the model scale, so that factor is carried exactly once.
-        D = dvr::anim::blend(D, hand); // blend once, PER HAND (VR-220); weapons inherit this same correction
+        D = dvr::anim::blend(D, hand, palmLocal); // blend once, PER HAND (VR-220); weapons inherit this same correction.
+                                                  // SmoothBlend moves the palm on a straight line (anim_policy.h)
         WaPublishCommon(hand, c, D);
     } else {
         D = dvr::hf::delta_local(c->R_L, c->t, O_C, Guse, dcam, R_src, qLocal,
@@ -3356,6 +3357,10 @@ static void OhBuildPairs()
 static bool OhActive()
 {
     if (!g_ohOn) { g_ohEmptySince = 0; return false; }
+    // A game animation owns the right hand (a takedown, a choke, a cinematic action, and with
+    // SmoothBlend its return): its fingers are the game's. Mirroring the left hand onto them
+    // replaced the choke's grip with the left hand's pose and twisted the IK arm (2026-10-04).
+    if (dvr::anim::hand_owned(1)) return false;
     const LONG tick = InterlockedCompareExchange(&g_rflPrimaryKindTick, 0, 0);
     const unsigned age = tick ? (unsigned)(GetTickCount() - (DWORD)tick) : 0xffffffffu;
     const LONG right = InterlockedCompareExchange(&g_rflPrimaryKind, 0, 0);
@@ -3407,6 +3412,65 @@ static void OhApply(float* buf, const float* src, UINT regs)
         g_ohN, g_ohApplied);
 }
 
+
+// CinematicArms: how fast the GAME moves its own arms, from the native palette, once per frame.
+// Render lane. Run 3 (2026-10-04) measured the first version of this (the fastest arm-bone
+// point in the palette) following the player's own controller: the mod's hand control moves
+// palette bones behind the wrist too. dvr::anim::arm_motion measures BETWEEN the bones of one
+// arm and grants the mod its single rigid write (anim_policy.h); the old number is kept as
+// `fastest` so a log shows both, and the pose's distance from the reference pose rides along.
+#include "game/dishonored/anim_policy.h"
+static void MsSampleArmSpeed()
+{
+    static unsigned lastFrame = ~0u;
+    static float prev[2][dvr::anim::kArmMotionMaxBones * 12];
+    static int prevBone[2][dvr::anim::kArmMotionMaxBones], prevN[2] = { 0, 0 };
+    static bool have = false;
+    static ULONGLONG prevMs = 0;
+    const unsigned frame = (unsigned)dvr::frame::count();
+    if (frame == lastFrame) return;
+    lastFrame = frame;
+    // Only CinematicArms reads this. With the lever off nothing is measured at all.
+    if (!dvr::anim::cinematic_arms()) { if (have) { have = false; g_msArmSpeed.store(-1.0f); g_msArmRefPose.store(-1.0f); } return; }
+    const int hands[2] = { g_msHandBone[1], g_msHandBone[2] };
+    if (g_mpCacheN <= 0 || g_mpCacheN != g_mpPalN || hands[0] < 0 || hands[1] < 0) { have = false; return; }
+    const ULONGLONG now = GetTickCount64();
+    const float dt = have && now > prevMs ? (float)(now - prevMs) * 0.001f : 0.0f;
+    const bool timed = dt > 0.0f && dt < 0.25f;
+    float joint = 0, fastest = 0, refPose = -1; int bones = 0, used = 0;
+    for (int side = 1; side <= 2; side++) {
+        int idx[dvr::anim::kArmMotionMaxBones], n = 0;
+        float cur[dvr::anim::kArmMotionMaxBones * 12], probe[dvr::anim::kArmMotionMaxBones][3];
+        for (int b = 0; b < g_msBones && b < MS_MAX_BONES && n < dvr::anim::kArmMotionMaxBones; b++) {
+            if (g_msBoneSide[b] != side || g_msBoneW[b] <= 0 || b == hands[side - 1] || (UINT)(b * 3 + 3) > (UINT)g_mpCacheN) continue;
+            float along = 0;
+            for (int a = 0; a < 3; a++) along += (g_msBoneCen[b][a] - g_msBoneCen[hands[side - 1]][a]) * g_msAxis[side][a];
+            if (along >= -2.0f) continue;                       // the hand and fingers: the mod places those
+            memcpy(cur + n * 12, g_mpCache + b * 12, 12 * sizeof(float));
+            for (int a = 0; a < 3; a++) probe[n][a] = g_msBoneCen[b][a];
+            idx[n++] = b;
+        }
+        const bool same = have && n == prevN[side - 1] && !memcmp(idx, prevBone[side - 1], n * sizeof(int));
+        const dvr::anim::ArmMotion m = dvr::anim::arm_motion(cur, same && timed ? prev[side - 1] : nullptr, probe, n, dt);
+        if (m.bones) {
+            used += m.bones;
+            if (m.joint > joint) joint = m.joint;
+            if (m.fastest > fastest) fastest = m.fastest;
+            if (m.refPose >= 0 && (refPose < 0 || m.refPose > refPose)) refPose = m.refPose;   // the arm farther from its reference
+            if (m.bones > bones) bones = m.bones;
+        }
+        memcpy(prev[side - 1], cur, n * 12 * sizeof(float));
+        memcpy(prevBone[side - 1], idx, n * sizeof(int)); prevN[side - 1] = n;
+    }
+    const bool valid = used > 0 && timed;
+    have = used > 0; prevMs = now;
+    g_msArmRefPose.store(used > 0 ? refPose : -1.0f);
+    g_msArmBones.store(bones);
+    if (valid) {
+        g_msArmSpeed.store(joint); g_msArmFastest.store(fastest);
+        g_msArmSpeedMs = now; g_msArmSampleGen.fetch_add(1);
+    }
+}
 
 // Emit the classes this mode wants, through OUR index buffer. Returns false if
 // it drew nothing, and the caller then does whatever it would have done - which
@@ -3505,6 +3569,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
             return false;
         }
     }
+    MsSampleArmSpeed();   // CinematicArms: the game's own arm motion (cheap, once per frame)
     if(ik && IkTryDraw(dev,type))return true;
     int lo, hi;
     switch ((nativeHands || ik) ? MS_MODE_HANDS : g_msMode) {
