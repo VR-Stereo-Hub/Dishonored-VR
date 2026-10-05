@@ -1,3 +1,4 @@
+#include "core/gfx/reshade_runtime.h"   // the seam's `reshade effects on|off`
 // game/dishonored/commands.cpp - the game side of the command seam and the
 // status provider. Included by the unity build (it reads the mod's globals).
 //
@@ -625,6 +626,13 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         _snprintf(v, sizeof(v), "%.2f", dvr::clarity::body_depth());
         ConfigWriteKey("Clarity", "DlssBodyDepth", v, "the seam");
         return ok;
+    }
+    if (!strcmp(cmd, "reshade")) {   // pre-release audit: `reshade effects on|off` for an A/B plan row (session only)
+        const int want = !strcmp(args, "effects on") ? 1 : !strcmp(args, "effects off") ? 0 : -1;
+        const int now = dvr::reshade_runtime::set_effects(want);
+        Log("reshade: effects %s (the seam; session only, the preset is not saved) | words: reshade effects on|off",
+            now < 0 ? "unavailable - no running effect runtime" : now ? "ON" : "OFF");
+        return true;
     }
     if (!strcmp(cmd, "aniso")) {     // the texture-filter levers (core/gfx/sampler_force.h)
         const bool ok = dvr::samplers::command(args);

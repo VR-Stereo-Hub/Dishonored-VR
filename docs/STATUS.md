@@ -1,3 +1,20 @@
+## 2026-10-04: pre-release performance audit (analysis; probe and plan built, nothing run)
+
+Branch `claude/performance-audit` (off staging). Detail: dishonored/PERFORMANCE.md, top entry.
+- From the 2026-10-04 headset logs: the played configuration (DLSS model K, mostly `stereo afw`)
+  runs 9.6 ms a present under AFW (102-104/s against a 144 Hz budget of 6.94 ms) and 12.6-15.8 ms
+  a pair under reentry, against 8.6 ms native without DLSS on 2026-09-27. The render thread is
+  saturated; DLSS K is the largest single cost; the mod's script hook takes 2.7-3.4 ms of every
+  game tick but is not the limit yet.
+- New: under AFW 2.0-3.5 ms of every present is a wait at the HUD hand-off, and every HUD sink
+  does its full copy every present even when empty (three of five were).
+- New lever candidate: the hidden-area mask (XR_KHR_visibility_mask; the Virtual Desktop runtime
+  offers it). Built: a probe only, `[VR] VisibilityMaskProbe=1`, logging the hidden share of each
+  eye image. Built: seam word `reshade effects on|off` and `tools/perf-plans/audit-1.txt`, a
+  six-minute A/B plan that sizes DLSS model/off, the HUD sinks, ReShade, the texture filter,
+  sharpen and names the script lane's statements.
+- Release builds. No game launched. No Linear ticket (no Linear access).
+
 ## 2026-10-04: run 4 - takedown arms accepted; cutscene arms left as an opt-in
 
 Branch `claude/anim-blend-ik`, PR #177. Detail: dishonored/ANIM-HANDOFF-PLAN.md, top section.

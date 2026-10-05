@@ -1,3 +1,154 @@
+## 2026-10-04: pre-release audit - where the frame goes in the played configuration, and what is left
+
+Branch `claude/performance-audit` (off staging). No game launched: every number is from logs
+already on disk (the 2026-10-04 headset sessions, builds v1.0.3-36..38, VDXR, RTX 4070 Ti SUPER,
+Ryzen 5 5600X) or from this record. Parsed with a throwaway script over every `perf: tick`,
+`perf: present`, `perf: parts`, `perf: gpu/present` and `pe/cost` line; medians per regime.
+
+### 1. The played configuration is not the one this record measured
+
+The uncap deep dive (2026-09-27) measured native 2750x2850 without DLSS: 8.6 ms per pair, 115
+pairs/s, GPU full. Every 2026-10-04 session ran with DLSS on (DLAA at start, then Ultra Quality
+and Quality, transformer model K), and the last one mostly with `stereo afw`.
+
+| Regime (headset, 2750x2850 output) | n | per tick / present | rate | render thread `R` | our present path `in` | of it GPU fence wait | D3D9 GPU span |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| reentry, DLAA K, 144 Hz (builds 36/37) | 49 / 167 | 13.5 / 15.8 ms | 74 / 63 ticks/s | 6.9 | 5.7 / 8.2 | 3.3 / 5.6 | - |
+| reentry, Ultra Quality K, 144 Hz | 23 | 12.6 ms | 79 ticks/s | 7.6 | 6.0 | 3.7 | 8.2 |
+| reentry, Quality K, 72 Hz | 149 | 14.8 ms | 68 ticks/s | 7.3 | 7.3 | 3.8 | 6.2 |
+| afw, Quality K, 144 Hz (one eye a present) | - | 9.6-9.8 ms a present | 102-104 presents/s | 4.2-4.7 | 4.7-4.9 | 2.0-3.5 (at the HUD hand-off, see 3) | 2.8 |
+| for reference: reentry, native, no DLSS (2026-09-27) | - | 8.6 ms a pair | 115 pairs/s | - | - | 1.1-1.9 | 6.9 |
+
+- The render thread is saturated in every DLSS regime (idle 0.3-0.5 ms). The game thread is not
+  the limit there, with one exception: `RENDER THREAD STARVED` appears in 1-4 % of the windows.
+- **The largest single cost in the played configuration is DLSS model K itself.** This record
+  already measured it in the simulator (DLAA K: the game's render 2.7 -> 4.4 ms per eye, DLSS
+  2.2 -> ~5 ms contended; the fast model 86 against 70 pairs/s). The headset now agrees in size:
+  reentry with DLSS K runs 12.6-15.8 ms a pair against 8.6 ms native. Under AFW the budget closes
+  the same way: 2.8 ms of D3D9 span plus about 5 ms of DLSS per eye image is the 9.6 ms present.
+  Not a matched scene (different spots and builds), so the size is indicative, not exact.
+- At 144 Hz the budget is 6.94 ms a present. AFW with DLSS K reaches 102-104 presents/s.
+
+### 2. The script lane (the mod's ProcessEvent hook) in the headset
+
+| Regime | hook cost | per tick | front | mid ticks | camera/aim | name tests | view+hands |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| reentry, Quality (68 ticks/s) | 184 ms/s | 2.7 ms | 0.13 | 1.09 | 0.83 | 0.21 | 0.22 |
+| reentry, Ultra Quality (54 ticks/s) | 184 ms/s | 3.4 ms | 0.15 | 1.91 | 0.81 | 0.26 | 0.26 |
+| reentry, DLAA (63-74 ticks/s) | 191-198 ms/s | 2.7-3.0 ms | 0.14 | 1.2-1.4 | 0.8-1.0 | 0.23 | 0.23 |
+| afw (about 100 ticks/s) | 158 ms/s | 1.5 ms | - | - | - | - | - |
+
+2,000-3,500 script events a second at 60-73 us each. The simulator figure after route 2 was
+about 0.9 ms a tick at 172 ticks/s, so a headset tick pays three times the simulator's: the cost
+is per second, not per tick, and the headset ticks slower. It is not the limit today (the render
+thread is). It becomes the limit the moment the render thread's wait is removed, so it is second
+in line. `pe fn on` names the statements; no log on disk has that split for a headset run, which
+is why plan 1 below has a row for it. The 29 "mid tick" statements run on EVERY dispatch (each
+behind its own timer or lock), not once a tick: the cheap structural fix is one shared
+once-per-tick gate in front of the read-only ones, after the split names which.
+
+### 3. Our own work inside the present, per present (`perf: parts`)
+
+| Part | reentry | afw |
+|---|---:|---:|
+| `hk.method` (capture + its GPU fence) | 2.2-3.2 ms | 0.6-0.7 ms |
+| `hk.hudRedirectEnd` (the HUD sinks' copy, fences and five D3D11 flushes) | 0.04-0.11 ms | **2.0-3.5 ms** |
+| `hk.xrEnd` | 0.08-0.24 ms | 0.29-0.32 ms |
+| `hk.reshadeEffects` (CPU side only) | 0.10-0.20 ms | 0.11-0.12 ms |
+| everything else together | about 0.3 ms | about 0.3 ms |
+
+- Under AFW the wait that reentry pays in the capture moved to the HUD hand-off: with the eye
+  capture at depth 2 its fence no longer blocks, and the first fence after it is the HUD's
+  (`read_wait` / `blit_wait`, `hud/beat ... read waits 14641 timeouts 36`). Two readings, as in the
+  uncap deep dive: (a) the GPU is full (game + DLSS helper + Virtual Desktop) and this wait is the
+  only backpressure, so removing it moves it; (b) the GPU has room (`idle(d3d9)=1.5 ms` a present)
+  and the HUD's synchronous hand-off is what serialises the frame. The `hud off` row of plan 1
+  decides: (b) predicts the present falls toward 6-7 ms, (a) predicts no change.
+- Found in the code (`hud_capture.cpp`, `end_frame`): every sink in use does its full work every
+  present whether or not anything was drawn into it: a fence wait, a StretchRect of the whole
+  target, a clear, a D3D11 alpha blit, a second fence and a `Flush`. With `[Hud] UpscaleSharp=1`
+  the target is the output size (2750x2850). In the measured window five sinks were in use and
+  three of them received 0.0-0.2 draws a present. Unmeasured GPU cost; the `hud sharp off` and
+  `hud off` rows size it. Candidate: skip a sink whose target has had no draw since its last two
+  copies (both slots already hold the empty image). Not built: the unconditional copy exists
+  because an earlier design showed stale panels, so it needs its own run.
+
+### 4. What is new in this audit (not in the record before)
+
+1. **The hidden-area mask (XR_KHR_visibility_mask). Never considered here; the standard VR
+   saving for a pixel-bound renderer.** The lenses never show the corners of the eye image. The
+   runtime publishes that region per eye as a triangle mesh; drawing it into the scene depth at
+   the near plane right after the depth clear makes every depth-tested scene pass skip those
+   pixels (it is how SteamVR and Oculus titles save 10-20 % of shading; D3D9 needs nothing more
+   than a depth write). It attacks P, the 6.1 ms a pair that follows pixels at native size.
+   - Verified: the installed Virtual Desktop runtime (`virtualdesktop-openxr-32.dll`) carries the
+     extension name; the vendored OpenXR header has `xrGetVisibilityMaskKHR`.
+   - NOT known: how much of a Quest 3 eye image is hidden. Built on this branch, default off:
+     `[VR] VisibilityMaskProbe=1` enables the extension and logs once per session
+     `xr/vismask: eye N HIDDEN MESH ... = X % of the pixels the lenses never show`. Probe only,
+     nothing is masked. That percentage is the go / no-go.
+   - Design if it is worth it: hook `IDirect3DDevice9::Clear` (not hooked today); on a depth
+     clear of the scene depth target (the depth probe already identifies it) at the full render
+     viewport, draw the eye's mesh with pre-transformed vertices, colour writes off, Z write on,
+     Z func ALWAYS, z = 0. Hard parts: the eye must be known on the render thread at the START
+     of a pass (today it is settled at the present); a wrong eye hides visible pixels, so an
+     unknown eye must use the intersection of both meshes. Post-process full-screen passes are
+     not depth-tested and stay at full cost. Depth consumers (DLSS guides, AFW's foreground and
+     depth layer, the depth share) will read z = 0 in the corners and need the mask excluded.
+     Occlusion queries behind the mask report hidden, which is correct. Default OFF, live A/B.
+2. **The DLSS model is the release decision with the largest measured effect.** Not new as a
+   measurement, new as a consequence: the shipped default model (K) is the expensive one, and the
+   played configuration pays for it on every eye image. Plan 1 measures K against the fast model
+   and against DLSS off in the headset, in one run.
+3. **The HUD sinks' per-present cost** (section 3). New as a finding.
+4. **ReShade's GPU cost** has never been measured in the headset (only its CPU side, 0.1-0.2 ms a
+   present). The bundled preset runs LumaSharpen, FakeHDR and SMAA on every eye image. New seam
+   word `reshade effects on|off` (session only, the preset is not saved) so a plan row can size it.
+5. **Texture filter override.** The mod forces 16x anisotropy and trilinear mips (the game's own
+   maximum is 4x). On the GTX 1650 the lower setting felt smoother with the same median. Never
+   sized on this GPU; a plan row does.
+
+### 5. Deep-rooted angles, and what a static look at the engine can and cannot add
+
+- Checked against the record before proposing anything: one engine view for both eyes (route 3),
+  shared view-independent passes, InitViews sharing (1.3 ms a pair, VR-79 forbids copying the
+  result), the driver's threaded optimisation (route 4, still unmeasured, no code), DXVK
+  (forbidden by CLAUDE.md), capture depth (no gain when the GPU is full; auto depth ships).
+- IDA cannot find a "big switch": the cost is not one function. It is pixels shaded twice (GPU)
+  and two full scene submissions (render thread). What static analysis CAN do next, in order of
+  expected value: (1) name the render thread's stages behind the two return addresses that hold
+  37 % and 33 % of its samples (RVAs 0046C1F4 / 0046C208, "Representative CPU evidence") so a
+  duplicated view-independent stage (shadow depth, scene captures) can be recognised and counted;
+  (2) find where the scene depth is cleared per view, to place the hidden-area draw in the engine
+  rather than at the D3D9 call if the D3D9 route proves fragile. Neither was run tonight: both
+  need a hypothesis the plan's numbers will supply (how much of the frame is GPU at each setting).
+- A settings-level angle the record judged with an instrument that could not see it: "dynamic
+  shadows via the game INI: no gain" was measured in the SIMULATOR, which is game-thread-bound and
+  cannot show a GPU saving. In the headset the GPU is the limit at native size, so that test, and
+  light shafts / bloom, are unmeasured there. Worth one plan after plan 1, with the game's own
+  settings (GAME_CONFIG_MAP), not new code.
+
+### 6. Ranked, with what each needs
+
+| # | Lever | Expected | Evidence | Cost / risk | Next step |
+|---|---|---|---|---|---|
+| 1 | DLSS fast model as the default (K as the quality option) | large in the played config: toward the native rate (the simulator: Quality SR fast = native) | measured (simulator), sized (headset, unmatched) | image quality is the trade; no code | plan 1 rows 1-2, then a headset look |
+| 2 | Hidden-area mask | P x hidden share: at 15 % about 0.9 ms a pair at native size | standard technique; extension offered; share unknown | medium build, needs the eye at pass start; default off | read `xr/vismask` after one run |
+| 3 | HUD sinks: defer or skip the empty ones | up to 2-3.5 ms a present under AFW if reading (b) holds | measured wait, cause open | touches code with flicker history | plan 1 `hud off`, `hud sharp off` |
+| 4 | Script lane once-per-tick gate | 1-2 ms a tick of the game thread, visible only once the render thread is freed | measured cost, statements unnamed in the headset | low, per statement | plan 1 `pe fn on` |
+| 5 | ReShade preset cost, texture filter, sharpen | unknown, each a plan row | unmeasured | none | plan 1 |
+| 6 | Game shadow / post settings in the headset | unknown | prior test could not see it | none | a second plan |
+
+`tools/perf-plans/audit-1.txt` is plan 1: nine baselines around eight rows, 20 s each, about six
+minutes standing still. It needs this branch's build for the `reshade effects` word (other
+builds treat that row as a baseline).
+
+### 7. What this audit did NOT do
+
+No game or simulator launch; no GPU timeline; no IDA run (section 5 says why and what for).
+The regime table mixes scenes and builds. The DLSS cost per eye image under AFW (about 5 ms) is
+inferred from the budget and the simulator figure, not measured in the headset.
+
 ## 2026-10-04: distinguish steady FPS regression from intermittent spikes
 
 Follow-up report attributes the largest intermittent spikes to a suspected

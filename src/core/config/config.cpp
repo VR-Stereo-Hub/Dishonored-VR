@@ -3710,6 +3710,7 @@ static void LoadConfig()
             dvr::vr::set_image_orientation(GetPrivateProfileIntA("Pace","ImageOrientation",1,ini)!=0);
             // VR-39: the depth layer under AFW (read here, before the runtime creates its instance). Default off.
             dvr::vr::set_submit_depth(GetPrivateProfileIntA("VR", "SubmitDepth", 0, ini) != 0);
+            dvr::vr::set_visibility_mask_probe(GetPrivateProfileIntA("VR", "VisibilityMaskProbe", 0, ini) != 0);
             // VR-39: the mod's own spacewarp under AFW. Default off.
             dvr::vr::set_mod_spacewarp(GetPrivateProfileIntA("VR", "ModSpacewarp", 0, ini) != 0);
             dvr::afw::set_synth_hands(GetPrivateProfileIntA("VR", "ModSpacewarpHands", 0, ini) != 0);
