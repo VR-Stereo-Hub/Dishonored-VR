@@ -201,9 +201,19 @@ void poll(double nowMs)
     dvr::paths::in_data_dir(path, "command.txt");
     WIN32_FILE_ATTRIBUTE_DATA fa;
     if (!GetFileAttributesExA(path, GetFileExInfoStandard, &fa)) {
+        const DWORD err = GetLastError();
+        // No file is the normal state on a player's machine: only the harness
+        // (tools\game-cmd.ps1) ever writes one. Say so once, at Info - a Warn
+        // every 10 s read as a fault in every support log (2026-10-05).
+        if (err == ERROR_FILE_NOT_FOUND) {
+            DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Info,
+                "cmd: no command file yet at %s - idle (the harness, tools\\game-cmd.ps1, creates it; "
+                "a player never needs it)", path);
+            return;
+        }
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 10000,
             "cmd: GetFileAttributesEx failed on %s (err %lu) - the seam is DEAF; "
-            "no command can arrive", path, (unsigned long)GetLastError());
+            "no command can arrive", path, (unsigned long)err);
         return;
     }
     if (fa.nFileSizeLow == 0 && fa.nFileSizeHigh == 0) return;   // idle: normal

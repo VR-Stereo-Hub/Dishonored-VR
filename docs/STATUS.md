@@ -1,3 +1,29 @@
+## 2026-10-05: SteamVR not selected when the game runs as administrator; field log noise
+
+Branch `claude/steamvr-launch` off staging `93785a460` (the flicker audit merged as #186).
+- A player's report: `[VR] Runtime=steamvr`, SteamVR picked in the launcher, and the game
+  still opened on VDXR. Their support bundle: every session logged `game is running elevated;
+  the shim cannot be selected` and then `instance created on runtime 'VirtualDesktopXR'`. The
+  mod chose the shim only through the `XR_RUNTIME_JSON` environment variable, which the
+  OpenXR loader ignores in an elevated process (its secure getter). The shim path now also
+  sets the loader's own property override (`xrInitializeLoaderKHR`, the route `[VR]
+  XrRuntimeJson` already used and measured through Steam on 2026-09-02), which the loader
+  reads first and honours elevated; a WARNING names both runtimes if the shim was asked for
+  and another answered. NOT verified elevated (needs a run as administrator with SteamVR):
+  the loader source is the evidence (`manifest_file.cpp` reads the manifest through
+  `LoaderProperty::GetSecure`, which returns the override before the environment).
+- The launcher already starts the game de-elevated; the elevation came from Steam or the exe.
+- The same bundle's VDXR session: 238 one-eye double pushes, tracking capture timeouts
+  minute by minute on the `v1.0.3` release, which lacks the 2026-10-03 capture fixes now on
+  staging (FLICKER_REFERENCE top entry).
+- Log noise found in field logs, fixed: `cmd: ... (err 2) - the seam is DEAF` (a missing
+  command file is normal for a player; now one Info line) and `hud/markers-sharp: REFUSED`
+  once a second (now on a change of reason).
+
+**Next:** a SteamVR-rig check of the shim from an elevated game (Steam run as administrator):
+the log must say `loader property override XR_RUNTIME_JSON -> set (the SteamVR shim)` and
+`instance created on runtime 'DishonoredVR SteamVR shim (OpenVR)'`.
+
 ## 2026-10-05: audit headset run 1 read
 
 Build `v1.0.3-103-g889315d37`, 877 s, afw, ping trace beside it (FLICKER_REFERENCE top entry).

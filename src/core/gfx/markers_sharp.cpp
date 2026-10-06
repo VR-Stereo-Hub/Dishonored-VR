@@ -31,11 +31,22 @@ bool failed=false,inDraw=false;
 dvr::gfx::BlitQuad blit;
 uint64_t draws[3]{},composed[3]{},refused=0;
 int bucket(int eye) {return eye<0?0:eye>0?1:2;}
+// Log a refusal when its REASON changes, not once a second while it holds (2026-10-05: 726 identical Warn lines
+// in one support log for a configuration that refuses by design); a held refusal repeats at Info once a minute
+// with its count, so the line still says it is current.
+const char* lastWhy=nullptr; HRESULT lastHr=S_OK;
 void refuse(const char* why,HRESULT hr=E_FAIL) {
     ++refused;
-    DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,1000,
-        "hud/markers-sharp: REFUSED owner=serial-overlay reason=%s hr=%08lx slot=%d render=%ux%u output=%ux%u total=%llu",
-        why,(unsigned long)hr,current,fw,fh,ow,oh,(unsigned long long)refused);
+    const bool changed=!lastWhy || strcmp(lastWhy,why)!=0 || lastHr!=hr;
+    lastWhy=why; lastHr=hr;
+    if(changed) {
+        DVR_WARN("hud/markers-sharp: REFUSED owner=serial-overlay reason=%s hr=%08lx slot=%d render=%ux%u output=%ux%u total=%llu "
+            "(logged when the reason changes; repeats at Info once a minute)",
+            why,(unsigned long)hr,current,fw,fh,ow,oh,(unsigned long long)refused);
+        return;
+    }
+    DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,60000,
+        "hud/markers-sharp: still refused (%s), %llu refusals so far",why,(unsigned long long)refused);
 }
 }
 bool enabled(){return wanted.load();}
