@@ -27,6 +27,7 @@
 #pragma once
 #include <cmath>
 #include <cstring>
+#include <cstdint>
 
 namespace dvr {
 namespace grab {
@@ -240,6 +241,34 @@ static inline float parent_score(const float* Q, const float* cenP, const float*
     const float dx = cenC[0] - cenP[0], dy = cenC[1] - cenP[1], dz = cenC[2] - cenP[2];
     return joint_residual_ratio(Q, cenP, cenC, 0.2f) + distWeight * sqrtf(dx * dx + dy * dy + dz * dz);
 }
+
+// A pose sampled from the game is trusted only if the state that makes it the RIGHT pose (both
+// hands empty for the open hand, the sword in the right hand for the fist) still holds `holdMs`
+// after the sample was taken. The inventory read that says "empty" lags the hand animation: the
+// first frames of drawing the Heart, or of a crossbow, still read empty while the fingers already
+// close on the item, and sampling every frame copied that grip into the "open" pose (2026-10-05).
+// tick() once per frame: `inState` is the state, `sample` this frame's pose (n matrices, 3x4).
+// Any frame out of state drops the candidate. Returns true on the frame a candidate is committed
+// to `good`.
+template <int N>
+struct PoseLatch {
+    float cand[N][12], good[N][12];
+    double candAt = -1.0;
+    bool candOk = false, haveGood = false;
+    uint32_t commits = 0, dropped = 0;
+    bool tick(double nowMs, bool inState, const float (*sample)[12], int n, double holdMs)
+    {
+        if (n > N) n = N;
+        if (!inState) { if (candOk) ++dropped; candOk = false; return false; }
+        bool committed = false;
+        if (candOk && nowMs - candAt >= holdMs) {
+            std::memcpy(good, cand, sizeof(float) * 12 * (size_t)n);
+            haveGood = true; ++commits; committed = true; candOk = false;
+        }
+        if (!candOk) { std::memcpy(cand, sample, sizeof(float) * 12 * (size_t)n); candAt = nowMs; candOk = true; }
+        return committed;
+    }
+};
 
 }  // namespace grab
 }  // namespace dvr

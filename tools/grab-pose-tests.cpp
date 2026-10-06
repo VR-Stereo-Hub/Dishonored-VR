@@ -141,6 +141,26 @@ int main()
         }
     }
 
+    {   // the pose latch (2026-10-05): a sample is committed only if the state held for holdMs after it
+        PoseLatch<4> L;
+        float s[4][12];
+        auto fill = [&](float v) { for (int b = 0; b < 4; ++b) for (int k = 0; k < 12; ++k) s[b][k] = v; };
+        fill(1); CHECK(!L.tick(0, true, s, 4, 1500));                  // candidate taken at 0
+        fill(2); CHECK(!L.tick(1000, true, s, 4, 1500) && !L.haveGood);  // too young: nothing committed
+        fill(3); CHECK(L.tick(1500, true, s, 4, 1500));                  // the sample from t=0 commits
+        CHECK(L.haveGood && L.good[2][5] == 1.0f && L.commits == 1);
+        // the field case: empty, the item draw begins while the read still says empty, then the read flips
+        fill(9); CHECK(!L.tick(2000, true, s, 4, 1500));                 // the candidate from 1500 is still young
+        CHECK(!L.tick(2600, false, s, 4, 1500));                         // the read flips: the candidate is dropped
+        CHECK(L.good[0][0] == 1.0f && L.dropped == 1);                   // the committed pose is still the old one
+        fill(7); CHECK(!L.tick(5000, true, s, 4, 1500));                 // empty again: a new candidate...
+        CHECK(!L.tick(6000, false, s, 4, 1500));                         // ...interrupted before its hold: never committed
+        CHECK(L.good[0][0] == 1.0f);
+        // negative control: with no hold the grip the read was late about is committed on the next tick
+        PoseLatch<4> naive; fill(1); naive.tick(0, true, s, 4, 0); fill(9); naive.tick(1, true, s, 4, 0);
+        CHECK(naive.good[0][0] == 1.0f);
+        naive.tick(2, true, s, 4, 0); CHECK(naive.good[0][0] == 9.0f);
+    }
     std::printf("grab-pose: %d checks passed\n", checks);
     return 0;
 }
