@@ -3408,8 +3408,9 @@ static void OhApply(float* buf, const float* src, UINT regs)
     dvr::hf::reflection_3x4(n, c, X);
     if (!dvr::hf::invert_3x4(src + hl * 12, invL)) return;
     GrCaptureLeftOpen(src, regs);
-    const bool leftEmpty = InterlockedCompareExchange(&g_rflSecondaryKind, 0, 0) == 0;
-    const bool saved = !leftEmpty && g_grLrelOk;
+    // 2026-10-05: the latched sheathed pose whenever there is one. The live left fingers were mirrored when
+    // the left read empty, which is exactly when an item being drawn into it still reads empty.
+    const bool saved = g_grLrelOk;
     for (int r = 0; r < MS_MAX_BONES; r++) {
         const int l = g_ohPair[r];
         if (l < 0 || (UINT)(r * 3 + 3) > regs || (UINT)(l * 3 + 3) > regs) continue;
@@ -3555,6 +3556,34 @@ static void GrUseReferencePose()
     Log("hands/openpose: using the hand mesh's reference pose (open) until the sheathed pose is sampled");
 }
 static const char* GrOpenPosePath(char* out) { return dvr::paths::in_data_dir(out, "dishonored_vr_open_hand.bin"); }
+// THE FIST POSE (2026-10-05): the right hand's fingers against its wrist while it holds the SWORD,
+// the closed grip the grab ends in. It was read live from the right hand's game pose at every
+// grab, so with the crossbow out a grab closed into the crossbow grip (mirrored onto the left
+// hand), and with the right hand empty it did not close at all. Latched like the open pose (a
+// sample commits only if the sword is still in the hand 1.5 s later) and saved beside it.
+static float g_grFistR[MS_MAX_BONES][12];                        // right bone r against the right wrist
+static bool  g_grFistOk = false, g_grFistLoadTried = false;
+static int   g_grFistSource = 0;                                 // 0 none (live fallback), 2 loaded, 3 latched
+static dvr::grab::PoseLatch<MS_MAX_BONES> g_grOpenLatch, g_grFistLatch;
+static const double kGrLatchHoldMs = 1500.0;
+static const char* GrFistPosePath(char* out) { return dvr::paths::in_data_dir(out, "dishonored_vr_fist_hand.bin"); }
+// One file layout for both: header {magic, 1, pairing hash, count} then (bone, 12 floats) per bone.
+// `byRight`: the bone index written is the right bone r (the fist) or its left twin (the open pose).
+static void GrSavePose(const char* path, uint32_t magic, const float (*pose)[12], bool byRight, const char* what)
+{
+    FILE* f = fopen(path, "wb");
+    if (!f) { Log("hands/%s: could not write %s", what, path); return; }
+    uint32_t hdr[4] = { magic, 1u, (uint32_t)g_ohHash, 0u };
+    for (int r = 0; r < MS_MAX_BONES; r++) if (g_ohPair[r] >= 0) ++hdr[3];
+    fwrite(hdr, sizeof(hdr), 1, f);
+    for (int r = 0; r < MS_MAX_BONES; r++) {
+        if (g_ohPair[r] < 0) continue;
+        const int32_t b = byRight ? r : g_ohPair[r];
+        fwrite(&b, 4, 1, f); fwrite(pose[b], sizeof(float), 12, f);
+    }
+    fclose(f);
+    Log("hands/%s: saved (%u finger bones, pairing %08X) to %s", what, hdr[3], hdr[2], path);
+}
 static void GrSaveOpenPose()
 {
     char path[MAX_PATH]; GrOpenPosePath(path);
@@ -3601,19 +3630,85 @@ static bool GrCaptureLeftOpen(const float* src, UINT regs)
     const unsigned age = tick ? (unsigned)(GetTickCount() - (DWORD)tick) : 0xffffffffu;
     const LONG left = InterlockedCompareExchange(&g_rflSecondaryKind, 0, 0);
     const LONG right = InterlockedCompareExchange(&g_rflPrimaryKind, 0, 0);
-    if (!(age <= 1000u && left == 0 && right == 0 && !dvr::anim::hand_owned(0) && !dvr::anim::hand_owned(1))) { g_grEmptySince = 0; return false; }
-    for (int r = 0; r < MS_MAX_BONES; r++) {
-        const int l = g_ohPair[r];
-        if (l >= 0 && (UINT)(l * 3 + 3) <= regs) dvr::hf::mul_3x4(invSrcL, src + l * 12, g_grLrel[l]);
+    const bool inState = age <= 1000u && left == 0 && right == 0 && !dvr::anim::hand_owned(0) && !dvr::anim::hand_owned(1);
+    // 2026-10-05: LATCHED, not copied every frame. The inventory read lags the hand: the first frames of
+    // drawing the Heart (or any item) still read "both empty" while the fingers close on it, and that grip
+    // became the "open" pose the ready hand and the empty right hand showed. A sample now commits only if
+    // both hands still read empty 1.5 s after it was taken (dvr::grab::PoseLatch, tools\grab-pose-host.ps1).
+    static float sample[MS_MAX_BONES][12];
+    if (inState) {
+        memcpy(sample, g_grLrel, sizeof(sample));
+        for (int r = 0; r < MS_MAX_BONES; r++) {
+            const int l = g_ohPair[r];
+            if (l >= 0 && (UINT)(l * 3 + 3) <= regs) dvr::hf::mul_3x4(invSrcL, src + l * 12, sample[l]);
+        }
     }
-    // saved once a session, once both hands have been empty for a second (not mid-holster)
-    static bool saved = false; static unsigned savedFor = 0;
-    const ULONGLONG t = GetTickCount64();
-    if (!g_grEmptySince) g_grEmptySince = t;
-    if (g_grLrelSource != 3) Log("hands/openpose: sampling the sheathed open pose live (both hands empty)");
-    g_grLrelOk = true; g_grLrelSource = 3;
-    if ((!saved || savedFor != g_ohHash) && t - g_grEmptySince > 1000) { GrSaveOpenPose(); saved = true; savedFor = g_ohHash; }
-    return true;
+    const double nowMs = (double)GetTickCount64();
+    const uint32_t droppedBefore = g_grOpenLatch.dropped;
+    if (g_grOpenLatch.tick(nowMs, inState, sample, MS_MAX_BONES, kGrLatchHoldMs)) {
+        memcpy(g_grLrel, g_grOpenLatch.good, sizeof(g_grLrel));
+        const bool first = g_grLrelSource != 3;
+        g_grLrelOk = true; g_grLrelSource = 3;
+        static unsigned savedFor = 0;
+        if (first) Log("hands/openpose: the sheathed open pose LATCHED (both hands read empty for %.1f s after it was sampled)",
+                       kGrLatchHoldMs / 1000.0);
+        if (savedFor != g_ohHash) { GrSaveOpenPose(); savedFor = g_ohHash; }
+    }
+    if (g_grOpenLatch.dropped != droppedBefore)
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 10000,
+            "hands/openpose: a sample was dropped - a hand stopped reading empty within %.1f s of it (an item being drawn); "
+            "%u dropped, %u latched so far", kGrLatchHoldMs / 1000.0, g_grOpenLatch.dropped, g_grOpenLatch.commits);
+    g_grEmptySince = inState ? (g_grEmptySince ? g_grEmptySince : GetTickCount64()) : 0;
+    return inState;
+}
+
+// The fist pose (see g_grFistR): loaded once, then latched while the sword is in the right hand.
+static void GrCaptureRightFist(const float* src, UINT regs)
+{
+    const int hr = g_msHandBone[2];
+    if (g_ohN <= 0 || (UINT)(hr * 3 + 3) > regs) return;
+    if (!g_grFistLoadTried) {
+        g_grFistLoadTried = true;
+        char path[MAX_PATH]; GrFistPosePath(path);
+        FILE* f = fopen(path, "rb");
+        uint32_t hdr[4] = {};
+        static float tmp[MS_MAX_BONES][12];
+        bool ok = f && fread(hdr, sizeof(hdr), 1, f) == 1 && hdr[0] == 0x46484F44u && hdr[1] == 1u &&
+                  hdr[2] == (uint32_t)g_ohHash && hdr[3] <= MS_MAX_BONES;
+        for (uint32_t i = 0; ok && i < hdr[3]; ++i) {
+            int32_t b = -1;
+            ok = fread(&b, 4, 1, f) == 1 && b >= 0 && b < MS_MAX_BONES && fread(tmp[b], sizeof(float), 12, f) == 12;
+            for (int k = 0; ok && k < 12; ++k) ok = std::isfinite(tmp[b][k]);
+        }
+        if (f) fclose(f);
+        if (ok) { memcpy(g_grFistR, tmp, sizeof(tmp)); g_grFistOk = true; g_grFistSource = 2;
+                  Log("hands/fistpose: loaded the sword-grip fist (%u finger bones) from %s", hdr[3], path); }
+        else Log("hands/fistpose: no usable saved fist (%s) - it is latched the first time the sword is held; until then a "
+                 "grab closes into the right hand's live game pose only while that hand holds the sword", path);
+    }
+    float invR[12];
+    if (!dvr::hf::invert_3x4(src + hr * 12, invR)) return;
+    const LONG tick = InterlockedCompareExchange(&g_rflPrimaryKindTick, 0, 0);
+    const unsigned age = tick ? (unsigned)(GetTickCount() - (DWORD)tick) : 0xffffffffu;
+    const LONG right = InterlockedCompareExchange(&g_rflPrimaryKind, 0, 0);
+    const bool inState = age <= 1000u && right == 1 && !dvr::anim::hand_owned(1) && !g_grBusy[1].load();
+    static float sample[MS_MAX_BONES][12];
+    if (inState)
+        for (int r = 0; r < MS_MAX_BONES; r++)
+            if (g_ohPair[r] >= 0 && (UINT)(r * 3 + 3) <= regs) dvr::hf::mul_3x4(invR, src + r * 12, sample[r]);
+    if (g_grFistLatch.tick((double)GetTickCount64(), inState, sample, MS_MAX_BONES, kGrLatchHoldMs)) {
+        memcpy(g_grFistR, g_grFistLatch.good, sizeof(g_grFistR));
+        const bool first = g_grFistSource != 3;
+        g_grFistOk = true; g_grFistSource = 3;
+        static unsigned savedFor = 0;
+        if (first) Log("hands/fistpose: the sword-grip fist LATCHED (the sword read in the right hand for %.1f s after it was sampled)",
+                       kGrLatchHoldMs / 1000.0);
+        if (savedFor != g_ohHash) {
+            char path[MAX_PATH]; GrFistPosePath(path);
+            GrSavePose(path, 0x46484F44u /* DOHF */, g_grFistR, true, "fistpose");
+            savedFor = g_ohHash;
+        }
+    }
 }
 
 // buf: the palette about to be uploaded for one hand (placed, opened if the right hand is empty,
@@ -3637,7 +3732,8 @@ static void GrApply(float* buf, const float* src, UINT regs, int cls)
     for (int b = 0; b < MS_MAX_BONES; b++) pairL[b] = -1;
     for (int r = 0; r < MS_MAX_BONES; r++) if (g_ohPair[r] >= 0) pairL[g_ohPair[r]] = r;
 
-    const bool liveFlat = pairsOk && GrCaptureLeftOpen(src, regs);
+    if (pairsOk) GrCaptureLeftOpen(src, regs);                  // the latched sheathed pose (see GrCaptureLeftOpen)
+    if (pairsOk) GrCaptureRightFist(src, regs);
 
     static double seen[2] = { 0, 0 }, releaseAt[2] = { -1, -1 };
     static bool active[2] = { false, false }, fromLast[2] = { false, false };
@@ -3689,7 +3785,8 @@ static void GrApply(float* buf, const float* src, UINT regs, int cls)
     for (int i = 0; i < g_grOrderN; i++) {
         const int r = g_grOrderR[i], l = g_ohPair[r], b = h ? r : l;
         float t1[12], t2[12], rel[12];
-        dvr::hf::mul_3x4(invSrcR, src + r * 12, t1);             // the right game finger against the right wrist
+        if (g_grFistOk) memcpy(t1, g_grFistR[r], sizeof(t1));    // the latched sword grip (see g_grFistR)
+        else dvr::hf::mul_3x4(invSrcR, src + r * 12, t1);         // the right game finger against the right wrist
         if (h) memcpy(rel, t1, sizeof(rel)); else { dvr::hf::mul_3x4(X, t1, t2); dvr::hf::mul_3x4(t2, X, rel); }
         dvr::hf::mul_3x4(buf + w * 12, rel, fistM[b]);
         if (g_grLrelOk) {
@@ -3722,11 +3819,14 @@ static void GrApply(float* buf, const float* src, UINT regs, int cls)
         tim[h] = g_grT;
         tim[h].shapeMs = g_grT.shapeMs * (worstDeg >= 60.0f ? 1.0f : worstDeg / 60.0f);
         InterlockedIncrement(&g_grPlayed);
-        Log("hands/grab: %s hand plays - flat pose from %s, fist from the right hand's game pose%s, %s | the hand is %.0f deg "
+        Log("hands/grab: %s hand plays - flat pose from %s, fist from %s%s, %s | the hand is %.0f deg "
             "from flat at its worst joint, so shape %.0f ms (of %.0f), close %.0f ms + %.0f ms knuckle-to-tip lag, hold %.0f ms "
             "at least and while the grip is held, release %.0f ms",
             h ? "RIGHT" : "LEFT",
-            liveFlat ? "the left hand, live" : g_grLrelOk ? "the left hand as last seen open" : "NOWHERE (never seen open: base -> fist only)",
+            g_grLrelSource == 3 ? "the latched sheathed pose" : g_grLrelSource == 2 ? "the saved sheathed pose"
+                : g_grLrelOk ? "the mesh's reference pose" : "NOWHERE (never seen open: base -> fist only)",
+            g_grFistSource == 3 ? "the latched sword grip" : g_grFistSource == 2 ? "the saved sword grip"
+                : "the right hand's LIVE game pose (no sword grip latched yet)",
             h ? "" : ", mirrored", fromLast[h] ? "starting from the previous grab's pose" : "starting from the hand's pose",
             worstDeg, tim[h].shapeMs, g_grT.shapeMs, tim[h].closeMs, tim[h].lagMs, tim[h].holdMs, tim[h].releaseMs);
     }
@@ -3922,8 +4022,8 @@ static void GrabAnimConfigure(const char* ini)
     g_grT.holdMs    = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimHoldMs", 90), 0, 2000);
     g_grT.releaseMs = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimReleaseMs", 130), 40, 1000);
     g_grT.lagMs     = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimLagMs", 20), 0, 200);
-    GrabAnimSet(IniFloat(ini, "Hands", "GrabAnim", 0) != 0.0f, "ini [Hands] GrabAnim");
-    GrabReadySet(IniFloat(ini, "Hands", "GrabReadyOpen", 0) != 0.0f, IniFloat(ini, "Hands", "GrabReadyHide", 0) != 0.0f,
+    GrabAnimSet(IniFloat(ini, "Hands", "GrabAnim", 1) != 0.0f, "ini [Hands] GrabAnim");
+    GrabReadySet(IniFloat(ini, "Hands", "GrabReadyOpen", 1) != 0.0f, IniFloat(ini, "Hands", "GrabReadyHide", 1) != 0.0f,
                  "ini [Hands] GrabReadyOpen / GrabReadyHide");
 }
 // The five times in ms: shape, close, hold, release, lag (F10 and the seam).
@@ -4002,7 +4102,7 @@ static void MsSampleArmSpeed()
     if (frame == lastFrame) return;
     lastFrame = frame;
     // Only CinematicArms reads this. With the lever off nothing is measured at all.
-    if (!dvr::anim::cinematic_arms()) { if (have) { have = false; g_msArmSpeed.store(-1.0f); g_msArmRefPose.store(-1.0f); } return; }
+    if (!dvr::anim::cinematic_arms() && !(dvr::anim::cine_hide_static() && dvr::anim::native_full_arms())) { if (have) { have = false; g_msArmSpeed.store(-1.0f); g_msArmRefPose.store(-1.0f); } return; }
     const int hands[2] = { g_msHandBone[1], g_msHandBone[2] };
     if (g_mpCacheN <= 0 || g_mpCacheN != g_mpPalN || hands[0] < 0 || hands[1] < 0) { have = false; return; }
     const ULONGLONG now = GetTickCount64();
@@ -4106,6 +4206,52 @@ static bool MsQualify(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVert
 
 #include "arm_ik_draw.inc"
 
+// [Anim] CineHideStaticArms (2026-10-05): in a cutscene the game draws its own full arms, and some leave
+// them in a fixed pose pointing back past the head (the opening cutscene). Hidden while (a) the arms hold
+// still - the between-bone speed MsSampleArmSpeed measures stays under 8 uu/s for 500 ms - and (b) BOTH
+// hand bones are behind the camera plane: the palette point of each hand bone, through the draw's own
+// LocalToWorld (rebased on the view), against the camera's forward from the same draw. Render lane.
+// Logs the measured depths so the sign convention is checked by the first run (in front reads positive).
+static bool MsCineHideStatic(IDirect3DDevice9* dev)
+{
+    static ULONGLONG stillSince = 0;
+    static bool was = false;
+    const ULONGLONG now = GetTickCount64();
+    const float speed = g_msArmSpeed.load();
+    const bool fresh = speed >= 0 && now - g_msArmSpeedMs <= 200;
+    if (fresh && speed < 8.0f) { if (!stillSince) stillSince = now; } else stillSince = 0;
+    const bool still = stillSince && now - stillSince >= 500;
+    float depth[2] = { 0, 0 };
+    bool measured = false;
+    MpDrawCtx c;
+    const int hands[2] = { g_msHandBone[1], g_msHandBone[2] };
+    if (g_mpCacheN > 0 && g_mpCacheN == g_mpPalN && hands[0] >= 0 && hands[1] >= 0 && MpAcquireCtx(dev, &c) && c.ok) {
+        measured = true;
+        for (int k = 0; k < 2; ++k) {
+            const int b = hands[k];
+            if ((UINT)(b * 3 + 3) > (UINT)g_mpCacheN) { measured = false; break; }
+            const float* M = g_mpCache + b * 12;
+            const float* q = g_msBoneCen[b];
+            float p[3], w[3];
+            for (int i = 0; i < 3; ++i) p[i] = M[i * 4 + 0] * q[0] + M[i * 4 + 1] * q[1] + M[i * 4 + 2] * q[2] + M[i * 4 + 3];
+            for (int i = 0; i < 3; ++i) w[i] = c.col[0][i] * p[0] + c.col[1][i] * p[1] + c.col[2][i] * p[2] + c.t[i];
+            depth[k] = w[0] * c.f[0] + w[1] * c.f[1] + w[2] * c.f[2];
+        }
+    }
+    const bool behind = measured && depth[0] < -2.0f && depth[1] < -2.0f;
+    const bool hide = still && behind;
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+        "cine/hidearms: hand depth along the view L %+.1f R %+.1f uu (%s; in front reads positive), arm speed %.1f uu/s "
+        "%s -> %s", depth[0], depth[1], measured ? "measured" : "NOT measurable this draw", fresh ? speed : -1.0f,
+        still ? "still" : "moving or unknown", hide ? "HIDDEN" : "drawn");
+    if (hide != was) {
+        was = hide;
+        Log("cine/hidearms: cutscene arms %s (hand depth L %+.1f R %+.1f uu, arm speed %.1f uu/s)",
+            hide ? "HIDDEN - still, both hands behind the camera" : "drawn again", depth[0], depth[1], fresh ? speed : -1.0f);
+    }
+    return hide;
+}
+
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount)
 {
@@ -4113,6 +4259,27 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     const bool ik=g_ikOn.load();
     if(!ik)IkResetPose();
     g_msPassThrough = !ik && dvr::anim::native_full_arms();
+    // CineHideStaticArms: the game owns the arms in a cutscene, with or without full-arm IK (IK draws the
+    // game's arm on its shoulder then), so the test runs before either path draws them.
+    // 2026-10-05: not only a flagged cutscene - the opening scene runs in StatePlayerMasterSoiree with the game
+    // owning the arms and bCinematicMode off, and the hide never armed. Still + both hands behind the camera is the
+    // test; any game-owned arm pose qualifies.
+    if (dvr::anim::cine_hide_static()) {
+        // CineHideStaticArms: only THIS geometry (the arm mesh the split was built from), never another draw.
+        // 2026-10-05: the boat ride logged nothing at all, so every gate is reported (2 s) while the option is on.
+        const bool owned = dvr::anim::native_full_arms();
+        dvr::anim::note_hide_draw();
+        MsContract hc; const char* hwhy = NULL;
+        const bool qual = MsQualify(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount, &hc, &hwhy);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+            "cine/hidearms: arm-mesh draw seen - game owns the arms %d, IK %d, this draw is the split's arm mesh %d (%s), "
+            "anim reason '%s'", (int)owned, (int)ik, (int)qual, qual ? "yes" : (hwhy ? hwhy : "not this geometry"),
+            dvr::anim::snapshot().reason);
+        if (owned && qual) {
+            MsSampleArmSpeed();
+            if (MsCineHideStatic(dev)) { g_msDraws++; return true; }   // drawing nothing IS the answer
+        }
+    }
     if (g_msPassThrough) return false;
     const bool nativeHands=nativePose && !g_msPassThrough;
     if (g_msMode == MS_MODE_OFF && !nativeHands && !ik) return false;

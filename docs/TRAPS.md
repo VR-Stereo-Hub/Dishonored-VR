@@ -80,6 +80,11 @@ pose instead of the sheathed one".
 - A sampled pose that other features show should be saved and reloaded, not re-sampled from
   whatever the hand happens to hold: `dishonored_vr_open_hand.bin`, keyed to the finger pairing,
   with the mesh's reference pose as the fallback (VR-33-HANDS-AND-WEAPONS.md, "The ready hand").
+- Same day, second report: sampling only "when both hands read empty" was not enough, because the
+  read LAGS the hand animation - an item being drawn still reads empty for its first frames. A pose
+  taken from a state flag must be latched: committed only if the state still holds well after the
+  sample (`dvr::grab::PoseLatch`, 1.5 s). And a pose read live from another hand is that hand's
+  grip, whatever it holds (the fist came from the right hand's crossbow grip).
 
 ## 2026-10-04: a setting written where its reader never looks again (ReShade)
 

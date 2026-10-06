@@ -1,8 +1,14 @@
 # Known issues
 
-- Experimental full-arm IK requires a locally prepared reference file; automatic
-  extraction/installation is not included. Missing or incompatible references
-  fall back to floating hands and report the reason in the IK tab.
+- Full-arm IK is on by default and its reference data now ships inside the mod (1.0.4); a
+  missing or incompatible reference still falls back to floating hands and reports the reason
+  in the IK tab.
+- On the opening boat ride the game's arms can sit in a still pose pointing back past your
+  head. The F10 option "Hide still cutscene arms pointing behind you" does not catch that
+  scene yet.
+- A short hitch about every 6 seconds on Virtual Desktop comes from the Wi-Fi link to the
+  headset (the headset stops answering for a moment on the same beat), not the game. A
+  dedicated 5/6 GHz access point or another channel is the thing to try.
 - Extreme crossed-arm poses can compress the sleeve or intersect the torso.
   Minor IK arm flicker remains under investigation. Latest roll and menu
   corrections still await individual headset confirmation.

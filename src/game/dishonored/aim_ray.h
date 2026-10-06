@@ -196,6 +196,9 @@ void request_fire_ray(bool enabled); // sampling independent of Dot/Laser toggle
 void request_blink_ray(bool enabled);
 // VR-166: interaction is a third engine consumer of the same ray, with its own arming.
 void request_interact_ray(bool enabled);
+// 2026-10-05: the ray's hand for the duration of a carry (0 left, 1 right, -1 = the configured hand).
+void set_hand_override(int hand);
+int hand_override();
 void request_throw_ray(bool enabled);      // VR-166: grenades and other throws
 void request_power_ray(bool enabled);      // VR-44: Windblast, Possession, Devouring Swarm
 void tick(bool gameplay, bool projectionWanted);

@@ -78,6 +78,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "cinepitch") && DvrOnOff(args, &b)) { CinePitchSet(b); return true; }
     if (!strcmp(cmd, "mantlehands") && DvrOnOff(args, &b)) { dvr::anim::set_mantle(b); return true; }
     if (!strcmp(cmd, "takedownarms") && DvrOnOff(args, &b)) { dvr::anim::set_takedown_arms_hidden(b); return true; }   // VR-283: on = arms hidden
+    if (!strcmp(cmd, "cinehidearms") && DvrOnOff(args, &b)) { dvr::anim::set_cine_hide_static(b); return true; }    // [Anim] CineHideStaticArms
     if (!strcmp(cmd, "cinehands") && DvrOnOff(args, &b)) { dvr::anim::set_cinematic(b); return true; }
     if (!strcmp(cmd, "cinefov") && DvrOnOff(args, &b)) { CineFovSet(b); return true; }
     if (!strcmp(cmd, "cinestereo") && DvrOnOff(args, &b)) { StereoStateSet(b); return true; }
@@ -410,6 +411,10 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         if (sscanf(args, "%15s %15s", sub, m) == 2 && !strcmp(sub, "timeout") &&
             (!strcmp(m, "deliver") || !strcmp(m, "refuse"))) {   // the live A/B for [Capture] TimeoutRefuse
             dvr::capture::set_timeout_refuse(!strcmp(m, "refuse"), "the seam");
+            return true;
+        }
+        if (sscanf(args, "%15s %15s", sub, m) == 2 && !strcmp(sub, "autodepth")) {   // [Capture] AutoDepthPercent
+            dvr::capture::set_auto_depth_percent(atoi(m), "the seam");
             return true;
         }
         if (sscanf(args, "%15s %15s", sub, m) == 2 && !strcmp(sub, "depth")) {   // uncap deep dive

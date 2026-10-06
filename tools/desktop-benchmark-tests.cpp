@@ -21,6 +21,15 @@ static int AbCmpFloat(const void* a,const void* b) {
 }
 static float AbPct(const float* s,uint32_t n,float p) { return n?s[(uint32_t)(p*(n-1)+.5f)]:0; }
 }
+// 2026-10-05: the benchmark now drives the pair-sync pacer as part of a segment (it did not when this harness
+// was written); the stub keeps its state so the restoration the suite asserts is real.
+namespace dvr::vr {
+bool syncOn=false; unsigned syncHz=0; uint32_t syncDelays=0;
+int64_t display_period_ns() { return 11111111; }
+void set_pace_sync(bool on) { syncOn=on; } bool pace_sync() { return syncOn; }
+void set_pace_sync_hz(unsigned hz) { syncHz=hz; } unsigned pace_sync_hz() { return syncHz; }
+uint32_t pace_sync_delays() { return syncDelays; }
+}
 #include "../src/core/framework/desktop_benchmark.cpp"
 int main() {
     using namespace dvr::perf;

@@ -820,6 +820,22 @@ existing open right hand uses the same saved pose whenever the left hand is not 
 the Heart), instead of mirroring the left hand's grip. `hands/openpose:` lines say which source is
 in use. TRAPS, 2026-10-05.
 
+**Latched poses, not live ones (2026-10-05, after a second headset report).** With the Heart in the
+left hand a right-hand grab still started from a Heart grip, and with the crossbow out a grab started
+from (and closed into) the crossbow grip. Two causes. (1) The open pose was still copied EVERY frame
+the inventory read both hands empty, and that read lags the animation: the first frames of drawing
+an item read empty while the fingers already close on it, and the log of the same session shows the
+pose saved in the millisecond the Heart was read as equipped. (2) The fist was read live from the
+right hand's game pose, so it was whatever the right hand held (the crossbow grip; mirrored onto the
+left hand for a left grab), and nothing at all with the right hand empty. Both poses now go through
+`dvr::grab::PoseLatch` (grab_pose.h): a sample commits only if its state (both hands empty; the sword
+in the right hand) still holds 1.5 s after it was taken. The fist is saved beside the open pose
+(`dishonored_vr_fist_hand.bin`), and until one is latched the grab falls back to the live right hand.
+The empty right hand uses the latched open pose whenever there is one. `hands/openpose:` and
+`hands/fistpose:` name the source; the `hands/grab: ... plays` line says which pose each end came
+from. Host: `tools\grab-pose-host.ps1` (the latch, with a no-hold negative control). Not run in a
+headset.
+
 **Faster, and one hand only (2026-10-05, after a headset session).** The grab's default times are
 halved to 75 / 110 / 90 / 130 / 20 ms (shape, close, hold, release, lag), which read as more of a
 grab than a reach; the offline check scales with them unchanged (every phase scaled alike). Only

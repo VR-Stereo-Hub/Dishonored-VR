@@ -35,6 +35,8 @@ tools/uscript/*
 *.psk
 *.pskx
 dishonored_vr_arm_rig.bin
+# ...except the shipped copies the proxy embeds (assets/vr/, owner's decision 2026-10-05)
+!assets/vr/*.bin
 
 # Python bytecode from the tools
 __pycache__/

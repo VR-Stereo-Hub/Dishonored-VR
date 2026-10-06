@@ -1,3 +1,20 @@
+## 2026-10-05: afw on a fast GPU at 120 Hz - where the gain went (MEASURED from field logs)
+
+Two field bundles (release `v1.0.3`, Quest 3 over VDXR at 120 Hz, RTX 4070 Ti class). Under
+reentry at 1832x1900 (no DLSS) the game ticked 80 times a second (160 presents/s,
+`UNDER-SUBMITTING 0.82x`). Under afw with DLSS Ultra Quality to 2750x2850 it delivered 111-120
+frames a second, and in the best window `MATCHED 1.00x`: the headset's 120 Hz is the ceiling,
+so at 100% resolution afw had about 1.5x to give and gave it, and there was nothing above 120
+to gain. At 150% (DLSS to 3368x3491) afw ran 76-85 presents a second, GPU-bound: the per-present
+line reads `method 4.2-4.3 [cap 2.9-3.6: lock]` and `end 3.2-5.0` of a 11.9-13.1 ms present.
+The capture lock is the present thread waiting on the GPU's frame copy (a 44.9 MB image at
+that size), and the end phase holds the held-eye rebuild and the DLSS evaluation (the helper
+reports 3.4-3.6 ms per eye at 3368x3491, 2.2-2.4 ms at 2750x2850). afw halves the scene draws
+but keeps those per-present costs, so when the output is large the fixed costs eat the gain.
+The same machine's capture timeouts (FLICKER_REFERENCE, same date) are the flicker, not the
+frame rate. What would raise it: a smaller DLSS output (2750x2850 measured at the 120 Hz cap),
+not a higher render scale.
+
 ## 2026-10-05: the recurring xrEndFrame stall has a 5.66 s WALL-CLOCK period; the depth-share proof was a 5.000 s hitch of its own; afw now reports its submit cadence (MEASURED from 15 logs, two instruments built, one run owed)
 
 The flicker audit of 2026-10-05 (FLICKER_REFERENCE, the entries of that date and its

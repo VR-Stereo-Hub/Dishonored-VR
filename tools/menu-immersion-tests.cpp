@@ -53,6 +53,12 @@ double MaimNowMs(){return 1000;}
 void CineTraceTick(){}
 void Log(const char*,...){}
 void HtPublishCameraRecord(int,const HtSample& h,float,float,float){++publications;publishedGen=h.gen;}
+// 2026-10-05: the menu watch grew a camera fade/scale repair (VR-140) that resolves two Camera bools by name,
+// reads the menu flags, and samples the frame-identity verdict; these keep the harness in step with it.
+#define DVR_WARN(...) ((void)0)
+bool g_inMenu=false,g_menuOpen=false;
+bool FindBoolProp(const char*,const char*,uint32_t* off,uint32_t* mask){*off=20;*mask=1;return true;}
+namespace dvr::frameid { struct Last { bool onePicture=false; }; Last last(){return Last{};} }
 static void MenuEffectsTick();
 #include "../src/game/dishonored/menu_immersion.cpp"
 static int checks=0;
@@ -100,7 +106,9 @@ int main(){
  MenuHeadBegin(false,false);sample.yaw=.3f;MenuHeadBegin(true,true);
  check(g_mhWritten[1]>3000,"temporary render gap does not reset head reference");MenuHeadEnd();
  const int previousBuilds=builds;++epoch;MenuHeadBegin(true,true);
- check(std::abs(g_mhWritten[1])<2&&builds==previousBuilds+1,"new menu interval revalidates unchanged pointers");MenuHeadEnd();
+ // VR-166 (5ae7f635e): a new screen with the same camera, controller and pawn is the same menu stretch - the
+ // entry reference is kept, so the turn made in the first screen carries to the exit (it used to re-seed).
+ check(g_mhWritten[1]>3000 && builds>=previousBuilds,"a new screen with unchanged owners keeps the entry reference");MenuHeadEnd();
  live=false;MenuHeadBegin(true,true);check(!g_mhScope,"dead camera cannot be written");live=true;
  ++generation;sample.yaw=.4f;MenuHeadBegin(true,true);check(g_mhScope&&std::abs(g_mhWritten[1])<2,"replaced owner gets fresh reference");MenuHeadEnd();
  sample.yaw=.7f;context=-1;MenuHeadBegin(true,true);int32_t delta=0;
@@ -115,7 +123,9 @@ int main(){
  check(!MenuHeadResumeYaw(delta),"failed live-table refresh refuses retained menu identity");buildOk=true;
  context=6;++epoch;blurOn=true;weight(.8f);MenuEffectsTick();check(weight()==0&&g_mbBefore==.8f,"UI-only weight suppressed");
  weight(.6f);MenuEffectsTick();check(weight()==0&&g_mbBefore==.6f,"game's latest effect value retained");
- blurOn=false;MenuEffectsTick();check(std::fabs(weight()-.6f)<.001f&&!g_mbHave,"option off restores exact owned value");
+ // VR-140 (run 467): a release no longer writes the saved value back - that late restore landed after the game had
+ // moved on and left the world dark; the game owns its fade, so the release only lets go.
+ blurOn=false;MenuEffectsTick();check(weight()==0&&!g_mbHave,"option off releases the weight without a restore write");
  blurOn=true;weight(.7f);MenuEffectsTick();weight(.3f);blurOn=false;MenuEffectsTick();check(std::fabs(weight()-.3f)<.001f,"external recomputation is not overwritten on exit");
  blurOn=true;MenuEffectsTick();live=false;blurOn=false;MenuEffectsTick();check(weight()==0,"dead object is not restored");live=true;
  weight(.9f);threadId=2;blurOn=true;MenuEffectsTick();check(weight()==.9f,"wrong lane cannot write engine memory");threadId=1;

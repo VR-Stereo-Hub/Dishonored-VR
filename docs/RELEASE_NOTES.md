@@ -1,25 +1,57 @@
-# Unreleased
+# Dishonored VR 1.0.4
 
-- Experimental full-arm IK is available from the L3+R3/F10 IK tab, with shoulder
-  placement, width, arm length and elbow controls. Native hand/finger animations
-  remain. Off by default; this prototype requires a locally prepared arm reference
-  (see docs/dishonored/ARM_IK.md), which is not bundled with the release.
-- IK and Display expose a 16-frame diagnostic capture with a five-second delay.
-  Saving can briefly hitch. Full arms retain their visibility in in-game menus.
-- DLSS now defaults to the Fast model: in our tests Transformer K cost about 14 percent of the
-  frame rate at Ultra Quality. K is still in the DLSS model list (F10 > Display, or the launcher).
-  An existing install keeps the model it already has.
-- Loot can be picked up by reaching for it: bring a hand to a coin, elixir, key or other
-  pickup and squeeze that hand's grip. The game highlights the item when a hand is close.
-  The Interact button works as before. F10 > Aim > "Pick up loot by reaching for it".
-  A book or note opened this way shows its page on the hand that opened it.
-  Doors open and close the same way (F10 > Aim > "Open doors by grabbing them").
+## Full-arm IK
 
-## Stereo settings
+- **Your whole arms now follow your controllers,** shoulders to fingers, instead of floating hands. It is on by default and works out of the box.
+- **The game still takes your arms for its own moves** (takedowns, chokes, climbing) and blends smoothly back to your hands afterwards.
+- **Set it up for your body (one minute):** press L3 + R3 (or F10) to open the menu, go to the **IK** tab and open **IK shoulder position and arm length**. Stand straight with your arms relaxed, then:
+  1. **Up / down** and **Forward / backward:** move the shoulders until they sit where yours are.
+  2. **Shoulder width:** widen or narrow until your elbows bend in the right place.
+  3. **Arm length:** stretch an arm out fully; the virtual arm should just reach your hand without stretching or bunching up.
+  4. Changes save on their own. **Reset IK adjustments** starts over.
+- Don't want it? Turn **Full-arm IK** off in the same tab to get the floating hands back.
 
-- F10 Basic > Display > Stereo rendering is first in the tab and offers Stereo and experimental AFW.
-- AFW's tooltip recommends combining it with DLSS or DLAA.
-- AER, AFW tuning, SSW/depth, mod-spacewarp and diagnostic controls remain available in Debug.
+## Grab like Alyx
+
+- **Reach for things and squeeze the grip to take them:** coins, elixirs, keys and other loot, books and notes, doors, and things you can carry and throw (bottles, tanks, grenades, limbs). Levers, switches, valves and placed traps work the same way.
+- **Each hand grabs for itself:** the hand nearest an item takes it, and a book or note opens on the hand that grabbed it.
+- **Your hand gets ready:** close enough to grab, it opens and hides what it is holding, then closes into a fist when you squeeze.
+- **Carry in either hand:** whatever you pick up stays in the hand that grabbed it, and that hand's trigger throws it.
+- **It all lives in the new F10 > Interact tab,** including how far you can reach. The Interact button still works as before.
+
+## New
+
+- **The Heart has a back:** it is a complete object now when you turn it in your hand.
+- **DLSS is a choice in the launcher** too (Off, DLSS or FSR, every quality mode and model), next to resolution.
+- **Cutscene arms (experimental):** keep your own arms in cutscenes and let the game take them only while it animates them. Off by default, in F10 Advanced.
+- **Capture setting for fast GPUs:** if one eye stutters about once a second with AFW, lower "Capture: deeper ring at timeouts" in F10 Display.
+
+## Improved
+
+- **A cleaner F10 menu:** grabbing has its own tab, button mapping is under Controls, every section starts closed and is named for what is in it, and test tools moved to Debug.
+- **DLSS defaults to the Transformer K model,** the sharpest one. The faster model is still in the list.
+- **Takedowns show the game's hands without the forearms** by default.
+- **Hands keep up better with fast head turns** in AFW.
+- **Crouch toggle is on by default.**
+- **Smoother hand-backs:** your hands ease into and out of the game's animations instead of snapping.
+- **Smoother AFW:** a small hitch every 5 seconds is gone.
+- **Your settings carry over.** The new defaults are applied once to an existing install; nothing else you set is changed.
+
+## Fixed
+
+- **One eye stuttering or lagging on slower GPUs** (since 1.0.2).
+- **A rare sideways flicker in one eye** of the hands and weapon while moving.
+- **SteamVR picked in the launcher but the game opening in Virtual Desktop** when Steam or the game ran as administrator.
+- **VR not starting at all** when ReShade's VR layer was installed on the PC.
+- **ReShade not starting** after installing it from the launcher, and F10 > ReShade listing every effect instead of your preset's (its settings now apply too).
+- **Objective marker text flickering** and HUD pieces splitting apart.
+- **The Heart's glow and the Possession and Blink effects sliding off your hand** while walking.
+
+## Known issues
+
+- **A short hitch about every 6 seconds on Virtual Desktop** is the Wi-Fi link to the headset, not the game. A dedicated 5/6 GHz router or another channel is the thing to try.
+- On the opening boat ride the game's arms can sit in a still pose pointing behind you.
+- ReShade presets that need depth still need non-manual ReShade mode. The mod's own spacewarp is still Debug-only.
 
 # Dishonored VR 1.0.3
 

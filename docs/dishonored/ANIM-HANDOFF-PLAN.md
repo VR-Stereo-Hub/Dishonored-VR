@@ -1,3 +1,25 @@
+## Still cutscene arms pointing behind the head: hidden behind a lever (2026-10-05, built, not headset-run)
+
+Some cutscenes show the game's full arms in a fixed pose that points back past the head (the
+opening cutscene); in a headset that pose is visible whenever the player looks around.
+`[Anim] CineHideStaticArms` (default 0, live `cinehidearms on|off`, F10 Advanced > Hands) hides
+them while BOTH hold: the arms are still (the between-bone speed of `arm_motion`, which already
+grants the mod its own rigid write, under 8 uu/s for 500 ms) and both hand bones are behind the
+camera plane (each hand bone's palette point through the draw's own LocalToWorld, which is rebased
+on the view, against the camera forward from the same draw's ViewProjection). Only the qualified
+arm mesh draw is skipped (`MsQualify`), and only while a cutscene runs (the FSM's cinematic states
+or `bCinematicMode`). Independent of CinematicArms.
+
+First run (2026-10-05): it never armed. The opening scene runs in `StatePlayerMasterSoiree` with the game
+owning the arms and `bCinematicMode` off, which the cutscene test did not count, and under full-arm IK the
+check sat on the non-IK path. It now arms whenever the game owns the arms, IK or not; still + both hands
+behind the camera remains the whole test.
+
+What the first run must check, from `cine/hidearms:` (every 2 s in a cutscene): the hand depths
+read POSITIVE while the arms are in front of the view and negative when they point back; if the
+sign is inverted the lever hides the wrong poses and must stay off. `cine/hidearms: cutscene arms
+HIDDEN` / `drawn again` mark each change. Not measured: the opening cutscene's actual depths.
+
 ## Fourth headset run: takedowns accepted, cutscene arms shelved behind the toggle (2026-10-04)
 
 Build v1.0.3-38-ga206226b7 (banner and both config lines confirmed in the log), ini = run 3 plus

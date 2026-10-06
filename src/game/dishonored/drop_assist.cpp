@@ -344,7 +344,7 @@ void status(dvr::status::Writer& w) {
 }
 void draw_ui() {
     namespace ov = dvr::ovl;
-    if (!ov::section("Drop takedowns", ov::Basic, "Killing a guard by dropping onto them from above.")) return;
+    if (!ov::section("Drop takedowns (killing from above)", ov::Basic, "Killing a guard by dropping onto them from above.")) return;
     char v[32];
     if (ImGui::Checkbox("Help time the drop takedown", &cfg.assist))
         ConfigWriteKey("DropTakedown", "Assist", cfg.assist ? "1" : "0", "F10 Controls");

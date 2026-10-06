@@ -2844,6 +2844,28 @@ bool shim_write_manifest(const wchar_t* shimDll, wchar_t* manifestOut /*MAX_PATH
     return true;
 }
 
+// Point the statically linked loader at a runtime manifest through its OWN property store
+// (XR_EXT_loader_init_properties via xrInitializeLoaderKHR). The loader reads XR_RUNTIME_JSON
+// with its "secure" getter, which returns nothing in an elevated process, so the environment
+// variable alone cannot select a runtime there; the property override is read first and is
+// honoured elevated or not (loader_properties.cpp, manifest_file.cpp). Each call replaces the
+// previous override (the loader clears its overrides before setting new ones).
+void loader_override_runtime_json(const char* manifestUtf8, const char* who) {
+    PFN_xrInitializeLoaderKHR initLoader = nullptr;
+    xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
+                          reinterpret_cast<PFN_xrVoidFunction*>(&initLoader));
+    if (!initLoader) {
+        XRLOG("xr: this loader has no xrInitializeLoaderKHR - the environment is the only route (%s)", who);
+        return;
+    }
+    XrLoaderInitPropertyValueEXT pv{"XR_RUNTIME_JSON", manifestUtf8};
+    XrLoaderInitInfoPropertiesEXT props{XR_TYPE_LOADER_INIT_INFO_PROPERTIES_EXT};
+    props.propertyValueCount = 1;
+    props.propertyValues = &pv;
+    const XrResult ir = initLoader(reinterpret_cast<const XrLoaderInitInfoBaseHeaderKHR*>(&props));
+    XRLOG("xr: loader property override XR_RUNTIME_JSON -> %s (%s)", XR_SUCCEEDED(ir) ? "set" : res_str(ir), who);
+}
+
 bool process_is_elevated() {
     HANDLE token = nullptr;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return false;
@@ -3071,19 +3093,7 @@ void init_instance() {
         // (xrEnumerateInstanceExtensionProperties -> RUNTIME_UNAVAILABLE), while
         // the same manifest inherited from a shell worked. XR_EXT_loader_init_
         // properties through xrInitializeLoaderKHR is the spec'd way to say it.
-        PFN_xrInitializeLoaderKHR initLoader = nullptr;
-        xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
-                              reinterpret_cast<PFN_xrVoidFunction*>(&initLoader));
-        if (initLoader) {
-            XrLoaderInitPropertyValueEXT pv{"XR_RUNTIME_JSON", g_runtimeJson};
-            XrLoaderInitInfoPropertiesEXT props{XR_TYPE_LOADER_INIT_INFO_PROPERTIES_EXT};
-            props.propertyValueCount = 1;
-            props.propertyValues = &pv;
-            const XrResult ir = initLoader(reinterpret_cast<const XrLoaderInitInfoBaseHeaderKHR*>(&props));
-            XRLOG("xr: loader property override XR_RUNTIME_JSON -> %s", XR_SUCCEEDED(ir) ? "set" : res_str(ir));
-        } else {
-            XRLOG("xr: this loader has no xrInitializeLoaderKHR - the environment is the only route");
-        }
+        loader_override_runtime_json(g_runtimeJson, "[VR] XrRuntimeJson");
         // And the two facts a manifest failure hides: is the file readable, and
         // does its library load from THIS process (a DLL search-path or CRT
         // dependency problem shows up here, with the Win32 error).
@@ -3123,6 +3133,7 @@ void init_instance() {
     const bool mayFallBack = shimPresent && _stricmp(mode, "native") != 0;
 
     XrResult r = XR_ERROR_RUNTIME_UNAVAILABLE;
+    bool askedShim = false;   // the shim branch ran: the instance must be the shim's
     if (wantNative) {
         if (_stricmp(mode, "auto") == 0) log_active_runtime_expectation();
         r = try_create_instance("native", /*quietExplainer=*/mayFallBack);
@@ -3133,10 +3144,14 @@ void init_instance() {
             XRLOG("xr: native runtime unavailable - falling back to the SteamVR shim");
         else
             XRLOG("xr: runtime mode 'steamvr' - using the SteamVR shim directly");
+        // Until 2026-10-05 the shim was selected by the environment variable alone, which the loader
+        // ignores in an elevated process: a game started as administrator (an elevated launcher or
+        // Steam, or "run as administrator" on the exe) silently got the registered runtime instead,
+        // and [VR] Runtime=steamvr reached Virtual Desktop. The property override below works either way.
         if (process_is_elevated())
-            XRLOG("xr: WARNING - game is running elevated; the shim cannot be "
-                    "selected (XR_RUNTIME_JSON is ignored for admin processes). "
-                    "Run the game non-elevated.");
+            XRLOG("xr: the game is running ELEVATED (as administrator) - the loader ignores the "
+                  "XR_RUNTIME_JSON environment variable here, so the shim is selected through the "
+                  "loader's property override instead. Running the game non-elevated is still better.");
         wchar_t manifest[MAX_PATH];
         if (!shim_write_manifest(shimDll, manifest)) {
             XRLOG("xr: could not write the shim manifest - VR disabled, game runs flat");
@@ -3147,6 +3162,8 @@ void init_instance() {
                             sizeof(manifestUtf8), nullptr, nullptr);
         XRLOG("xr: shim manifest: %s", manifestUtf8);
         SetEnvironmentVariableW(L"XR_RUNTIME_JSON", manifest);
+        loader_override_runtime_json(manifestUtf8, "the SteamVR shim");
+        askedShim = true;
         r = try_create_instance("steamvr shim", /*quietExplainer=*/true);
         if (XR_FAILED(r))
             XRLOG("xr: SteamVR shim also failed (%s) - VR disabled, game runs "
@@ -3171,6 +3188,14 @@ void init_instance() {
     XRLOG("xr: instance created on runtime '%s' %u.%u.%u", ip.runtimeName,
             XR_VERSION_MAJOR(ip.runtimeVersion), XR_VERSION_MINOR(ip.runtimeVersion),
             XR_VERSION_PATCH(ip.runtimeVersion));
+    // Name the mismatch: the shim was asked for and another runtime answered. Before 2026-10-05 an
+    // elevated game logged the shim's own extension lines and then this one with Virtual Desktop's
+    // name, and [VR] Runtime=steamvr looked ignored.
+    if (askedShim && !strstr(ip.runtimeName, "SteamVR shim"))
+        XRLOG("xr: WARNING - the SteamVR shim was ASKED FOR ([VR] Runtime=%s) but the loader created "
+              "'%s' instead: the manifest override did not reach the loader (elevated=%d). SteamVR "
+              "will not be used this session; start the game without administrator rights.",
+              mode, ip.runtimeName, process_is_elevated() ? 1 : 0);
 
     input_create(g_instance); // M5: action set + touch bindings (fail-soft)
 }

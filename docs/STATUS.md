@@ -1,3 +1,79 @@
+## 2026-10-05: 1.0.4 release candidate on claude/steamvr-launch (PR #187, not merged)
+
+**Current state.** Version 1.0.4 (CMakeLists). #187 carries: the SteamVR shim when elevated, the capture
+AutoDepth threshold lever, field log noise, latched grab poses, carry in the grabbing hand (mirrored ray),
+the approved defaults with a one-time `[Meta] DefaultsRev` upgrade, the IK and Heart data shipped inside
+the DLL (`assets/vr/`, owner's decision in CLAUDE.md), the F10 Interact tab and clearer section names,
+and every host suite repaired and passing. The cutscene arm hide does not catch the boat ride; it is off
+by default and listed in KNOWN_ISSUES. RELEASE_NOTES has the 1.0.4 section.
+
+**Next.** The owner merges #187 into staging, then the release PR staging -> VR-Main (`release: v1.0.4`),
+then `tools\package.ps1` on the VR-Main tip, the v1.0.4 tag and the GitHub release with the zip, the
+setup exe and `DishonoredVR-Launcher-v1.0.4.exe` (LINEAR_AND_GITHUB.md, the release ritual and the
+launcher update contract).
+
+## 2026-10-05: SteamVR not selected when the game runs as administrator; field log noise
+
+Branch `claude/steamvr-launch` off staging `93785a460` (the flicker audit merged as #186).
+- A player's report: `[VR] Runtime=steamvr`, SteamVR picked in the launcher, and the game
+  still opened on VDXR. Their support bundle: every session logged `game is running elevated;
+  the shim cannot be selected` and then `instance created on runtime 'VirtualDesktopXR'`. The
+  mod chose the shim only through the `XR_RUNTIME_JSON` environment variable, which the
+  OpenXR loader ignores in an elevated process (its secure getter). The shim path now also
+  sets the loader's own property override (`xrInitializeLoaderKHR`, the route `[VR]
+  XrRuntimeJson` already used and measured through Steam on 2026-09-02), which the loader
+  reads first and honours elevated; a WARNING names both runtimes if the shim was asked for
+  and another answered. NOT verified elevated (needs a run as administrator with SteamVR):
+  the loader source is the evidence (`manifest_file.cpp` reads the manifest through
+  `LoaderProperty::GetSecure`, which returns the override before the environment).
+- The launcher already starts the game de-elevated; the elevation came from Steam or the exe.
+- The same bundle's VDXR session: 238 one-eye double pushes, tracking capture timeouts
+  minute by minute on the `v1.0.3` release, which lacks the 2026-10-03 capture fixes now on
+  staging (FLICKER_REFERENCE top entry).
+- Log noise found in field logs, fixed: `cmd: ... (err 2) - the seam is DEAF` (a missing
+  command file is normal for a player; now one Info line) and `hud/markers-sharp: REFUSED`
+  once a second (now on a change of reason).
+
+- Two more field bundles (a fast GPU at 120 Hz): afw flicker = capture timeouts at 2-4% of
+  grabs, under AutoDepth's 10% threshold (held presents and double pushes track them; reentry
+  barely times out). `[Capture] AutoDepthPercent` (default 10, F10 Display, `capture
+  autodepth <pct>`) lets 2 be tried. afw's frame rate on that machine reaches the 120 Hz cap
+  at 100% with DLSS to 2750x2850; at 150% the capture copy and per-present rebuild/DLSS make it
+  GPU-bound (PERFORMANCE).
+
+- Grab fix: the ready/grab hand started from (and closed into) another hand's grip - the open
+  pose was copied every frame both hands READ empty (the read lags an item draw) and the fist
+  was the right hand's live game pose. Both are latched now (`dvr::grab::PoseLatch`, 1.5 s).
+- `[Anim] CineHideStaticArms` (default 0): hides the game's cutscene arms while still with both
+  hands behind the camera. Check the sign of the `cine/hidearms:` depths on the first run.
+- ReShade field failure (error 1114 on 1.0.3) is fixed on staging by 758eb9124; the host suite
+  now covers a game folder with no ReShade.ini.
+
+- Grab poses headset-confirmed (2026-10-05). Reach defaults are now the headset-tuned 60 / 74 / 75 cm
+  (loot / books / doors, carried things and levers), were 45 / 55 / 35; an existing ini keeps its values.
+- `[Aim] CarryInGrabHand` (default 1): a carry started by a hand's grip stays in that hand - the aim ray
+  follows that hand for the carry (hold and throw ride it), the hold offsets are mirrored for the right
+  hand, and the right trigger throws a right-hand carry. The Interact button still carries in the left.
+  Not run. `carry/aim: carrying a movable in the RIGHT hand` and `crosshair: ray hand RIGHT for a carry`
+  are the lines to read.
+
+- Defaults revision 1 (2026-10-05, approved): CameraSilentGrace, GrabAnim, GrabReadyOpen/Hide,
+  HideTakedownArms, PoseFromView, ArmIK, HeartBack, CrouchToggle on; DlssModel 0 (K) again, in the code,
+  the default ini and the launcher. `[Meta] DefaultsRev` writes exactly these keys (and the reach values)
+  into an existing ini once; nothing else changes. Stereo method stays reentry.
+- ArmIK and HeartBack need game-derived files (the arm rig, the Heart rig/back/material) that the repo
+  rule forbids committing. Without them both fall back silently. Shipping them needs a per-machine
+  generation step; not decided.
+- Right-hand carry fixed: it now mirrors the left hand's measured ray (it waited for a bolt axis).
+
+- F10: a new Interact tab (reach, grab hand, held objects), Button mapping in Controls, Frame capture in Debug,
+  the cutscene arm hide works under full-arm IK (docs/dishonored/F10_AUDIT.md, 2026-10-05 pass).
+- IK and Heart data files ship in assets/vr/ and are embedded in the DLL (owner's decision, CLAUDE.md).
+
+**Next:** a SteamVR-rig check of the shim from an elevated game (Steam run as administrator):
+the log must say `loader property override XR_RUNTIME_JSON -> set (the SteamVR shim)` and
+`instance created on runtime 'DishonoredVR SteamVR shim (OpenVR)'`.
+
 ## 2026-10-05: audit headset run 1 read
 
 Build `v1.0.3-103-g889315d37`, 877 s, afw, ping trace beside it (FLICKER_REFERENCE top entry).

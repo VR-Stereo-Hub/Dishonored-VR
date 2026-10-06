@@ -1,3 +1,4 @@
+#include <atomic>
 #include "../src/game/dishonored/aim_ray.h"
 #include <openxr/openxr.h>
 #include <cmath>
@@ -22,7 +23,14 @@ static unsigned uploads=0;
 static unsigned imageCopies=0, imageReleases=0;
 static bool uploadOk=true, waitOk=true, releaseOk=true;
 struct Image { void* texture=(void*)4; } g_laserImages[1];
-struct Context { void CopyResource(void*,void*) {++imageCopies;} } context;
+// 2026-10-05: VR-141 rebuilds the dot's colour in publish_laser_image; the fake counts those uploads.
+static unsigned colourUploads=0;
+// The F10 panel occluder (the dot hides behind the panel); off in these tests.
+static int g_aimOccLock=0; static void AcquireSRWLockShared(int*){} static void ReleaseSRWLockShared(int*){}
+static bool g_aimOccOn=false; static float g_aimOccRect[4]={}; static uint32_t g_aimOccHidden=0;
+std::atomic<uint32_t> g_laserRgb{0x00FFFFFFu};
+std::atomic<bool> g_laserRgbDirty{false};
+struct Context { void CopyResource(void*,void*) {++imageCopies;} void UpdateSubresource(void*,unsigned,void*,const void*,unsigned,unsigned) {++colourUploads;} } context;
 Context* g_context=&context;
 XRAPI_ATTR XrResult XRAPI_CALL xrAcquireSwapchainImage(XrSwapchain,const XrSwapchainImageAcquireInfo*,uint32_t* index) {
     ++uploads; *index=0; return uploadOk ? XR_SUCCESS : XR_ERROR_RUNTIME_FAILURE;

@@ -26,7 +26,7 @@ static void HbRelease(const char* why){
 }
 static void HbSet(bool on){g_hbOn=on;ConfigWriteKey("Hands","HeartBack",on?"1":"0","Heart back");Log("heartback: %s",on?"ON":"off");}
 static bool HbEnabled(){return g_hbOn;}
-static void HbConfigure(const char* ini){g_hbOn=GetPrivateProfileIntA("Hands","HeartBack",0,ini)!=0;}
+static void HbConfigure(const char* ini){g_hbOn=GetPrivateProfileIntA("Hands","HeartBack",1,ini)!=0;}
 static bool HbCommand(const char* args){
     if(!strcmp(args,"on"))HbSet(true);else if(!strcmp(args,"off"))HbSet(false);
     else if(!strcmp(args,"reload"))g_hbReload=true;

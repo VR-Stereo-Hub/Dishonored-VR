@@ -1,3 +1,63 @@
+## 2026-10-05: afw flicker on a fast GPU at 120 Hz - capture timeouts at 2-4%, under the AutoDepth threshold (MEASURED from field logs; threshold lever built, headset pending)
+
+1. **Symptom identity:** reported from a field tester's headset: flicker under afw, not under
+   reentry, at every DLSS mode and at 100% resolution too; the sword steps sideways and back
+   in a recording. Whole held content of ONE eye for one present at a time - the R13 row
+   (capture timeouts), not a new class.
+2. **Reproduction identity:** two support bundles of 2026-10-04 (local only; they carry the
+   tester's paths), release `v1.0.3`, Quest 3 over VDXR at 120 Hz (8.33 ms), RTX 4070 Ti class,
+   eight sessions: two reentry, six afw; render 1832x1900 to 2590x2684, DLSS output 2750x2850
+   and 3368x3491.
+3. **Hypothesis and counterprediction:** capture timeouts (v1.0.3 refuses a grab after 10 ms,
+   the present goes out untagged and is held, the next push repeats an eye) predict held
+   presents and double pushes in proportion to timeouts, and both near zero under reentry.
+   Measured: afw sessions 354, 9, 752, 301, 48, 144 timeouts with 113, 25, 164, 73, 24, 52
+   held presents and 110, 16, 165, 72, 23, 51 double pushes; reentry 22 / 16 / 10 and 7 / 8 /
+   8. The afw sessions also show the rebuild's degraded modes at the same rate (`temporal
+   only` and `fresh only` about 5% of held-eye rebuilds each: no fresh depth or no held image,
+   where the hands can ghost). DLSS was checked and is NOT a cause: its fallback episodes
+   (5-11 evaluations a second, 24-29 fallbacks) sit at mode and resolution changes; in steady
+   play each eye is evaluated 41-79 times a second with 0 fallbacks.
+   On staging the timeouts are DELIVERED instead (2026-10-03), which keeps the eyes paired,
+   but a delivered copy is unfinished, so that eye still shows its previous frame: the same
+   one-present step in one eye. AutoDepth exists to stop that and would not have acted here:
+   the per-window timeout share was median 2.4-4.2% in the four heavy afw sessions (p90 up
+   to 8%, max 10.9% once), and two consecutive windows at >= 10% happened once in all of them.
+4. **Change identity:** `[Capture] AutoDepthPercent` (default 10 = the shipped rule; not in
+   the default ini), live `capture autodepth <pct>`, F10 Display "Capture: deeper ring at
+   timeouts". At 2 his sessions would have stepped to depth 2 within their first windows.
+   Depth 2 costs one present of capture latency (the pose travels with the image).
+5. **Results:** built, not run; no host test (the rule is one comparison inside the window
+   close, `capture.cpp`). Not run: his headset on a staging build with the threshold at 2.
+   The run that decides: `capture: AUTO DEPTH` once early, then `capture: wait timeouts this
+   window` falling, `pushed eye TWICE` near zero, and no perceived step of the sword.
+6. **Status:** cause measured; candidate lever built, default unchanged; whether 2 becomes the
+   default is a headset decision (latency vs a one-eye hitch a second).
+
+## 2026-10-05: a player's support bundle - one-eye double pushes track capture timeouts on the 1.0.3 release (MEASURED from a field log; already fixed on staging, not released)
+
+1. **Symptom identity:** a field bundle (support collection of 2026-10-04) from a Quest 3 on
+   VDXR at 72 Hz, release `v1.0.3` (built 2026-10-03), reentry; the report that came with it
+   was about SteamVR not being selected (next entry), not flicker. Its 733 s VDXR session has
+   238 `reentry: pushed eye +-1 TWICE` (about 20 a minute through gameplay), each one a
+   present where one eye's swapchain got no copy: the R13 / R14 class of section 1.
+2. **Reproduction identity:** the bundle is local only (it carries the player's paths); the
+   session ran 61-65 ticks a second against a 13.89 ms slot (`perf: tick 15.7 ms`), capture
+   lock 1.5-1.6 ms per present, 2750x2850.
+3. **Hypothesis and counterprediction:** the camera-silent gate (F1 of the audit) predicts
+   double pushes at the gate rate: refuted - only 2 camera-silent gates in the session and
+   `2nd/s` = `draws/s` in every beat. Capture timeouts (the 2026-10-03 slow-GPU entry)
+   predict double pushes in proportion to timeouts: confirmed - the lifetime timeout count
+   (400) rises with the double pushes minute by minute (11/11, 47/25, 27/21, 61/25, 29/19,
+   27/20, 39/24, 68/33, 32/17, 28/28, 15/14). The release `v1.0.3` has neither
+   `[Capture] TimeoutRefuse` nor `AutoDepth` (`git show v1.0.3:src/core/gfx/capture.cpp`).
+4. **Change identity:** none new; staging carries the 2026-10-03 capture changes.
+5. **Results:** log-measured only. Note the AutoDepth threshold (10% of grabs timing out for
+   two windows) would NOT have engaged here (about 0.3% of grabs), so on staging this
+   machine relies on the delivery rule alone.
+6. **Status:** explained, fix on staging, unreleased. If the same machine still shows double
+   pushes on a staging build, the next question is the AutoDepth threshold, not a new cause.
+
 ## 2026-10-05: audit headset run 1 - the silent-gate grace removed every single-eye tick; the 5.66 s stall is the network path to the headset (MEASURED, headset run)
 
 1. **Symptom identity:** the run named by the audit (appendix 9.3, items 1-5): ordinary play
@@ -4218,7 +4278,7 @@ Sources: [TRAPS](../TRAPS.md), [VR-33 record](VR-33-HANDS-AND-WEAPONS.md),
 | The simulator's per-eye exposure alternation is an engine eye-adaptation or tonemap state, or a capture artifact | Retracted: encoding the dark eye reproduces the bright one (52.2 -> 4.5 of 255); it is the afw rebuild written through a typed sRGB view. Typeless runtimes (VDXR, the shim) cannot show it |
 | The recurring xrEndFrame stall is the depth-share check | Wrong period (5.000 s vs 5.664 s) and the stall is inside xrEndFrame, which the check does not call. The check WAS a hitch of its own and is bounded |
 | The recurring xrEndFrame stall is full-arm IK, a per-frame scan, streaming or VRAM | None of these can have a wall-clock period; the earlier entries already found no correlation. The period is the discriminator |
-| `hud/markers-sharp: REFUSED` floods the log every second | Retracted as current: 0 lines in 9 of 10 logs on disk, 1 in the tenth; the code path is unchanged but does not fire on this rig |
+| `hud/markers-sharp: REFUSED` floods the log every second | First read as not current (0 in 9 of 10 logs on the dev rig), then REINSTATED the same day: a field bundle had 726 of them in one session (`reason=no reduced reentry upscaler and AFW clean sources off`, reentry without DLSS). The refusal now logs when its reason changes and repeats at Info once a minute |
 | Build `-80` (prev5/prev6) had no stalls, so a later build introduced them | Retracted before it was written: those two logs are SIMULATOR runs. Check `instance created on runtime` per log before any A/B across the rotation |
 | Under afw the ring can skew like it did under reentry | No evidence: empty pops 0 in 316 ten-second ledger windows across 9 logs; the c5 repairs are off there by design. Still no eye-order check under afw (theoretical, measured zero) |
 | `pushed eye -1 TWICE` under afw leaves the right eye frozen at the old head pose | Corrected: afw rebuilds the held eye from its last capture at the CURRENT head pose every present, so a double push costs one tick of content age in that eye, not a stale pose. The `STALE R EYE` warn counts it all the same |

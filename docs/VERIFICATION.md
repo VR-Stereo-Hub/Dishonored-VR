@@ -82,6 +82,15 @@ the resolution globals), `yawtest-host`'s ownership half (needs `IsLiveObject`,
 game-derived fixtures on its command line and is not a failure. A suite that does not
 compile is not a passing suite: run it, read the last line.
 
+Release check of 2026-10-05 (1.0.4 candidate, 88 suites): four more had rotted and are repaired -
+`aim-ray-host` (the VR-141 colour upload and the panel occluder), `game-opts-host` (the DLAA read),
+`desktop-benchmark-host` (the pacer it now drives) and `animation-action-abi-host` (its slice ran past the
+naked stub). The six GPU suites refuse while the game runs; run them with the game closed.
+The four that were left stale are repaired as well (viewport-resize, yawtest's ownership half, load-startup,
+menu-immersion); two of their checks encoded behaviour later changed on purpose (the menu head reference kept
+across a screen handover, 5ae7f635e; the blur release without a restore write, VR-140) and now assert the
+current contract. Every suite passes; `-LegacyNames`/`-LegacyClamp` style controls still fail by design.
+
 New in that session: `tools\camera-silent-host.ps1` (the gameplay camera-silent gate's
 policy, `[Stereo] CameraSilentGrace`: 254,276 checks including the negative control that
 the shipped rule fails the in-draw, stalled-interval and catch-up schedules), the

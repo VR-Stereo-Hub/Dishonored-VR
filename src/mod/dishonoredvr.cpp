@@ -20,6 +20,7 @@
 #include "core/util/mem.h"
 #include "core/util/ini.h"
 #include "core/util/paths.h"
+#include "core/util/embedded_assets.h"
 #include "core/util/diag.h"
 #include "core/util/crash.h"
 #include "core/util/etw.h"

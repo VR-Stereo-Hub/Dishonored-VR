@@ -107,9 +107,11 @@ DVR_DATA_DIR, otherwise LocalAppData/DishonoredVR). The file contains named
 reference joint heads/hierarchy and reference vertex positions/weights in
 ENGINE mesh coordinates (`DVRIK002`). Preparation reverses UModel's PSK Y
 reflection for both composed heads and vertices. Version 1 is rejected. This
-local prototype requires preparation; it does not extract installed packages
-automatically. The tool is committed; PSK, binary rig, Blender files, captures
-and other extracted game content are not. Ignore rules protect the rig/PSK.
+tool still prepares it from a locally extracted mesh. Since 2026-10-05 the prepared
+rig is shipped: `assets/vr/dishonored_vr_arm_rig.bin` is committed (the owner's
+decision, recorded in CLAUDE.md), embedded in the proxy and written into the data
+directory on start (`core/util/embedded_assets.cpp`), so players need no setup.
+PSKs, Blender files, captures and other extracted content stay out of the tree.
 
 There are no copied BioShock indices or new engine offsets. At mesh build,
 all runtime vertex positions must match reference points within 0.03 model

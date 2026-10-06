@@ -33,6 +33,19 @@ static const char* ObjClassName(uint8_t*){return "FixtureViewportClient";}
 static void Log(const char*,...){ }
 static void ResRequest(uint32_t,uint32_t,bool,const char*){++saves;}
 namespace dvr::capture {static uint32_t width(){return captureW;} static uint32_t height(){return captureH;}}
+// 2026-10-05: the resize path also keeps DLSS Super Resolution's output in step, reads the vsync and
+// window-mode state and centres on the desktop; the fixtures below hold that state (DLSS off by default).
+namespace dvr::dlss { enum Mode { ModeOff=0, ModeDlaa=1 }; enum Quality { QDlaa=0, QQuality };
+static int fxMode=ModeOff, fxQuality=QDlaa; static uint32_t fxOutW=0, fxOutH=0;
+static int mode(){return fxMode;} static int quality(){return fxQuality;} static bool failed(){return false;}
+static float ratio(){return 1.0f;} static const char* quality_name(int){return "fixture";}
+static void set_output(uint32_t w,uint32_t h,const char*){fxOutW=w;fxOutH=h;}
+static bool output(uint32_t* w,uint32_t* h){*w=fxOutW;*h=fxOutH;return fxOutW&&fxOutH;}
+static void render_for(uint32_t ow,uint32_t oh,uint32_t* w,uint32_t* h){*w=ow;*h=oh;} }
+static bool g_gameWindowed=true, g_forceNoVSync=false; static int g_vsyncWant=-1;
+static uint32_t g_resWantW=0, g_resWantH=0; static bool g_resWantFull=false;
+static unsigned keyWrites=0; static void ConfigWriteKey(const char*,const char*,const char*,const char*){++keyWrites;}
+enum { SM_CXSCREEN=0, SM_CYSCREEN=1 }; static int GetSystemMetrics(int i){return i==SM_CXSCREEN?1920:1080;}
 // Replace only addresses with fixture storage; retain production layout constants.
 #define kWindowsViewportVtable ((uintptr_t)primary)
 #define kWindowsFViewportVtable ((uintptr_t)secondary)

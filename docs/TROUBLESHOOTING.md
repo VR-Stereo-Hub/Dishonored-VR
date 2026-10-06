@@ -3,6 +3,21 @@
 Desktop mirror defaults off for a potential large performance boost on any runtime.
 If SteamVR crashes on startup, turn **Desktop mirror ON** in the launcher and retry.
 
+## SteamVR chosen, but the game opens in Virtual Desktop (or another runtime)
+
+`[VR] Runtime=steamvr` (or SteamVR picked in the launcher) and the game still comes up on
+VDXR: the log's `xr:` lines say `runtime mode 'steamvr' - using the SteamVR shim directly`
+and then `instance created on runtime 'VirtualDesktopXR'`. Up to 1.0.3 this happened when
+the game ran **as administrator**: Windows' OpenXR loader ignores the setting the mod uses
+to pick its SteamVR shim in an elevated process, and falls back to the system's runtime.
+The log said so on the line `game is running elevated; the shim cannot be selected`.
+- Builds after 1.0.3 select the shim another way that works elevated too, and print a
+  WARNING naming both runtimes if SteamVR was asked for and something else answered.
+- On 1.0.3: do not run Steam or Dishonored as administrator. Close Steam, start it normally
+  (not "Run as administrator"), and check `Dishonored.exe` > Properties > Compatibility does
+  not have "Run this program as an administrator" ticked. Running the LAUNCHER as
+  administrator is fine: it starts the game through Steam without its rights.
+
 ## Collect a crash report
 
 After a problem, click Collect logs in the launcher (or use Collect VR Support.cmd

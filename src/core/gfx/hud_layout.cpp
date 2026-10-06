@@ -1873,7 +1873,7 @@ void draw_ui() {
             ImGui::PopID();
         }
     }
-    if (ov::section("Menu immersion", ov::Advanced, "How in-game menus behave in the headset.")) {
+    if (ov::section("In-game menus in the headset", ov::Advanced, "How in-game menus behave in the headset.")) {
         bool keep = g_menuExitHeading.load();
         if (dvr::ovl::checkbox("Keep viewing direction when closing menus", &keep)) { g_menuExitHeading.store(keep); write_i("MenuExitHeading", keep); }
         for (int i = 0; i < kMenuContexts; ++i) {
@@ -1894,7 +1894,7 @@ void draw_ui() {
             ImGui::PopID();
         }
     }
-    if (ov::section("Screens on the HUD panels", ov::Advanced,
+    if (ov::section("Which screens appear on the HUD panels", ov::Advanced,
                     "In-game screens (pause, journal and others) float on a panel with the world in 3D behind. "
                     "The main menu keeps the flat screen.")) {
         bool on = g_menuInWindow;
@@ -1940,7 +1940,7 @@ void draw_ui() {
         }
         if (ch) set_subtitle_readability(c, "F10 HUD");
     }
-    if (ov::section("HUD elements", ov::Advanced,
+    if (ov::section("Where each HUD element goes", ov::Advanced,
                     "Where each part of the HUD floats: off, the window in front of you, the world, or a hand panel.")) {
         for (int e = 0; e < ElCount; ++e) {
             ImGui::PushID(e);
@@ -1984,7 +1984,7 @@ void draw_ui() {
             ImGui::PopID();
         }
     }
-    if (ov::section("HUD window", ov::Advanced,
+    if (ov::section("HUD window position and size", ov::Advanced,
                     "The panel in front of you that most HUD elements ride. 'window' follows your head; 'world' stays where you recentred.")) {
         WindowCfg c = g_win;
         bool ch = false;
@@ -1998,7 +1998,7 @@ void draw_ui() {
         ch |= dvr::ovl::slider_float("Lateral offset (m)", &c.latM, -1.0f, 1.0f, "%.2f");
         if (ch) set_window(c, "F10 HUD");
     }
-    if (ov::section("Hand panels", ov::Advanced, "The small HUD panels on each wrist.")) {
+    if (ov::section("Wrist HUD panels", ov::Advanced, "The small HUD panels on each wrist.")) {
         for (int k = 0; k < 2; ++k) {
             ImGui::PushID(200 + k);
             ImGui::TextUnformatted(k ? "Right hand panel" : "Left hand panel");
@@ -2019,7 +2019,7 @@ void draw_ui() {
             ImGui::PopID();
         }
     }
-    if (ov::section("HUD grouping", ov::Advanced, "Which HUD pieces travel together.")) {
+    if (ov::section("HUD pieces that move together", ov::Advanced, "Which HUD pieces travel together.")) {
         bool onAim = g_reticleOnAim;   // VR-166
         if (dvr::ovl::checkbox("Centre gauges ride the aim dot", &onAim)) set_reticle_on_aim(onAim, "F10 HUD");
         ov::tip("Gauges drawn at the centre of the screen (the grenade cook ring) follow the reticle.");

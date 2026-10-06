@@ -129,7 +129,7 @@ static void OvlTopRow()
 // ---- Hands ----------------------------------------------------------------------------------
 static void OvlTabHands()
 {
-    if (OvlSec("Hand size and position", kOvlB,
+    if (OvlSec("Hand size, position and weapon FOV", kOvlB,
                "How big the hands are and where they sit on your controllers.")) {
         dvr::ovl::slider_float("Hand / weapon size", &g_mpModelScale, 0.4f, 1.6f, "%.2f");
         OvlTip("Scales the hands and whatever they hold, around your palm. Not the world scale. "
@@ -138,7 +138,7 @@ static void OvlTabHands()
         MpTrimPanel();   // left, right and powers position steps
         OvlHandsFovControls("F10 Hands");   // VR-39
     }
-    if (OvlSec("Sleeve", kOvlB, "How much of the arm is drawn with each hand.")) {
+    if (OvlSec("How much arm is shown (sleeve)", kOvlB, "How much of the arm is drawn with each hand.")) {
         const bool fullArmIK=g_ikOn.load();
         if(fullArmIK)ImGui::TextWrapped("Full-arm IK uses the entire arm mesh. Sleeve cuts are disabled. See the IK tab for activation status.");
         ImGui::BeginDisabled(fullArmIK);
@@ -160,43 +160,6 @@ static void OvlTabHands()
         if (ImGui::IsItemDeactivatedAfterEdit()) MsSleeveApply(-shownLen, g_msRoundDepth, "F10 Sleeve length");
         OvlTip("How far up the arm is kept. Applies when you let go of the slider (the cut is rebuilt).");
         ImGui::EndDisabled();
-        if (dvr::ovl::checkbox("Open right hand when it is empty", &g_ohOn))
-            ConfigWriteKey("Hands", "OpenEmptyRightHand", g_ohOn ? "1" : "0", "F10 Hands");
-        OvlTip("With the sword put away, the right hand relaxes open like the left instead of making a fist.");
-        {
-            bool grab = GrabAnimEnabled();
-            if (dvr::ovl::checkbox("Grab animation", &grab)) {
-                GrabAnimSet(grab, "F10"); ConfigWriteKey("Hands", "GrabAnim", grab ? "1" : "0", "F10 Hands");
-            }
-            OvlTip("When a grip picks something up or uses it, that hand opens flat and closes into a fist, and stays closed while you hold the grip.");
-            bool rOpen = GrabReadyOpenEnabled(), rHide = GrabReadyHideEnabled();
-            if (dvr::ovl::checkbox("Open the hand when in reach", &rOpen)) {
-                GrabReadySet(rOpen, rHide, "F10"); ConfigWriteKey("Hands", "GrabReadyOpen", rOpen ? "1" : "0", "F10 Hands");
-            }
-            OvlTip("A hand close enough to grab something opens like the sheathed hand, so you can see the grip will work.");
-            if (dvr::ovl::checkbox("Hide what the hand holds when in reach", &rHide)) {
-                GrabReadySet(rOpen, rHide, "F10"); ConfigWriteKey("Hands", "GrabReadyHide", rHide ? "1" : "0", "F10 Hands");
-            }
-            OvlTip("The weapon or item in that hand disappears while it can grab, and comes back when it moves away.");
-            if (grab) {
-                ImGui::SameLine();
-                if (ImGui::Button("Try it")) GrabAnimCommand("test right");
-                if (OvlAt(kOvlA)) {
-                    float t[5]; GrabAnimTimes(t);
-                    bool ch = false;
-                    ch |= dvr::ovl::slider_float("Grab: open (ms)", &t[0], 0.f, 400.f, "%.0f");
-                    ch |= dvr::ovl::slider_float("Grab: close (ms)", &t[1], 40.f, 1000.f, "%.0f");
-                    ch |= dvr::ovl::slider_float("Grab: hold (ms)", &t[2], 0.f, 2000.f, "%.0f");
-                    ch |= dvr::ovl::slider_float("Grab: release (ms)", &t[3], 40.f, 1000.f, "%.0f");
-                    ch |= dvr::ovl::slider_float("Grab: fingertip lag (ms)", &t[4], 0.f, 200.f, "%.0f");
-                    if (ch) {
-                        GrabAnimSetTimes(t);
-                        GrabAnimWriteTimes("F10 Hands");
-                    }
-                    OvlTip("How long each part of the grab takes. Press Try it to see the change on the right hand.");
-                }
-            }
-        }
         if (OvlAt(kOvlA)) {
             ImGui::BeginDisabled(fullArmIK);
             bool wristChanged = dvr::ovl::checkbox("Rounded wrist ends", &g_msRoundWrist);
@@ -210,7 +173,7 @@ static void OvlTabHands()
             ImGui::EndDisabled();
         }
     }
-    if (OvlSec("Game arms during actions", kOvlA,
+    if (OvlSec("Game animations on your arms (takedowns, mantling, cutscenes)", kOvlA,
                "Which game actions show the game's own animated arms instead of your tracked hands, "
                "and which actions are allowed at all.")) {
         bool enabled = dvr::anim::enabled();
@@ -245,10 +208,16 @@ static void OvlTabHands()
             dvr::anim::set_takedown_arms_hidden(takedownArms);
             ConfigWriteKey("Anim", "HideTakedownArms", takedownArms ? "1" : "0", "F10 Hands");
         }
-        ImGui::EndDisabled();
         OvlTip(ikArms ? "Not used while full-arm IK draws the arms; it applies again if IK is off or falls back to hands."
                       : "Assassinations on the ground and from the air, chokes and combat kills show the game's animated hands "
                         "without forearms, cut at your Sleeve length, like mantling. Off shows the game's full arms.");
+        ImGui::EndDisabled();
+        bool cineHide = dvr::anim::cine_hide_static();   // works with or without full-arm IK
+        if (dvr::ovl::checkbox("Hide still cutscene arms pointing behind you", &cineHide)) {
+            dvr::anim::set_cine_hide_static(cineHide);
+            ConfigWriteKey("Anim", "CineHideStaticArms", cineHide ? "1" : "0", "F10 Hands");
+        }
+        OvlTip("In a cutscene, the game's arms are hidden while they hold still with both hands behind your head.");
         bool cineArms = dvr::anim::cinematic_arms();
         if (dvr::ovl::checkbox("Your arms in cutscenes (experimental)", &cineArms)) dvr::anim::set_cinematic_arms(cineArms);
         OvlTip("Off: cutscenes and conversations are left exactly as the game shows them. On: your tracked arms stay visible and "
@@ -339,7 +308,7 @@ static void OvlTabHands()
             ImGui::TreePop();
         }
     }
-    if (OvlSec("Head-turn smoothing", kOvlA, "Keeps the hands and weapons steady when you turn your head quickly.")) {
+    if (OvlSec("Hand steadiness on fast head turns", kOvlA, "Keeps the hands and weapons steady when you turn your head quickly.")) {
         if (dvr::ovl::checkbox("Hands follow each eye's own view", &g_mpPoseFromView)) {
             ConfigWriteKey("Hands", "PoseFromView", g_mpPoseFromView ? "1" : "0", "F10 Hands");
             Log("hands: PoseFromView -> %d (live)", (int)g_mpPoseFromView);
@@ -416,7 +385,7 @@ static void OvlTabHands()
 // ---- Aim ------------------------------------------------------------------------------------
 static void OvlTabAim()
 {
-    if (OvlSec("Reticle", kOvlB, "The dot that shows where your hand is aiming.")) {
+    if (OvlSec("Reticle (the aim dot)", kOvlB, "The dot that shows where your hand is aiming.")) {
         if (dvr::aim::draw_reticle_ui()) {   // VR-141: saved at once
             const auto rc = dvr::aim::config(); char rv[32];
             ConfigWriteKey("Crosshair", "Dot", rc.dot ? "1" : "0", "F10 Aim");
@@ -437,7 +406,7 @@ static void OvlTabAim()
             OvlTip("Keeps the dot visible beside this panel so you can tune it. It hides behind the panel itself.");
         }
     }
-    if (OvlSec("What aims with the controller", kOvlB,
+    if (OvlSec("Aim with the controller or your head, per weapon", kOvlB,
                "For each thing you can aim: follow your controller, or your head like the flat game.")) {
         auto row = [](const char* label, bool hand, bool* changed, const char* tipText) {
             ImGui::PushID(label);
@@ -472,149 +441,8 @@ static void OvlTabAim()
         if (changed) { CarryThrowAimSet(carry, "F10"); ConfigWriteKey("Aim", "CarryThrowFromHand", carry ? "1" : "0", "F10 Aim"); }
         bool powers = row("Windblast, Possession, Swarm", PowerAimEnabled(), &changed, "Where these powers are aimed.");
         if (changed) { PowerAimSet(powers, "F10"); ConfigWriteKey("Aim", "PowersFromHand", powers ? "1" : "0", "F10 Aim"); }
-        {
-            bool grab = PickupEnabled();
-            if (dvr::ovl::checkbox("Pick up loot by reaching for it", &grab)) {
-                PickupSet(grab, "F10"); ConfigWriteKey("Aim", "PhysicalPickup", grab ? "1" : "0", "F10 Aim");
-            }
-            OvlTip("Reach a hand to coins, elixirs, keys and other loot and squeeze that hand's grip. The game "
-                   "highlights the item when a hand is close enough. The Interact button works as before.");
-            if (grab) {
-                float reach = PickupReachCm(), book = PickupBookReachCm();
-                if (dvr::ovl::slider_float("Reach (cm)", &reach, 10.f, 80.f, "%.0f")) {
-                    PickupSetReachCm(reach);
-                    char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupReachCm()); v[sizeof(v) - 1] = 0;
-                    ConfigWriteKey("Aim", "PhysicalPickupReachCm", v, "F10 Aim");
-                }
-                OvlTip("How close a hand must be to an item.");
-                if (dvr::ovl::slider_float("Reach for books and notes (cm)", &book, 10.f, 100.f, "%.0f")) {
-                    PickupSetBookReachCm(book);
-                    char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupBookReachCm()); v[sizeof(v) - 1] = 0;
-                    ConfigWriteKey("Aim", "PhysicalPickupBookReachCm", v, "F10 Aim");
-                }
-                OvlTip("Books and notes are larger, so they have their own distance. A page opened by a grip attaches to that hand.");
-                bool doors = PickupDoorsEnabled();
-                if (dvr::ovl::checkbox("Open doors by grabbing them", &doors)) {
-                    PickupSetDoors(doors, "F10"); ConfigWriteKey("Aim", "PhysicalDoors", doors ? "1" : "0", "F10 Aim");
-                }
-                OvlTip("Bring a hand to a door and squeeze that hand's grip to open or close it.");
-                if (doors) {
-                    float door = PickupDoorReachCm();
-                    if (dvr::ovl::slider_float("Reach for doors (cm)", &door, 5.f, 80.f, "%.0f")) {
-                        PickupSetDoorReachCm(door);
-                        char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupDoorReachCm()); v[sizeof(v) - 1] = 0;
-                        ConfigWriteKey("Aim", "PhysicalDoorReachCm", v, "F10 Aim");
-                    }
-                    OvlTip("How close a hand must be to the door. Things you carry and levers use the same distance.");
-                }
-                bool carry = PickupCarryEnabled();
-                if (dvr::ovl::checkbox("Pick up things you can carry or throw by grabbing", &carry)) {
-                    PickupSetCarry(carry, "F10"); ConfigWriteKey("Aim", "PhysicalCarry", carry ? "1" : "0", "F10 Aim");
-                }
-                OvlTip("Bottles, tanks, grenades and other loose objects. While one is carried the grip does its own job again.");
-                bool usables = PickupUsablesEnabled();
-                if (dvr::ovl::checkbox("Use levers, switches, chains and traps by grabbing", &usables)) {
-                    PickupSetUsables(usables, "F10"); ConfigWriteKey("Aim", "PhysicalUsables", usables ? "1" : "0", "F10 Aim");
-                }
-                OvlTip("Holding the grip holds the button for things that need it. People are never grabbed this way.");
-            }
-        }
         ImGui::TextDisabled("Not aimed by the mod: the sword (motion swing), carried bodies, the Heart.");
         if (g_gamepadOnly) ImGui::TextDisabled("[Mode] GamepadOnly=1: everything stays on the head.");
-    }
-    if (OvlSec("Held objects", kOvlB, "Where a carried bottle, rock or object sits in your hand.")) {
-        ImGui::TextUnformatted("Position (steps follow your view; carry something to see it)");
-        static int stepIx = 1;
-        static const float kCm[3] = { 0.5f, 1.0f, 3.0f }, kDeg[3] = { 1.0f, 3.0f, 10.0f };
-        dvr::ovl::radio_button("fine##chstep", &stepIx, 0); OvlTip("0.5 cm or 1 degree per press.");
-        ImGui::SameLine();
-        dvr::ovl::radio_button("normal##chstep", &stepIx, 1); OvlTip("1 cm or 3 degrees per press.");
-        ImGui::SameLine();
-        dvr::ovl::radio_button("coarse##chstep", &stepIx, 2); OvlTip("3 cm or 10 degrees per press.");
-        struct Row { const char* name; const char* neg; const char* pos; bool rot; int axis; };
-        static const Row kRows[6] = {
-            { "move", "left", "right", false, 0 }, { "move", "down", "up", false, 2 },
-            { "move", "back", "forward", false, 1 },
-            { "turn", "pitch down", "pitch up", true, 1 }, { "turn", "yaw left", "yaw right", true, 0 },
-            { "turn", "roll left", "roll right", true, 2 } };
-        static const char* lastWhy = "";
-        bool stepped = false;
-        ImGui::PushItemFlag(ImGuiItemFlags_ButtonRepeat, true);
-        for (int r = 0; r < 6; ++r)
-            for (int sgn = 0; sgn < 2; ++sgn) {
-                char lbl[48];
-                _snprintf(lbl, sizeof(lbl), "%s %s##chv%d%d", kRows[r].name, sgn ? kRows[r].pos : kRows[r].neg, r, sgn);
-                lbl[sizeof(lbl) - 1] = 0;
-                if (sgn) ImGui::SameLine();
-                if (dvr::ovl::button(lbl, ImVec2(ImGui::GetContentRegionAvail().x * (sgn ? 1.0f : 0.5f) - (sgn ? 0.0f : 4.0f), 0))) {
-                    const float amt = (sgn ? 1.0f : -1.0f) * (kRows[r].rot ? kDeg[stepIx] : kCm[stepIx]);
-                    if (CarryHoldViewStep(kRows[r].rot, kRows[r].axis, amt, &lastWhy)) stepped = true;
-                }
-                OvlTip("Moves or turns the held object the way the button says, as you see it now. "
-                       "Hold to repeat. Saved at once.");
-            }
-        ImGui::PopItemFlag();
-        if (stepped) CarryHoldSaveAdj("F10 Aim");
-        if (lastWhy[0] && strcmp(lastWhy, "ok")) ImGui::TextDisabled("last step refused: %s", lastWhy);
-        if (OvlAt(kOvlA)) {
-            bool carryLt = CarryThrowLeftEnabled();
-            if (dvr::ovl::checkbox("Throw carried objects with the left trigger", &carryLt)) {
-                CarryThrowLeftSet(carryLt, "F10"); ConfigWriteKey("Aim", "CarryThrowLeftTrigger", carryLt ? "1" : "0", "F10 Aim");
-            }
-            OvlTip("Off uses the game's layout (the right trigger throws).");
-            bool carryHold = CarryHoldEnabled();
-            if (dvr::ovl::checkbox("Hold carried objects in the hand", &carryHold)) {
-                CarryHoldSet(carryHold, "F10"); ConfigWriteKey("Aim", "CarryHoldAtHand", carryHold ? "1" : "0", "F10 Aim");
-            }
-            OvlTip("Off leaves the object floating in front of your view, as in the flat game.");
-            bool holdRot = CarryHoldRotateEnabled();
-            if (dvr::ovl::checkbox("Held object turns with the hand", &holdRot)) {
-                CarryHoldSetRotate(holdRot); ConfigWriteKey("Aim", "CarryHoldRotate", holdRot ? "1" : "0", "F10 Aim");
-            }
-            bool holdKeep = CarryHoldKeepAngle();
-            if (dvr::ovl::checkbox("Keep the angle it was picked up at", &holdKeep)) {
-                CarryHoldSetKeepAngle(holdKeep); ConfigWriteKey("Aim", "CarryHoldKeepPickupAngle", holdKeep ? "1" : "0", "F10 Aim");
-            }
-            OvlTip("Off: every object sits the same way in the hand (then the turn steps above apply).");
-            bool holdRet = CarryHoldReticleAnchored();
-            if (dvr::ovl::checkbox("Held object ignores reticle changes", &holdRet)) {
-                CarryHoldSetReticleAnchored(holdRet); ConfigWriteKey("Aim", "CarryHoldReticleAnchor", holdRet ? "1" : "0", "F10 Aim");
-            }
-            const auto rc = dvr::aim::config();
-            ImGui::TextDisabled("tuned at reticle %+.1f / %+.1f deg; reticle now %+.1f / %+.1f",
-                                CarryHoldReticleRef(0), CarryHoldReticleRef(1), rc.otherXDeg, rc.otherYDeg);
-            if (dvr::ovl::button("Retune the hold against the current reticle")) {
-                CarryHoldSetReticleRef(rc.otherXDeg, rc.otherYDeg);
-                char b[16];
-                _snprintf(b, sizeof(b), "%.2f", rc.otherXDeg); b[15] = 0; ConfigWriteKey("Aim", "CarryHoldReticleX", b, "F10 Aim");
-                _snprintf(b, sizeof(b), "%.2f", rc.otherYDeg); b[15] = 0; ConfigWriteKey("Aim", "CarryHoldReticleY", b, "F10 Aim");
-            }
-            OvlTip("Moves the held object onto the current reticle's line; the steps above then tune from there.");
-        }
-        if (OvlAt(kOvlD)) {
-            bool holdAnchor = CarryHoldGameAnchor();
-            if (dvr::ovl::checkbox("Anchor the held object on the game camera", &holdAnchor)) {
-                CarryHoldSetGameAnchor(holdAnchor); ConfigWriteKey("Aim", "CarryHoldAnchor", holdAnchor ? "1" : "0", "F10 Aim");
-            }
-            OvlTip("Fix for the held object jumping sideways (VR-181). Leave on.");
-            bool holdDepth = CarryHoldWorldDepthEnabled();
-            if (dvr::ovl::checkbox("Held object drawn in the world (not the weapon layer)", &holdDepth)) {
-                CarryHoldSetWorldDepth(holdDepth); ConfigWriteKey("Aim", "CarryHoldWorldDepth", holdDepth ? "1" : "0", "F10 Aim");
-            }
-            OvlTip("Draws the object with the world so it is hidden behind walls. Leave on.");
-            if (ImGui::TreeNode("Stored values (hand frame)##chraw")) {
-                static const char* const holdLbl[6] = { "Held: forward (cm)", "Held: right (cm)", "Held: up (cm)",
-                                                        "Held: pitch (deg)", "Held: yaw (deg)", "Held: roll (deg)" };
-                static const float holdMin[6] = { -40, -40, -40, -180, -180, -180 }, holdMax[6] = { 60, 40, 40, 180, 180, 180 };
-                for (int i = 0; i < 6; ++i) {
-                    float v = CarryHoldAdj(i);
-                    if (dvr::ovl::slider_float(holdLbl[i], &v, holdMin[i], holdMax[i], "%.1f")) CarryHoldSetAdj(i, v);
-                    OvlTip("The raw offset in the hand's own frame ([Aim] CarryHold*). The steps above edit these.");
-                    if (ImGui::IsItemDeactivatedAfterEdit()) CarryHoldSaveAdj("F10 Aim");
-                }
-                ImGui::TreePop();
-            }
-        }
     }
     if (OvlSec("Aim ray and Blink (debug)", kOvlD, "Where the aim ray comes from, and Blink's reach.")) {
         dvr::aim::draw_ui();
@@ -700,7 +528,242 @@ static void OvlBindsSection()
 #endif
         if (!now.active || !dvr::binds::any_down(now)) dvr::binds::captureUntilMs = 0;
     }
-    if (!OvlSec("Button mapping", kOvlB, "Choose which controller button does each game action.")) {
+}
+
+// ---- Controls -------------------------------------------------------------------------------
+// ---- Interact (2026-10-05): everything about reaching for things, grabbing and carrying, in one tab. Moved here
+// from Aim (the reach settings, Held objects) and Hands > Sleeve (the grab hand); the controls, keys and setters
+// are unchanged.
+static void OvlTabInteract()
+{
+    if (OvlSec("Reach and grab: loot, books, doors, carrying, levers", kOvlB,
+               "Take loot, open doors and books, carry things and pull levers by reaching and squeezing the grip.")) {
+        {
+            bool grab = PickupEnabled();
+            if (dvr::ovl::checkbox("Pick up loot by reaching for it", &grab)) {
+                PickupSet(grab, "F10"); ConfigWriteKey("Aim", "PhysicalPickup", grab ? "1" : "0", "F10 Aim");
+            }
+            OvlTip("Reach a hand to coins, elixirs, keys and other loot and squeeze that hand's grip. The game "
+                   "highlights the item when a hand is close enough. The Interact button works as before.");
+            if (grab) {
+                float reach = PickupReachCm(), book = PickupBookReachCm();
+                if (dvr::ovl::slider_float("Reach (cm)", &reach, 10.f, 80.f, "%.0f")) {
+                    PickupSetReachCm(reach);
+                    char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupReachCm()); v[sizeof(v) - 1] = 0;
+                    ConfigWriteKey("Aim", "PhysicalPickupReachCm", v, "F10 Aim");
+                }
+                OvlTip("How close a hand must be to an item.");
+                if (dvr::ovl::slider_float("Reach for books and notes (cm)", &book, 10.f, 100.f, "%.0f")) {
+                    PickupSetBookReachCm(book);
+                    char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupBookReachCm()); v[sizeof(v) - 1] = 0;
+                    ConfigWriteKey("Aim", "PhysicalPickupBookReachCm", v, "F10 Aim");
+                }
+                OvlTip("Books and notes are larger, so they have their own distance. A page opened by a grip attaches to that hand.");
+                bool doors = PickupDoorsEnabled();
+                if (dvr::ovl::checkbox("Open doors by grabbing them", &doors)) {
+                    PickupSetDoors(doors, "F10"); ConfigWriteKey("Aim", "PhysicalDoors", doors ? "1" : "0", "F10 Aim");
+                }
+                OvlTip("Bring a hand to a door and squeeze that hand's grip to open or close it.");
+                if (doors) {
+                    float door = PickupDoorReachCm();
+                    if (dvr::ovl::slider_float("Reach for doors (cm)", &door, 5.f, 80.f, "%.0f")) {
+                        PickupSetDoorReachCm(door);
+                        char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupDoorReachCm()); v[sizeof(v) - 1] = 0;
+                        ConfigWriteKey("Aim", "PhysicalDoorReachCm", v, "F10 Aim");
+                    }
+                    OvlTip("How close a hand must be to the door. Things you carry and levers use the same distance.");
+                }
+                bool carry = PickupCarryEnabled();
+                if (dvr::ovl::checkbox("Pick up things you can carry or throw by grabbing", &carry)) {
+                    PickupSetCarry(carry, "F10"); ConfigWriteKey("Aim", "PhysicalCarry", carry ? "1" : "0", "F10 Aim");
+                }
+                OvlTip("Bottles, tanks, grenades and other loose objects. While one is carried the grip does its own job again.");
+                bool usables = PickupUsablesEnabled();
+                if (dvr::ovl::checkbox("Use levers, switches, chains and traps by grabbing", &usables)) {
+                    PickupSetUsables(usables, "F10"); ConfigWriteKey("Aim", "PhysicalUsables", usables ? "1" : "0", "F10 Aim");
+                }
+                OvlTip("Holding the grip holds the button for things that need it. People are never grabbed this way.");
+            }
+        }
+    }
+    if (OvlSec("Hand pose and grab animation", kOvlB, "How the hand looks when it can grab, and the grab itself.")) {
+        if (dvr::ovl::checkbox("Open right hand when it is empty", &g_ohOn))
+            ConfigWriteKey("Hands", "OpenEmptyRightHand", g_ohOn ? "1" : "0", "F10 Hands");
+        OvlTip("With the sword put away, the right hand relaxes open like the left instead of making a fist.");
+        {
+            bool grab = GrabAnimEnabled();
+            if (dvr::ovl::checkbox("Grab animation", &grab)) {
+                GrabAnimSet(grab, "F10"); ConfigWriteKey("Hands", "GrabAnim", grab ? "1" : "0", "F10 Hands");
+            }
+            OvlTip("When a grip picks something up or uses it, that hand opens flat and closes into a fist, and stays closed while you hold the grip.");
+            bool rOpen = GrabReadyOpenEnabled(), rHide = GrabReadyHideEnabled();
+            if (dvr::ovl::checkbox("Open the hand when in reach", &rOpen)) {
+                GrabReadySet(rOpen, rHide, "F10"); ConfigWriteKey("Hands", "GrabReadyOpen", rOpen ? "1" : "0", "F10 Hands");
+            }
+            OvlTip("A hand close enough to grab something opens like the sheathed hand, so you can see the grip will work.");
+            if (dvr::ovl::checkbox("Hide what the hand holds when in reach", &rHide)) {
+                GrabReadySet(rOpen, rHide, "F10"); ConfigWriteKey("Hands", "GrabReadyHide", rHide ? "1" : "0", "F10 Hands");
+            }
+            OvlTip("The weapon or item in that hand disappears while it can grab, and comes back when it moves away.");
+            if (grab) {
+                ImGui::SameLine();
+                if (ImGui::Button("Try it")) GrabAnimCommand("test right");
+                if (OvlAt(kOvlA)) {
+                    float t[5]; GrabAnimTimes(t);
+                    bool ch = false;
+                    ch |= dvr::ovl::slider_float("Grab: open (ms)", &t[0], 0.f, 400.f, "%.0f");
+                    ch |= dvr::ovl::slider_float("Grab: close (ms)", &t[1], 40.f, 1000.f, "%.0f");
+                    ch |= dvr::ovl::slider_float("Grab: hold (ms)", &t[2], 0.f, 2000.f, "%.0f");
+                    ch |= dvr::ovl::slider_float("Grab: release (ms)", &t[3], 40.f, 1000.f, "%.0f");
+                    ch |= dvr::ovl::slider_float("Grab: fingertip lag (ms)", &t[4], 0.f, 200.f, "%.0f");
+                    if (ch) {
+                        GrabAnimSetTimes(t);
+                        GrabAnimWriteTimes("F10 Hands");
+                    }
+                    OvlTip("How long each part of the grab takes. Press Try it to see the change on the right hand.");
+                }
+            }
+        }
+    }
+    if (OvlSec("Carried objects: position in the hand and throwing", kOvlB, "Where a carried bottle, rock or object sits in your hand.")) {
+        ImGui::TextUnformatted("Position (steps follow your view; carry something to see it)");
+        static int stepIx = 1;
+        static const float kCm[3] = { 0.5f, 1.0f, 3.0f }, kDeg[3] = { 1.0f, 3.0f, 10.0f };
+        dvr::ovl::radio_button("fine##chstep", &stepIx, 0); OvlTip("0.5 cm or 1 degree per press.");
+        ImGui::SameLine();
+        dvr::ovl::radio_button("normal##chstep", &stepIx, 1); OvlTip("1 cm or 3 degrees per press.");
+        ImGui::SameLine();
+        dvr::ovl::radio_button("coarse##chstep", &stepIx, 2); OvlTip("3 cm or 10 degrees per press.");
+        struct Row { const char* name; const char* neg; const char* pos; bool rot; int axis; };
+        static const Row kRows[6] = {
+            { "move", "left", "right", false, 0 }, { "move", "down", "up", false, 2 },
+            { "move", "back", "forward", false, 1 },
+            { "turn", "pitch down", "pitch up", true, 1 }, { "turn", "yaw left", "yaw right", true, 0 },
+            { "turn", "roll left", "roll right", true, 2 } };
+        static const char* lastWhy = "";
+        bool stepped = false;
+        ImGui::PushItemFlag(ImGuiItemFlags_ButtonRepeat, true);
+        for (int r = 0; r < 6; ++r)
+            for (int sgn = 0; sgn < 2; ++sgn) {
+                char lbl[48];
+                _snprintf(lbl, sizeof(lbl), "%s %s##chv%d%d", kRows[r].name, sgn ? kRows[r].pos : kRows[r].neg, r, sgn);
+                lbl[sizeof(lbl) - 1] = 0;
+                if (sgn) ImGui::SameLine();
+                if (dvr::ovl::button(lbl, ImVec2(ImGui::GetContentRegionAvail().x * (sgn ? 1.0f : 0.5f) - (sgn ? 0.0f : 4.0f), 0))) {
+                    const float amt = (sgn ? 1.0f : -1.0f) * (kRows[r].rot ? kDeg[stepIx] : kCm[stepIx]);
+                    if (CarryHoldViewStep(kRows[r].rot, kRows[r].axis, amt, &lastWhy)) stepped = true;
+                }
+                OvlTip("Moves or turns the held object the way the button says, as you see it now. "
+                       "Hold to repeat. Saved at once.");
+            }
+        ImGui::PopItemFlag();
+        if (stepped) CarryHoldSaveAdj("F10 Aim");
+        if (lastWhy[0] && strcmp(lastWhy, "ok")) ImGui::TextDisabled("last step refused: %s", lastWhy);
+        if (OvlAt(kOvlA)) {
+            bool carryLt = CarryThrowLeftEnabled();
+            if (dvr::ovl::checkbox("Throw carried objects with the left trigger", &carryLt)) {
+                CarryThrowLeftSet(carryLt, "F10"); ConfigWriteKey("Aim", "CarryThrowLeftTrigger", carryLt ? "1" : "0", "F10 Aim");
+            }
+            OvlTip("Off uses the game's layout (the right trigger throws).");
+            bool grabHand = CarryInGrabHandEnabled();
+            if (dvr::ovl::checkbox("Carry in the hand that grabbed it", &grabHand)) {
+                CarryInGrabHandSet(grabHand, "F10"); ConfigWriteKey("Aim", "CarryInGrabHand", grabHand ? "1" : "0", "F10 Aim");
+            }
+            OvlTip("A bottle picked up with the right hand's grip stays in the right hand and the right trigger throws it. Off: always the left hand.");
+            bool carryHold = CarryHoldEnabled();
+            if (dvr::ovl::checkbox("Hold carried objects in the hand", &carryHold)) {
+                CarryHoldSet(carryHold, "F10"); ConfigWriteKey("Aim", "CarryHoldAtHand", carryHold ? "1" : "0", "F10 Aim");
+            }
+            OvlTip("Off leaves the object floating in front of your view, as in the flat game.");
+            bool holdRot = CarryHoldRotateEnabled();
+            if (dvr::ovl::checkbox("Held object turns with the hand", &holdRot)) {
+                CarryHoldSetRotate(holdRot); ConfigWriteKey("Aim", "CarryHoldRotate", holdRot ? "1" : "0", "F10 Aim");
+            }
+            bool holdKeep = CarryHoldKeepAngle();
+            if (dvr::ovl::checkbox("Keep the angle it was picked up at", &holdKeep)) {
+                CarryHoldSetKeepAngle(holdKeep); ConfigWriteKey("Aim", "CarryHoldKeepPickupAngle", holdKeep ? "1" : "0", "F10 Aim");
+            }
+            OvlTip("Off: every object sits the same way in the hand (then the turn steps above apply).");
+            bool holdRet = CarryHoldReticleAnchored();
+            if (dvr::ovl::checkbox("Held object ignores reticle changes", &holdRet)) {
+                CarryHoldSetReticleAnchored(holdRet); ConfigWriteKey("Aim", "CarryHoldReticleAnchor", holdRet ? "1" : "0", "F10 Aim");
+            }
+            const auto rc = dvr::aim::config();
+            ImGui::TextDisabled("tuned at reticle %+.1f / %+.1f deg; reticle now %+.1f / %+.1f",
+                                CarryHoldReticleRef(0), CarryHoldReticleRef(1), rc.otherXDeg, rc.otherYDeg);
+            if (dvr::ovl::button("Retune the hold against the current reticle")) {
+                CarryHoldSetReticleRef(rc.otherXDeg, rc.otherYDeg);
+                char b[16];
+                _snprintf(b, sizeof(b), "%.2f", rc.otherXDeg); b[15] = 0; ConfigWriteKey("Aim", "CarryHoldReticleX", b, "F10 Aim");
+                _snprintf(b, sizeof(b), "%.2f", rc.otherYDeg); b[15] = 0; ConfigWriteKey("Aim", "CarryHoldReticleY", b, "F10 Aim");
+            }
+            OvlTip("Moves the held object onto the current reticle's line; the steps above then tune from there.");
+        }
+        if (OvlAt(kOvlD)) {
+            bool holdAnchor = CarryHoldGameAnchor();
+            if (dvr::ovl::checkbox("Anchor the held object on the game camera", &holdAnchor)) {
+                CarryHoldSetGameAnchor(holdAnchor); ConfigWriteKey("Aim", "CarryHoldAnchor", holdAnchor ? "1" : "0", "F10 Aim");
+            }
+            OvlTip("Fix for the held object jumping sideways (VR-181). Leave on.");
+            bool holdDepth = CarryHoldWorldDepthEnabled();
+            if (dvr::ovl::checkbox("Held object drawn in the world (not the weapon layer)", &holdDepth)) {
+                CarryHoldSetWorldDepth(holdDepth); ConfigWriteKey("Aim", "CarryHoldWorldDepth", holdDepth ? "1" : "0", "F10 Aim");
+            }
+            OvlTip("Draws the object with the world so it is hidden behind walls. Leave on.");
+            if (ImGui::TreeNode("Stored values (hand frame)##chraw")) {
+                static const char* const holdLbl[6] = { "Held: forward (cm)", "Held: right (cm)", "Held: up (cm)",
+                                                        "Held: pitch (deg)", "Held: yaw (deg)", "Held: roll (deg)" };
+                static const float holdMin[6] = { -40, -40, -40, -180, -180, -180 }, holdMax[6] = { 60, 40, 40, 180, 180, 180 };
+                for (int i = 0; i < 6; ++i) {
+                    float v = CarryHoldAdj(i);
+                    if (dvr::ovl::slider_float(holdLbl[i], &v, holdMin[i], holdMax[i], "%.1f")) CarryHoldSetAdj(i, v);
+                    OvlTip("The raw offset in the hand's own frame ([Aim] CarryHold*). The steps above edit these.");
+                    if (ImGui::IsItemDeactivatedAfterEdit()) CarryHoldSaveAdj("F10 Aim");
+                }
+                ImGui::TreePop();
+            }
+        }
+    }
+}
+
+static void OvlTabControls()
+{
+    if (OvlSec("Controller shortcuts: D-pad, pause chord, sticks", kOvlB, "D-pad shortcuts, the pause chord and what each button does.")) {
+        auto c = dvr::controller::config();
+        const char* mods[] = { "Off", "Right thumbrest", "R3 (right stick click)", "Left thumbrest" };
+        const int modes[] = { dvr::controller::Off, dvr::controller::RightRest, dvr::controller::R3, dvr::controller::LeftRest };
+        int selected = c.modifier == dvr::controller::LeftRest ? 3 : c.modifier;
+        bool changed = ImGui::Combo("D-pad modifier", &selected, mods, 4);
+        OvlTip("Hold this, then use a stick as the D-pad (item shortcuts). That stick stops moving or "
+               "turning while you hold it. No thumbrest on your controller? Choose R3; its "
+               "health-elixir hold is then unavailable.");
+        if (changed) c.modifier = modes[selected];
+        if (dvr::ovl::checkbox("Flip D-pad to right stick", &c.flip)) {
+            if (c.modifier == dvr::controller::RightRest || c.modifier == dvr::controller::LeftRest)
+                c.modifier = c.flip ? dvr::controller::LeftRest : dvr::controller::RightRest;
+            changed = true;
+        }
+        OvlTip("The D-pad uses the right stick instead of the left. A thumbrest modifier moves to the other hand.");
+        changed |= dvr::ovl::checkbox("X + Y pause chord", &c.pauseChord);
+        OvlTip("Pressing X and Y together acts as the menu button, for runtimes that reserve it. "
+               "Modifier + X + Y opens the journal.");
+        if (changed) {
+            c = dvr::controller::normalize(c);
+            dvr::controller::configure(c);
+            char value[16]; _snprintf(value, sizeof(value), "%d", c.modifier);
+            ConfigWriteKey("Controllers", "DpadModifier", value, "F10 Controls");
+            ConfigWriteKey("Controllers", "DpadFlip", c.flip ? "1" : "0", "F10 Controls");
+            ConfigWriteKey("Controllers", "PauseChord", c.pauseChord ? "1" : "0", "F10 Controls");
+        }
+        ImGui::TextDisabled("Menu: tap to pause, hold (or modifier + menu) for the journal.");
+        OvlTip("Hold Y and use the right stick to lean. Both grips keep their normal actions. "
+               "Clicking both sticks recenters.");
+    }
+    OvlBindsSection();
+    dvr::snap::draw_ui();    // VR-219: snap turn (its own section)
+    dvr::swing::draw_ui();   // VR-37: the motion sword (its own section)
+    dvr::drop::draw_ui();    // drop takedowns (its own section)
+    if (!OvlSec("Button mapping (which button does what)", kOvlB, "Choose which controller button does each game action.")) {
         if (s_bindCapture >= 0) { s_bindCapture = -1; dvr::binds::captureUntilMs = 0; }
         return;
     }
@@ -767,46 +830,6 @@ static void OvlBindsSection()
     if (changed) BindsSet(l, "F10 Controls");
 }
 
-// ---- Controls -------------------------------------------------------------------------------
-static void OvlTabControls()
-{
-    if (OvlSec("Controller layout", kOvlB, "D-pad shortcuts, the pause chord and what each button does.")) {
-        auto c = dvr::controller::config();
-        const char* mods[] = { "Off", "Right thumbrest", "R3 (right stick click)", "Left thumbrest" };
-        const int modes[] = { dvr::controller::Off, dvr::controller::RightRest, dvr::controller::R3, dvr::controller::LeftRest };
-        int selected = c.modifier == dvr::controller::LeftRest ? 3 : c.modifier;
-        bool changed = ImGui::Combo("D-pad modifier", &selected, mods, 4);
-        OvlTip("Hold this, then use a stick as the D-pad (item shortcuts). That stick stops moving or "
-               "turning while you hold it. No thumbrest on your controller? Choose R3; its "
-               "health-elixir hold is then unavailable.");
-        if (changed) c.modifier = modes[selected];
-        if (dvr::ovl::checkbox("Flip D-pad to right stick", &c.flip)) {
-            if (c.modifier == dvr::controller::RightRest || c.modifier == dvr::controller::LeftRest)
-                c.modifier = c.flip ? dvr::controller::LeftRest : dvr::controller::RightRest;
-            changed = true;
-        }
-        OvlTip("The D-pad uses the right stick instead of the left. A thumbrest modifier moves to the other hand.");
-        changed |= dvr::ovl::checkbox("X + Y pause chord", &c.pauseChord);
-        OvlTip("Pressing X and Y together acts as the menu button, for runtimes that reserve it. "
-               "Modifier + X + Y opens the journal.");
-        if (changed) {
-            c = dvr::controller::normalize(c);
-            dvr::controller::configure(c);
-            char value[16]; _snprintf(value, sizeof(value), "%d", c.modifier);
-            ConfigWriteKey("Controllers", "DpadModifier", value, "F10 Controls");
-            ConfigWriteKey("Controllers", "DpadFlip", c.flip ? "1" : "0", "F10 Controls");
-            ConfigWriteKey("Controllers", "PauseChord", c.pauseChord ? "1" : "0", "F10 Controls");
-        }
-        ImGui::TextDisabled("Menu: tap to pause, hold (or modifier + menu) for the journal.");
-        OvlTip("Hold Y and use the right stick to lean. Both grips keep their normal actions. "
-               "Clicking both sticks recenters.");
-    }
-    OvlBindsSection();
-    dvr::snap::draw_ui();    // VR-219: snap turn (its own section)
-    dvr::swing::draw_ui();   // VR-37: the motion sword (its own section)
-    dvr::drop::draw_ui();    // drop takedowns (its own section)
-}
-
 // VR-39: the hands-at-the-world's-FOV switch, its force lever and what they can actually move. Shown under
 // Display > Field of view and at the top of the Hands tab (run 13: hard to find under Comfort).
 static void OvlHandsFovControls(const char* who)
@@ -831,7 +854,7 @@ static void OvlHandsFovControls(const char* who)
 // ---- Comfort --------------------------------------------------------------------------------
 static void OvlTabComfort()
 {
-    if (OvlSec("Crouch", kOvlB, "Crouching for real crouches Corvo.")) {
+    if (OvlSec("Real crouching", kOvlB, "Crouching for real crouches Corvo.")) {
         bool pc = g_crouchOn;
         if (dvr::ovl::checkbox("Real crouching crouches Corvo", &pc)) {
             g_crouchOn = pc;
@@ -845,7 +868,7 @@ static void OvlTabComfort()
         OvlSaveOnRelease("Tracking", "CrouchDropM", g_crouchDropM, "%.2f");
     }
     CamShakeDrawUi();   // VR-172: the game's own camera shake (its own section)
-    if (OvlSec("World scale and tracking", kOvlB, "How big the world feels, and how your head moves in it.")) {
+    if (OvlSec("World scale and head tracking", kOvlB, "How big the world feels, and how your head moves in it.")) {
         dvr::ovl::slider_float("World scale (uu per metre)", &g_posScaleUU, 10.0f, 200.0f, "%.0f");
         OvlTip("Smaller makes the world feel bigger. Changes how far one real metre moves you. "
                "Saved when you let go.");
@@ -863,7 +886,7 @@ static void OvlTabComfort()
             OvlTip("The stick walks where you look. Off: it walks where your body faces.");
         }
     }
-    if (OvlSec("Neck pivot", kOvlA,
+    if (OvlSec("Neck pivot (how your head turns around your neck)", kOvlA,
                "Where your view rotates from when you look up and down. Look up and down at "
                "something an arm's length away: with the right setting it stays put.")) {
         bool uprightArc = dvr::camera::upright_pitch_arc();
@@ -902,7 +925,7 @@ static void OvlTabComfort()
                                 g_neckStanceTarget ? "CROUCHED" : "standing", g_neckEffBelowM, g_neckEffBehindM);
         }
     }
-    if (OvlSec("Cinematics", kOvlA, "How scripted scenes and special cameras behave.")) {
+    if (OvlSec("Cutscenes and special cameras", kOvlA, "How scripted scenes and special cameras behave.")) {
         bool pitchLock = CinePitchEnabled();
         if (dvr::ovl::checkbox("Suppress animation up/down tilt", &pitchLock)) { CinePitchSet(pitchLock); OvlSaveBool("Cine", "LockPitch", pitchLock); }
         bool rollLock = CineRollEnabled();
@@ -921,7 +944,7 @@ static void OvlTabComfort()
         if (dvr::ovl::checkbox("Hide cinematic black borders", &borders)) { CineBordersSet(borders); OvlSaveBool("Cine", "HideBorders", borders); }
         OvlTip("Removes the letterbox bars in scenes. The picture under them is really there.");
     }
-    if (OvlSec("Rain", kOvlB, "Remove the close rain overlay while keeping world rain.")) {
+    if (OvlSec("Rain on your face (close rain overlay)", kOvlB, "Remove the close rain overlay while keeping world rain.")) {
         bool rain = RainHideEnabled();
         if (dvr::ovl::checkbox("Hide close rain overlay", &rain)) { RainHideSet(rain); OvlSaveBool("Rain", "Hide", rain); }
         OvlTip("Hides the close rain lens overlay. Keeps the sky rain box and ground-impact system.");
@@ -1030,7 +1053,7 @@ static void OvlFrameBurst()
 // ---- Display --------------------------------------------------------------------------------
 static void OvlTabDisplay()
 {
-    if (OvlSec("Stereo rendering", kOvlB, "How the two eyes are rendered. Try both and compare.")) {
+    if (OvlSec("Rendering method: Stereo or AFW", kOvlB, "How the two eyes are rendered. Try both and compare.")) {
         // VR-39: reentry (both eyes every tick) against AER (one eye per tick, alternating).
         const char* wanted = dvr::stereo::wanted_name();
         const bool isAer = !_stricmp(wanted, "aer"), isAfw = !_stricmp(wanted, "afw");
@@ -1143,7 +1166,7 @@ static void OvlTabDisplay()
             }
         }
     }
-    if(OvlSec("Frame capture",kOvlB,"Save a short sequence for diagnosing visual issues."))OvlFrameBurst();
+    if(OvlSec("Frame capture (debug)",kOvlD,"Save a short sequence for diagnosing visual issues."))OvlFrameBurst();
     if (OvlSec("Field of view", kOvlB, "How much of the game world the view covers.")) {
         float projectionFov = ProjectionFovGet();
         bool customFov = projectionFov > 0;
@@ -1165,7 +1188,7 @@ static void OvlTabDisplay()
     }
     const int resizeState = ResLiveState();
     const bool busy = resizeState == 1 || resizeState == 2 || resizeState == 4;
-    if (OvlSec("Texture packs", kOvlB, "Optional texture memory compatibility. Takes effect next launch.")) {
+    if (OvlSec("Texture pack memory (restart)", kOvlB, "Optional texture memory compatibility. Takes effect next launch.")) {
         static int nextPaged = -1;
         if (nextPaged < 0) {
             char ini[MAX_PATH], mode[16];
@@ -1183,7 +1206,7 @@ static void OvlTabDisplay()
         }
         OvlTip("For crashes with large texture packs. Frees 32-bit address space between locks, but still reserves system commit and adds upload work. May stutter under memory pressure. Windows pagefile settings are unchanged. Off selects conventional shadows; the surface redirect remains enabled.");
     }
-    if (OvlSec("Resolution", kOvlB, "How many pixels the game renders for the headset.")) {
+    if (OvlSec("Resolution (render size)", kOvlB, "How many pixels the game renders for the headset.")) {
         static float pixelPercent = -1.0f;
         if (pixelPercent < 0)
             pixelPercent = g_resWantW && g_resWantH
@@ -1299,7 +1322,7 @@ static void OvlTabDisplay()
         OvlSaveOnRelease("Clarity", "Sharpen", dvr::clarity::sharpen(), "%.2f");
         OvlTip("Contrast-adaptive sharpening on the final picture. 0 is off.");
     }
-    if (OvlSec("Clarity and anti-aliasing", kOvlA,
+    if (OvlSec("Sharpness, texture filtering and other anti-aliasing", kOvlA,
                "Texture filtering and DLSS tuning. Each option switches live, so you can compare.")) {
         {   // [Hud] UpscaleSharp (hud_capture.h)
             bool sharp = dvr::hudcap::upscale_sharp();
@@ -1421,7 +1444,7 @@ static void OvlTabDisplay()
             ImGui::TextDisabled("Jitter: %s", dvr::dlss::jitter::summary());
         }
     }
-    if (OvlSec("Desktop window", kOvlB, "What the game window on your monitor shows.")) {
+    if (OvlSec("Desktop window (what your monitor shows)", kOvlB, "What the game window on your monitor shows.")) {
         bool mirrorOff = dvr::desktop_eye::mirror_off();
         if (dvr::ovl::checkbox("Disable desktop mirror", &mirrorOff)) {
             dvr::desktop_eye::set_mirror_off(mirrorOff);
@@ -1447,7 +1470,7 @@ static void OvlTabDisplay()
             ImGui::EndDisabled();
         }
     }
-    if (OvlSec("Object culling", kOvlA, "How the game skips objects it thinks you cannot see.")) {
+    if (OvlSec("Object culling (hidden objects popping in)", kOvlA, "How the game skips objects it thinks you cannot see.")) {
         int oc = OcclusionModeGet();
         if (dvr::ovl::radio_button("Per eye", &oc, 1)) OcclusionModeSet(1, "F10 Display");
         OvlTip("Each eye hides only what IT cannot see. Recommended.");
@@ -1458,7 +1481,7 @@ static void OvlTabDisplay()
         if (dvr::ovl::radio_button("Off", &oc, 2)) OcclusionModeSet(2, "F10 Display");
         OvlTip("Nothing is ever hidden. Always correct, but slower.");
     }
-    if (OvlSec("Fullscreen and vsync", kOvlA, "The game window's mode. Each switch briefly pauses the game.")) {
+    if (OvlSec("Game window: fullscreen and vsync", kOvlA, "The game window's mode. Each switch briefly pauses the game.")) {
         ImGui::BeginDisabled(busy);
         bool liveFull = ResLiveFullscreen();
         if (dvr::ovl::checkbox("Fullscreen", &liveFull)) {
@@ -1478,7 +1501,7 @@ static void OvlTabDisplay()
                             ResLiveDeviceWindowed() ? "windowed" : "fullscreen",
                             g_vsyncWant == 1 ? "vsynced (forced)" : (g_vsyncWant == 0 ? "uncapped (forced)" : "the game's own choice"));
     }
-    if (OvlSec("Flat screen (menus and loading)", kOvlA, "The big screen shown for the main menu and loads.")) {
+    if (OvlSec("Flat screen for menus and loading", kOvlA, "The big screen shown for the main menu and loads.")) {
         if (dvr::ovl::slider_float("Screen distance (m)", &g_screenDist, 0.8f, 4.0f, "%.2f"))
             dvr::vr::set_screen(g_screenDist, g_screenWidth);
         OvlSaveOnRelease("Screen", "DistanceMeters", g_screenDist, "%.2f");
@@ -1503,6 +1526,13 @@ static void OvlTabDisplay()
         if (ImGui::Combo("Capture mode", &mode, kModes, 4))
             dvr::capture::set_mode(mode == 0 ? "sync" : mode == 1 ? "deferred" : mode == 2 ? "shared" : "off");
         OvlTip("How the frame is copied to the headset. Off freezes the image on purpose, as an A/B control.");
+        int adPct = dvr::capture::auto_depth_percent();
+        if (dvr::ovl::slider_int("Capture: deeper ring at timeouts", &adPct, 1, 20, "%d%%")) {
+            dvr::capture::set_auto_depth_percent(adPct, "F10 Display");
+            char v[8]; _snprintf_s(v, sizeof(v), _TRUNCATE, "%d", adPct);
+            ConfigWriteKey("Capture", "AutoDepthPercent", v, "F10 Display");
+        }
+        OvlTip("If one eye stutters about once a second: lower this (2) so the capture gets one more frame to finish.");
         ImGui::SameLine();
         ImGui::TextDisabled("%s", !dvr::capture::probed() ? "probe pending"
                                   : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared refused (plain device)");
@@ -1709,7 +1739,7 @@ static void OvlTabIK()
                "and keeps the hand where the animation put it.");
         ImGui::Unindent();
     }
-    if(OvlSec("Shoulder position",kOvlB,"Moves the resting shoulder pair together. Reach can move either shoulder from this position.")){
+    if(OvlSec("IK shoulder position and arm length",kOvlB,"Moves the resting shoulder pair together. Reach can move either shoulder from this position.")){
         auto control=[](const char* label,const char* key,std::atomic<float>& value,float lo,float hi,const char* format){
             float current=value.load();
             if(dvr::ovl::slider_float(label,&current,lo,hi,format))value=current;
@@ -1738,6 +1768,7 @@ static void OvlTabs()
 {
     if (!ImGui::BeginTabBar("vrtabs", ImGuiTabBarFlags_FittingPolicyScroll | ImGuiTabBarFlags_TabListPopupButton)) return;
     if (dvr::ovl::tab("Hands"))    { OvlTabBody("OvlTabHands-scroll", OvlTabHands);    ImGui::EndTabItem(); }
+    if (dvr::ovl::tab("Interact")) { OvlTabBody("OvlTabInteract-scroll", OvlTabInteract); ImGui::EndTabItem(); }
     if (dvr::ovl::tab("IK"))       { OvlTabBody("OvlTabIK-scroll", OvlTabIK); ImGui::EndTabItem(); }
     if (dvr::ovl::tab("Aim"))      { OvlTabBody("OvlTabAim-scroll", OvlTabAim);      ImGui::EndTabItem(); }
     if (dvr::ovl::tab("Controls")) { OvlTabBody("OvlTabControls-scroll", OvlTabControls); ImGui::EndTabItem(); }
