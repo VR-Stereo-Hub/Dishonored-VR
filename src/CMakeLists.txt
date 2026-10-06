@@ -96,6 +96,7 @@ set(DVR_REAL_SOURCES
     core/vr/hud_stub.cpp       core/vr/hud_stub.h
     core/vr/xr_loader_log.cpp  core/vr/xr_loader_log.h
     core/ui/ovl_ui.cpp         core/ui/ovl_ui.h
+    core/util/embedded_assets.cpp core/util/embedded_assets.h
     core/util/xr_math.h
 )
 foreach(_f ${DVR_REAL_SOURCES})
@@ -112,6 +113,34 @@ add_library(dvr_proxy SHARED
 # The unity-included module files are not compiled on their own.
 set_source_files_properties(${DVR_MODULE_SOURCES} PROPERTIES HEADER_FILE_ONLY ON)
 set_target_properties(dvr_proxy PROPERTIES OUTPUT_NAME "d3d9" PREFIX "")
+# The data files full-arm IK and the Heart's backing need (assets/vr/), carried as RCDATA 9101.. and written
+# into the data directory on start (core/util/embedded_assets.cpp, same order). A missing file is left out
+# and the log says so; the bitmask tells the runtime which ones are in.
+set(_dvr_asset_names dishonored_vr_arm_rig.bin dishonored_vr_heart_rig.bin dishonored_vr_heart_back.bin dishonored_vr_heart_material.bin)
+set(_dvr_asset_rc "#include <windows.h>
+")
+set(_dvr_asset_mask 0)
+set(_dvr_asset_id 9101)
+set(_dvr_asset_bit 1)
+set(_dvr_asset_files "")
+foreach(_a ${_dvr_asset_names})
+    set(_p "${PROJECT_SOURCE_DIR}/assets/vr/${_a}")
+    if(EXISTS "${_p}")
+        string(APPEND _dvr_asset_rc "${_dvr_asset_id} RCDATA \"${_p}\"
+")
+        math(EXPR _dvr_asset_mask "${_dvr_asset_mask} | ${_dvr_asset_bit}")
+        list(APPEND _dvr_asset_files "${_p}")
+    else()
+        message(WARNING "assets/vr/${_a} is missing: this build will not carry it")
+    endif()
+    math(EXPR _dvr_asset_id "${_dvr_asset_id} + 1")
+    math(EXPR _dvr_asset_bit "${_dvr_asset_bit} * 2")
+endforeach()
+file(WRITE "${CMAKE_BINARY_DIR}/generated/dvr_assets.rc" "${_dvr_asset_rc}")
+target_sources(dvr_proxy PRIVATE "${CMAKE_BINARY_DIR}/generated/dvr_assets.rc")
+set_source_files_properties("${CMAKE_BINARY_DIR}/generated/dvr_assets.rc" PROPERTIES OBJECT_DEPENDS "${_dvr_asset_files}")
+target_compile_definitions(dvr_proxy PRIVATE DVR_EMBEDDED_ASSET_MASK=${_dvr_asset_mask})
+message(STATUS "dvr: embedded data files mask ${_dvr_asset_mask} (of 15)")
 add_dependencies(dvr_proxy dvr_version)
 target_include_directories(dvr_proxy PRIVATE . "${PROJECT_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/generated")
 # d3d11.dll and d3dcompiler_47.dll are LoadLibrary'd at runtime on purpose: the

@@ -1932,6 +1932,7 @@ static void LoadConfig()
                 dvr::paths::data_dir());
         }
     }
+    dvr::assets::install();   // the IK and Heart data files, from inside this DLL (core/util/embedded_assets.h)
     g_trackingEnabled = IniFloat(ini, "Tracking", "Enabled", 1) != 0.0f;
     g_yawCounts    = IniFloat(ini, "Tracking", "YawCountsPerDegree", 11.5f);
     g_pitchCounts  = IniFloat(ini, "Tracking", "PitchCountsPerDegree", 11.5f);

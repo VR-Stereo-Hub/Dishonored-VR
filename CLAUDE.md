@@ -30,6 +30,12 @@ release PR `staging` -> `VR-Main` that the user merges).
 - **NEVER commit game-derived content**: no decompiled UnrealScript, no extracted assets, no
   frame dumps, captures or crash dumps. `tools/uscript/` and `*.png/*.bmp/*.dmp` are gitignored
   for a reason. Findings go to `docs/dishonored/ENGINE_NOTES.md`, never game code.
+  **The one exception, the repo owner's decision (2026-10-05):** the prepared data files in
+  `assets/vr/` (the full-arm IK rig and the Heart's rig, back geometry and material) are committed
+  and embedded in the proxy (`core/util/embedded_assets.cpp`), which writes them into every
+  player's data directory, so full-arm IK and the Heart's backing work without any setup. Nothing
+  else derived from the game enters the tree, and a new file joins `assets/vr/` only on the
+  owner's say-so.
 - **Every engine address, IAT slot and UE3 field offset lives in
   `src/game/dishonored/patterns.h`** and is documented in ENGINE_NOTES with how it was derived.
   The exe has no ASLR (base 0x400000), so absolute addresses are fine, but every code hook

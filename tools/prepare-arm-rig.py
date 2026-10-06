@@ -1,7 +1,8 @@
 """Prepare local IK reference data from a locally extracted ActorX PSK.
 
-No game assets are distributed by this tool. Its binary output is game-derived
-and must stay untracked. Usage: python prepare-arm-rig.py mesh.psk output.bin
+No game assets are distributed by this tool. Its binary output is game-derived; the
+one shipped copy lives in assets/vr/ (the owner's decision, 2026-10-05; see CLAUDE.md)
+and is embedded in the proxy. Usage: python prepare-arm-rig.py mesh.psk output.bin
 """
 import argparse
 import math

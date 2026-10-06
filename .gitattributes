@@ -4,3 +4,4 @@
 *.patch -text
 *.dll binary
 *.png binary
+*.bin binary
