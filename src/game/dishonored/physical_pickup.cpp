@@ -48,7 +48,7 @@
 // an unfocused target, all meant to reach the lower of two stacked books. The lower book is
 // opened by pointing at it. ENGINE_NOTES, "Physical pickup".
 //
-// [Aim] PhysicalPickup (default 1), PhysicalPickupReachCm (30), PhysicalPickupBookReachCm (45),
+// [Aim] PhysicalPickup (default 1), PhysicalPickupReachCm (60), PhysicalPickupBookReachCm (74),
 // PhysicalDoors (1), PhysicalDoorReachCm (20), PhysicalCarry (1), PhysicalUsables (1); carry and
 // usable things share the door reach. F10 > Aim. Seam: `pickup`.
 // Script lane for 1 and 2 (the interaction bridges run on the same game thread); the pad
@@ -137,6 +137,10 @@ static void PpBlock(uint8_t* obj, double nowMs, double forMs)
 }
 static float g_ppTargetFrom[3] = {};                    // where the engine's check traces FROM: the target hand's palm
 static uint32_t g_ppTargetKind = kPpLoot;
+// 2026-10-05: the hand whose grip last pressed Interact on a carryable, and when (throw_aim.cpp makes it
+// the carry hand if a carry starts within 2 s).
+static std::atomic<int> g_ppCarryGripHand{-1};
+static std::atomic<uint64_t> g_ppCarryGripMs{0};
 static volatile LONG g_ppRayDriven = 0;
 
 static bool PickupEnabled() { return g_ppOn.load(); }
@@ -732,6 +736,7 @@ static bool PickupPadFilter(dvr::vr::InputSnapshot& raw, bool blocked)
             pressedOn[h] = g_ppTargetHold.load() ? g_ppTargetId.load() : 0;
             holding[h] = pressedOn[h] != 0; holdSince[h] = now;
             g_ppSwallowed.fetch_add(1); g_ppFired.fetch_add(1);
+            if (g_ppTargetKind == kPpCarry) { g_ppCarryGripHand.store(h); g_ppCarryGripMs.store(now); }
             const bool page = g_ppTargetReadable.load();
             if (page) dvr::hudlayout::note_opened_by_hand(h);     // the reading panel attaches to this hand
             Log("pickup: %s grip pressed with the target in reach and focused - grip swallowed, Interact pressed for 130 ms%s",

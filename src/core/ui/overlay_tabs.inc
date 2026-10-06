@@ -568,6 +568,11 @@ static void OvlTabAim()
                 CarryThrowLeftSet(carryLt, "F10"); ConfigWriteKey("Aim", "CarryThrowLeftTrigger", carryLt ? "1" : "0", "F10 Aim");
             }
             OvlTip("Off uses the game's layout (the right trigger throws).");
+            bool grabHand = CarryInGrabHandEnabled();
+            if (dvr::ovl::checkbox("Carry in the hand that grabbed it", &grabHand)) {
+                CarryInGrabHandSet(grabHand, "F10"); ConfigWriteKey("Aim", "CarryInGrabHand", grabHand ? "1" : "0", "F10 Aim");
+            }
+            OvlTip("A bottle picked up with the right hand's grip stays in the right hand and the right trigger throws it. Off: always the left hand.");
             bool carryHold = CarryHoldEnabled();
             if (dvr::ovl::checkbox("Hold carried objects in the hand", &carryHold)) {
                 CarryHoldSet(carryHold, "F10"); ConfigWriteKey("Aim", "CarryHoldAtHand", carryHold ? "1" : "0", "F10 Aim");

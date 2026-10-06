@@ -290,10 +290,22 @@ static bool CarryThrowAimEnabled() { return g_ctOn.load(); }
 // is stale, and a stale or disabled watch never swaps.
 static std::atomic<bool> g_ctLeft{true};               // [Aim] CarryThrowLeftTrigger
 static bool CarryThrowLeftEnabled() { return g_ctLeft.load(); }
+// [Aim] CarryInGrabHand (2026-10-05, default 1): a carry started by a hand's grip (physical pickup) is held in
+// THAT hand - the aim ray follows it for the carry (the hold and the throw ride that ray) and the hold offsets,
+// tuned on the left hand, are mirrored for the right. The Interact button (or the lever off) keeps the left.
+static std::atomic<bool> g_ctGrabHand{true};
+static std::atomic<int>  g_ctCarryHand{0};              // the hand holding the current carry (0 left, 1 right)
+static bool CarryInGrabHandEnabled() { return g_ctGrabHand.load(); }
+static int  CarryHand() { return g_ctCarryHand.load(); }
+static void CarryInGrabHandSet(bool on, const char* who)
+{
+    g_ctGrabHand.store(on);
+    Log("carry/hand: carry in the grabbing hand %s (%s)", on ? "ON" : "off - always the left hand", who);
+}
 static bool CarryThrowTriggersSwapped()
 {
     bool carrying = false;
-    if (g_ctLeft.load() && !g_gamepadOnly) {
+    if (!g_gamepadOnly) {
         const auto s = dvr::anim::snapshot();
         if (s.valid)
             for (int i = 0; i < 3; ++i)
@@ -302,10 +314,20 @@ static bool CarryThrowTriggersSwapped()
     static bool was = false;
     if (carrying != was) {
         was = carrying;
-        Log("carry/aim: %s - triggers %s", carrying ? "carrying a movable" : "carry ended",
-            carrying ? "SWAPPED (left trigger throws, right does the left's job)" : "back to the game's layout");
+        int hand = 0;
+        if (carrying && g_ctGrabHand.load()) {
+            const int gh = g_ppCarryGripHand.load();
+            if (gh >= 0 && GetTickCount64() - g_ppCarryGripMs.load() <= 2000) hand = gh;
+        }
+        g_ctCarryHand.store(carrying ? hand : 0);
+        dvr::aim::set_hand_override(carrying && hand == 1 ? 1 : -1);
+        if (!carrying) g_ppCarryGripHand.store(-1);
+        Log("carry/aim: %s%s - triggers %s", carrying ? "carrying a movable in the " : "carry ended",
+            carrying ? (hand ? "RIGHT hand (its grip picked it up)" : "LEFT hand") : "",
+            carrying && hand == 0 && g_ctLeft.load() ? "SWAPPED (left trigger throws, right does the left's job)"
+                                                     : "the game's layout (the right trigger throws)");
     }
-    return carrying;
+    return carrying && g_ctLeft.load() && g_ctCarryHand.load() == 0;
 }
 static void CarryThrowLeftSet(bool on, const char* who)
 {
@@ -443,6 +465,7 @@ static void CarryThrowAimConfigure(const char* ini)
 {
     CarryThrowAimSet(IniFloat(ini, "Aim", "CarryThrowFromHand", 1) != 0.0f, "ini [Aim] CarryThrowFromHand");
     CarryThrowLeftSet(IniFloat(ini, "Aim", "CarryThrowLeftTrigger", 1) != 0.0f, "ini [Aim] CarryThrowLeftTrigger");
+    CarryInGrabHandSet(IniFloat(ini, "Aim", "CarryInGrabHand", 1) != 0.0f, "ini [Aim] CarryInGrabHand");
     CarryHoldConfigure(ini);
 }
 
@@ -457,6 +480,11 @@ static bool CarryThrowAimCommand(const char* args)
     if (args && !strncmp(args, "hold", 4) && DvrOnOff(args + 4 + strspn(args + 4, " "), &b)) {
         CarryHoldSet(b, "seam");
         ConfigWriteKey("Aim", "CarryHoldAtHand", b ? "1" : "0", "the seam");
+        return true;
+    }
+    if (args && !strncmp(args, "grabhand", 8) && DvrOnOff(args + 8 + strspn(args + 8, " "), &b)) {   // [Aim] CarryInGrabHand
+        CarryInGrabHandSet(b, "seam");
+        ConfigWriteKey("Aim", "CarryInGrabHand", b ? "1" : "0", "the seam");
         return true;
     }
     if (args && !strncmp(args, "lt", 2) && DvrOnOff(args + 2 + strspn(args + 2, " "), &b)) {
@@ -671,7 +699,8 @@ extern "C" void __cdecl CarryMoveHandler(uint8_t* frame, uint8_t* actor)
     float* delta = (float*)(frame - 0x54);
     const float* L = (const float*)(actor + kActorLocation);
     const float cm = g_posScaleUU / 100.0f;              // cm -> uu (g_posScaleUU is uu per metre)
-    const float af = g_hlAdj[0] * cm, ar = g_hlAdj[1] * cm, au = g_hlAdj[2] * cm;
+    const float mir = CarryHand() == 1 ? -1.0f : 1.0f;      // tuned on the left hand: mirrored for the right
+    const float af = g_hlAdj[0] * cm, ar = mir * g_hlAdj[1] * cm, au = g_hlAdj[2] * cm;
     const float n[3] = { o[0] + F[0] * af + Rh[0] * ar + U[0] * au, o[1] + F[1] * af + Rh[1] * ar + U[1] * au,
                          o[2] + F[2] * af + Rh[2] * ar + U[2] * au };
     const float e[3] = { L[0] + delta[0], L[1] + delta[1], L[2] + delta[2] };   // where the game put it
@@ -697,8 +726,8 @@ extern "C" void __cdecl CarryMoveHandler(uint8_t* frame, uint8_t* actor)
         }
         // the trim: a rotation in the hand's own frame (F, R, U as X, Y, Z), applied to the latched
         // relative frame, so pitch/yaw/roll turn the object about the hand, not the world
-        const int32_t trim[3] = { (int32_t)(g_hlAdj[3] * 65536.0f / 360.0f), (int32_t)(g_hlAdj[4] * 65536.0f / 360.0f),
-                                  (int32_t)(g_hlAdj[5] * 65536.0f / 360.0f) };
+        const int32_t trim[3] = { (int32_t)(g_hlAdj[3] * 65536.0f / 360.0f), (int32_t)(mir * g_hlAdj[4] * 65536.0f / 360.0f),
+                                  (int32_t)(mir * g_hlAdj[5] * 65536.0f / 360.0f) };
         float TX[3], TY[3], TZ[3]; CtRotToAxes(trim, TX, TY, TZ);
         float A[3][3];
         for (int i = 0; i < 3; ++i) {

@@ -35,6 +35,14 @@ Branch `claude/steamvr-launch` off staging `93785a460` (the flicker audit merged
 - ReShade field failure (error 1114 on 1.0.3) is fixed on staging by 758eb9124; the host suite
   now covers a game folder with no ReShade.ini.
 
+- Grab poses headset-confirmed (2026-10-05). Reach defaults are now the headset-tuned 60 / 74 / 75 cm
+  (loot / books / doors, carried things and levers), were 45 / 55 / 35; an existing ini keeps its values.
+- `[Aim] CarryInGrabHand` (default 1): a carry started by a hand's grip stays in that hand - the aim ray
+  follows that hand for the carry (hold and throw ride it), the hold offsets are mirrored for the right
+  hand, and the right trigger throws a right-hand carry. The Interact button still carries in the left.
+  Not run. `carry/aim: carrying a movable in the RIGHT hand` and `crosshair: ray hand RIGHT for a carry`
+  are the lines to read.
+
 **Next:** a SteamVR-rig check of the shim from an elevated game (Steam run as administrator):
 the log must say `loader property override XR_RUNTIME_JSON -> set (the SteamVR shim)` and
 `instance created on runtime 'DishonoredVR SteamVR shim (OpenVR)'`.
