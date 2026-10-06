@@ -52,6 +52,10 @@ Branch `claude/steamvr-launch` off staging `93785a460` (the flicker audit merged
   generation step; not decided.
 - Right-hand carry fixed: it now mirrors the left hand's measured ray (it waited for a bolt axis).
 
+- F10: a new Interact tab (reach, grab hand, held objects), Button mapping in Controls, Frame capture in Debug,
+  the cutscene arm hide works under full-arm IK (docs/dishonored/F10_AUDIT.md, 2026-10-05 pass).
+- IK and Heart data files ship in assets/vr/ and are embedded in the DLL (owner's decision, CLAUDE.md).
+
 **Next:** a SteamVR-rig check of the shim from an elevated game (Steam run as administrator):
 the log must say `loader property override XR_RUNTIME_JSON -> set (the SteamVR shim)` and
 `instance created on runtime 'DishonoredVR SteamVR shim (OpenVR)'`.

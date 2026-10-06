@@ -4259,7 +4259,9 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     const bool ik=g_ikOn.load();
     if(!ik)IkResetPose();
     g_msPassThrough = !ik && dvr::anim::native_full_arms();
-    if (g_msPassThrough && dvr::anim::in_cinematic()) {
+    // CineHideStaticArms: the game owns the arms in a cutscene, with or without full-arm IK (IK draws the
+    // game's arm on its shoulder then), so the test runs before either path draws them.
+    if (dvr::anim::native_full_arms() && dvr::anim::in_cinematic()) {
         // CineHideStaticArms: only THIS geometry (the arm mesh the split was built from), never another draw.
         MsContract hc; const char* hwhy = NULL;
         if (MsQualify(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount, &hc, &hwhy)) {

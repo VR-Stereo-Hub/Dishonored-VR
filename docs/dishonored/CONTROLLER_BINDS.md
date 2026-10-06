@@ -101,7 +101,7 @@ released.
 
 ## Physical pickup takes a grip press when loot is in reach
 
-`[Aim] PhysicalPickup=1` (F10 > Aim, seam `pickup on|off`, `pickup reach <cm>`): while a
+`[Aim] PhysicalPickup=1` (F10 > Interact, seam `pickup on|off`, `pickup reach <cm>`): while a
 lootable item is within `PhysicalPickupReachCm` (30) of a hand and the game has focused it, a
 press of that hand's PHYSICAL grip is taken before the remap. The grip reads 0 for the rest of
 that press, so the action bound to it (the power wheel or Choke in the shipped layout) does not
@@ -109,7 +109,7 @@ fire, and the logical Interact is held for 130 ms instead. A grip that was alrea
 the hand arrived is not taken; the Interact button itself is untouched. Log: `pickup: LEFT|RIGHT
 grip pressed ... grip swallowed, Interact pressed`. Books and notes use
 `PhysicalPickupBookReachCm` (45), and a page opened this way attaches to the hand that opened it.
-With `[Aim] PhysicalDoors=1` (F10 > Aim, `pickup doors on|off`) the same grip opens or closes a
+With `[Aim] PhysicalDoors=1` (F10 > Interact, `pickup doors on|off`) the same grip opens or closes a
 door within `PhysicalDoorReachCm` (20) of the hand. `[Aim] PhysicalCarry=1` (`pickup carry
 on|off`) does the same for things carried and thrown, and `[Aim] PhysicalUsables=1` (`pickup
 usables on|off`) for levers, switches, valves, chains and placed traps, both at the door reach

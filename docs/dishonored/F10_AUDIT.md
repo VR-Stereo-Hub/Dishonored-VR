@@ -27,6 +27,26 @@ the code stay unless the row says otherwise), **M** merge into another row.
   `OvlDesc(text)`. The sub-panels (sword, camera shake, aim, HUD layout, hand trim) take
   the tier as well.
 
+## 2026-10-05: second pass - an Interact tab, and the tiers re-checked
+
+The grab work had spread one feature over three places: the reach and pickup switches under Aim >
+What aims with the controller, Held objects under Aim, and the grab animation and ready hand under
+Hands > Sleeve. Nothing about a sleeve. One tab now holds all of it.
+
+* **Interact** (new, after Hands): *Reaching and grabbing* (B: loot, books, doors, carry, levers and
+  the three reach sliders), *Grab hand* (B: grab animation and Try it, open the hand when in reach,
+  hide what it holds, open the empty right hand; grab timings A), *Held objects* (B position steps; the
+  carry switches A; the anchor and stored values D). Moved verbatim: every key, setter and tier kept.
+* **Controls** now ends with *Button mapping* (it sat at the bottom of Aim).
+* **Aim** is aiming only: Reticle, What aims with the controller, the debug ray.
+* **Frame capture** is Debug (it was Basic in Display): a diagnostic, not a setting.
+* **Hide still cutscene arms** is no longer greyed out under full-arm IK, and it works with IK on.
+  The takedown arm hide stays greyed out under IK (IK always draws whole arms).
+
+Counted after the pass (Basic / Advanced / Debug controls): Hands 3/26/11, Aim 2/1/9, Interact
+14/12/2, Controls 7/0/0, Comfort 4/23/10, HUD 1/0/3, Display 13/18/43, plus the top row. Basic is
+what a player sets once; everything that needs explaining is Advanced or below.
+
 ## 2. The new layout
 
 Always visible, above the tabs: **Recenter**, **Height offset**, **Save as defaults**, the
