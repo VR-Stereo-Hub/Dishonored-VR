@@ -1531,12 +1531,24 @@ static void OvlTabDisplay()
             ConfigWriteKey("Stereo", "LateTagRepair", lateTag ? "1" : "0", "F10 Display");
         }
         OvlTip("Fix for swapped eyes after closing a note (VR-80). Leave on.");
+        bool silentGrace = g_sdSilentGrace;
+        if (dvr::ovl::checkbox("Keep stereo through one quiet camera interval", &silentGrace)) {
+            SceneDrawSetSilentGrace(silentGrace, "F10 Display");
+            ConfigWriteKey("Stereo", "CameraSilentGrace", silentGrace ? "1" : "0", "F10 Display");
+        }
+        OvlTip("A stall or a catch-up game frame no longer costs a single-eye frame. A/B for a rare one-eye flicker.");
         bool fid = dvr::frameid::enabled();
         if (dvr::ovl::checkbox("Frame-identity trace", &fid)) {
             dvr::frameid::set_enabled(fid);
             ConfigWriteKey("Perf", "FrameId", fid ? "1" : "0", "F10 Display");
         }
         OvlTip("Samples one eye pair every 8 ticks into the log. Off costs nothing.");
+        bool depthProof = dvr::depthprobe::share_checks() < 0;
+        if (dvr::ovl::checkbox("Depth share: prove it every 5 s", &depthProof)) {
+            dvr::depthprobe::set_share_checks(depthProof ? -1 : 3, "F10 Display");
+            ConfigWriteKey("Diagnostics", "DepthShareChecks", depthProof ? "-1" : "3", "F10 Display");
+        }
+        OvlTip("Diagnostic. Each proof stalls one frame. Off = three proofs after start, then none.");
         const dvr::frameid::Last fl = dvr::frameid::last();
         ImGui::TextDisabled("EYES: %s | pairs %u | L-R diff bb %.1f slot %.1f out %.1f sc %.1f (floor %.1f)",
                             fl.pairs == 0 ? "no pairs yet" : fl.onePicture ? "ONE PICTURE" : "two pictures",

@@ -168,6 +168,9 @@ static void mirror_off_tests() {
 int main() {
     IDirect3DDevice9 d;
     set_device(&d); set_source("draw","test");
+    // The pin under test is the mirror-ON path. The module default became mirror off (VR-216), which
+    // answers every present with an omitted desktop frame and made this first check fail by default alone.
+    set_mirror_off(false);
     check(present(d,1,-1).action=='N',"startup R cannot copy uninitialized target");
     for(int draw : {-1,1,0,-1,1,0,-1,1}) {
         static int tag=0;

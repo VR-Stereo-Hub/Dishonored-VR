@@ -28,7 +28,7 @@ void on_reset();
 void set_enabled(bool on, const char* who);
 bool enabled();
 void request(const char* who);   // one probe at the next present
-bool command(const char* args);  // `depthprobe [on|off|now]`, `depthprobe share on|off`
+bool command(const char* args);  // `depthprobe [on|off|now]`, `depthprobe share on|off|check [n|always]`
 
 // Step 2: the depth SHARED to our D3D11 device. Each present the scene target (the eye-size
 // RGBA16F whose alpha is depth) is copied into a D3D9 texture opened on D3D11, fenced by an
@@ -38,6 +38,11 @@ bool command(const char* args);  // `depthprobe [on|off|now]`, `depthprobe share
 void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx11, UINT backW, UINT backH);
 void set_share(bool on, const char* who);
 bool share_on();
+// How many proof checks run after each ring build (5 s apart; each drains both GPU queues on
+// the present thread). 3 by default, 0 none, -1 one every 5 s forever (the behaviour until
+// 2026-10-05). [Diagnostics] DepthShareChecks, `depthprobe share check [n|always]`.
+void set_share_checks(int n, const char* who);
+int share_checks();
 // Close every borrowed depth read, including diagnostic and failed clarity passes.
 void read_done(ID3D11DeviceContext* ctx);
 void retry(); // atomic request, serviced on the present thread after an explicit setting change

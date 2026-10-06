@@ -1596,3 +1596,18 @@ and the mod presses Interact only when the engine's focused actor is that target
 taken before the bind remap so that whatever the player bound to it stays quiet. Default on:
 it is a requested interaction, not a render lever, and it changes nothing until a hand is
 within reach of loot. See dishonored/ENGINE_NOTES.md, "Physical pickup".
+
+### 2026-10-05: one progress policy for every "is the camera still" gate; a bound on proofs
+
+The gameplay camera-silent gate took its baseline at the previous draw's return, the defect
+VR-229 had already paid for in the present-progress guard. Rather than a second rule, the
+gate reuses the progress class (`core/gfx/draw_present_progress.h`, `camera_silent()`): an
+upload counted from the stub's entry and one quiet interval forgiven after observed
+progress, never two. It ships behind `[Stereo] CameraSilentGrace` (default off) because it
+changes which ticks draw twice, and a lever that changes a rendered frame ships off with a
+live A/B. The depth-share proof, a diagnostic the afw method arms by itself, is bounded to a
+count of checks (`[Diagnostics] DepthShareChecks`) instead of a timer: a proof that has not
+failed since the thing it proves was built is not worth a two-device sync every 5 s. The
+afw compose decodes for a typed sRGB target view so the rebuilt eye's bytes equal the fresh
+eye's copy on any runtime's swapchain format. Record: dishonored/FLICKER_REFERENCE.md, the
+2026-10-05 entries and appendix 9.

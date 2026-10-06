@@ -1,3 +1,73 @@
+## 2026-10-05: TickCount64 is not there in Windows PowerShell 5.1
+
+`tools\net-ping-watch.ps1` stamped each sample with `[Environment]::TickCount64`, which exists on
+.NET Core 3.0+ only. Windows PowerShell 5.1 runs on .NET Framework, the property evaluated to
+nothing, and the first headset trace had an empty clock column - the one column it was written
+for. Recovered through the file name and the boot time (+-1 s), which also broke the first
+correlator's fixed-offset comparison until the offset was searched.
+- A script that must run under `powershell.exe` is written for .NET Framework 4.x: test it on
+  5.1, not on `pwsh`. The log's clock is GetTickCount: `[int64][Environment]::TickCount -band
+  [int64]4294967295`.
+- A smoke run must look at the column the tool exists for, not only at its summary.
+
+## 2026-10-05: six host suites that did not compile, counted as guards
+
+The flicker audit ran every `tools\*-host.ps1` on the staging tip. Six threw at the
+compiler (single-tag, camera-clamp, note-observer, zaccount, desktop-eye, objective-marker)
+and had done so for days to weeks: each production file had grown a call the harness had
+no stub for. Docs and PR bodies kept listing them as the guard for their rows.
+- A suite that does not build is not a passing suite. The matrix rule now: a row is guarded
+  only by a suite that RAN today and printed its last line.
+- A harness that slices production bodies by regex rots with the body. When a function gains
+  a call, grep `tools\*-tests.cpp` for its name and add the stub in the same commit.
+- `tools/default-profile-host.ps1` had been failing on the tip as well (the packaged ini
+  behind the writer after two merges); nobody ran it. Run the whole set before a release.
+
+## 2026-10-05: a proof that cannot fail, armed by a method and never by its key
+
+`depth_probe.cpp` proved every 5 s that D3D11 reads what the game wrote: a D3D9 readback,
+a fence busy-wait of up to 50 ms and a blocking Map on the present thread. `[Diagnostics]
+DepthShare` is off in every ini, so the proof looked switched off; afw arms the ring itself
+and the proof with it, for the whole session. It read IDENTICAL 62 of 62 times.
+- A diagnostic's cost is paid wherever it RUNS, not where its key says. List what a method
+  arms when it starts, not only what the ini turns on.
+- A consistency proof that has never failed since the thing it proves was built is a bound
+  on the number of checks, not a timer. Three after a rebuild, then none, and print the cost.
+
+## 2026-10-05: a draw-return baseline, again (the gameplay camera-silent gate)
+
+VR-229's entry below records that the draw RETURN is not a liveness baseline: the uploads
+inside the draw are discarded and a stall or a catch-up tick empties the interval being
+tested. The same defect sat in the gameplay camera-silent gate of `SceneDrawDecide` (F1 of
+the flicker audit), unnoticed because its rate was low (0.7 single-eye ticks a minute) and
+its consequence under afw (one eye a tick behind for one present) is a flicker the log only
+names as `pushed eye -1 TWICE`.
+- When a defect class is fixed in one gate, grep for every other place the same baseline is
+  taken (`g_sdLastDrawC5Serial`, `g_sdDrawEntryC5`) before closing the ticket.
+- The fix is the same policy (`camera_silent()` reuses the progress class) behind its own
+  lever, so the two gates can be A/B'd separately.
+
+## 2026-10-05: ten logs in one rotation, two of them from the simulator
+
+`dishonored_vr.prev5.log` and `prev6.log` were `dvr-xrsim` runs at 90 Hz sitting in the
+same rotation as eight VDXR headset runs. A stall census read across the rotation showed
+"two builds without the 5.66 s stall" until the startup lines were diffed.
+- Every per-log claim names its runtime (`instance created on runtime '...'`) and refresh
+  before it is compared with another log. A build tag is not a configuration.
+- The scan tool prints the runtime per file; a reader must not skip that column.
+
+## 2026-10-05: a typed sRGB swapchain image encodes on write
+
+The simulator creates its swapchain images `R8G8B8A8_UNORM_SRGB`; VDXR and the SteamVR shim
+hand out typeless ones. A render-target view of a typed sRGB image encodes what a shader
+writes; `CopyResource` does not. afw copies the fresh eye and renders the held one, so on the
+simulator the two eyes differed by a gamma step and the bright one swapped every present. It
+was filed as a possible engine per-eye exposure state.
+- A brightness difference between the simulator and a headset, or between a copied and a
+  rendered image, is a FORMAT question before it is a tonemapping one: print the image and
+  view formats once (`afw/warp: the rebuilt eye is written through a format-N view`).
+- The falsifiable check costs nothing: encode the dark eye and compare.
+
 ## 2026-10-05: "empty or on a power" also meant "holding the Heart"
 
 The ready hand's open pose was sampled from the left hand whenever `g_rflSecondaryKind` read 0
@@ -36,6 +106,12 @@ code for a week of builds. The code had not changed.
   migration key.
 - When something that worked breaks, diff the INI against the last accepted one as well as the
   code: `tools` keep every ini backup, and the answer here was one line of that diff.
+- 2026-10-05 census (the flicker audit): the same split exists today for `[Hud]
+  PauseSceneFreshness`, `MenuSceneFreshness`, `WheelCloseAnimation`, `MenuExitHeading`,
+  `[Hands] PaletteEyeMenuHalfStep` and `[Cine] PossessionStereo` (code 0, default ini 1), and
+  `PoseFromView`, `ArmIK`, `GrabAnim`, `GrabReadyOpen`, `GrabReadyHide` are accepted at 1 on the
+  dev rig and ship 0. Not changed by the audit (one behavioural change per build); listed so
+  the next acceptance closes them deliberately.
 ## 2026-10-05: a per-object readability check that was assumed free
 
 The physical pickup's first build walked 2000 GObjects entries a frame and asked

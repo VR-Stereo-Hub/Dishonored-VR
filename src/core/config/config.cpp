@@ -39,6 +39,14 @@ static bool WriteDefaultIni(const char* ini)
         "DrawCallerTrace=1\n"
         "RingLedger=1\n"
         "LateTagRepair=1\n"
+        "; CameraSilentGrace=1: the second draw's camera-silent gate counts camera uploads from\n"
+        "; draw to draw and forgives ONE quiet interval, so a stall on the present thread (a long\n"
+        "; xrEndFrame) or a catch-up game tick no longer costs a single-eye tick: under afw that\n"
+        "; was a held frame and a stale right eye about once a minute, more with a slow script\n"
+        "; frame. A load screen is quiet on every interval and still drops to mono. 0 = the\n"
+        "; shipped rule. Live: `reentry silentgrace on|off`, F10 Display. The `reentry: beat`\n"
+        "; line's silentGrace= counts the ticks it kept.\n"
+        "CameraSilentGrace=0\n"
         "; Occlusion (VR-79): native = the engine's culling as shipped, both eyes share one\n"
         "; history and an object hidden from one eye can vanish from both; pereye = the right\n"
         "; eye gets its own view state, so each eye culls only what IT cannot see; off = no\n"
@@ -1255,6 +1263,11 @@ static bool WriteDefaultIni(const char* ini)
         "; DepthShare=1 (motion vectors, step 2): copy that depth to the mod's D3D11 device every\n"
         "; present and prove every 5 s that D3D11 reads what the game wrote. `depthprobe share on|off`.\n"
         "DepthShare=0\n"
+        "; DepthShareChecks=N: how many of those proofs run after the shared ring is built (5 s apart).\n"
+        "; Each one reads the game's target back and maps a D3D11 texture on the present thread, a\n"
+        "; hitch of about a frame, and afw keeps the ring on: so 3, then none. -1 = one every 5 s for\n"
+        "; the whole session (the behaviour before 2026-10-05). `depthprobe share check [n|always]`.\n"
+        "DepthShareChecks=3\n"
         "; MotionCalib=1 (motion vectors, step 3; needs DepthShare=1): whenever the camera moves\n"
         "; between two frames of one eye, measure which depth scale explains the change and log it.\n"
         "MotionCalib=0\n"
@@ -3025,6 +3038,7 @@ static void LoadConfig()
     WmConfigure(ini);
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
     dvr::depthprobe::set_enabled(IniFloat(ini, "Diagnostics", "DepthProbe", 0) != 0.0f, "ini [Diagnostics] DepthProbe");
+    dvr::depthprobe::set_share_checks((int)IniFloat(ini, "Diagnostics", "DepthShareChecks", 3), "ini [Diagnostics] DepthShareChecks");
     dvr::depthprobe::set_share(IniFloat(ini, "Diagnostics", "DepthShare", 0) != 0.0f, "ini [Diagnostics] DepthShare");
     dvr::clarity::set_calib(IniFloat(ini, "Diagnostics", "MotionCalib", 0) != 0.0f, "ini [Diagnostics] MotionCalib");
     CamModConfigure(ini);     // VR-165: [Diagnostics] CamModProbe
@@ -3120,6 +3134,9 @@ static void LoadConfig()
     g_sdSceneQuietMs  = IniFloat(ini, "Stereo", "SceneQuietMs", 400.0f);
     if (g_sdSceneQuietMs < 50.0f)   g_sdSceneQuietMs = 50.0f;
     if (g_sdSceneQuietMs > 2000.0f) g_sdSceneQuietMs = 2000.0f;
+    g_sdSilentGrace = IniFloat(ini, "Stereo", "CameraSilentGrace", 0) != 0.0f;
+    Log("config: [Stereo] CameraSilentGrace=%d (resolved; absent = 0 = the camera-silent gate's shipped rule)",
+        g_sdSilentGrace ? 1 : 0);
     // VR-62: the movie-player probe. Read-only observation, and it ships ON for
     // the same reason the equipment reader does - a reporter nobody enables
     // reports nothing, and this one exists to be read out of a tester's log.

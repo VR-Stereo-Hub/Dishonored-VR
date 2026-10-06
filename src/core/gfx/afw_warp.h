@@ -83,6 +83,11 @@ void set_still_shade(bool on, const char* who);
 bool still_shade();
 // Run 22: `afw edgehands on|off` (on).
 void set_edge_hands(bool on, const char* who);
+// 2026-10-05: `afw typedsrgb on|off` (on). A swapchain image the runtime created typed sRGB (the simulator's) can
+// only be written through an sRGB view, which encodes; the rebuild decodes first so its bytes equal the fresh
+// eye's raw copy. Typeless images (VDXR, the SteamVR shim) are viewed as UNORM and never take this path.
+void set_typed_srgb_decode(bool on, const char* who);
+bool typed_srgb_decode();
 bool edge_hands();
 // Run 25: `afw heldhands on|off` (on) - the held eye's hands moved by their controllers (the grips note_hands records).
 void set_held_hands(bool on, const char* who);

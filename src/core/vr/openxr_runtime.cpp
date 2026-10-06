@@ -718,6 +718,23 @@ std::atomic<uint64_t> g_pairIntSumUs{0};
 std::atomic<uint64_t> g_pairIntSumSqUs{0};
 std::atomic<uint32_t> g_pairIntMinUs{0xFFFFFFFFu};
 std::atomic<uint32_t> g_pairIntMaxUs{0};
+// 41.x (Dishonored, 2026-10-05): the SUBMIT cadence. The pair statistics above are sampled where a pair closes, so
+// a method that submits every present as its own frame (afw) recorded nothing and the rate line read "cadence n/a"
+// for the configuration that is actually played. These are sampled at every successful stereo xrEndFrame instead:
+// the wall-clock interval between two submits, and the step in the runtime's own predictedDisplayTime measured in
+// display periods (1 = the next slot, 2 = one slot went without a new frame and the runtime showed the previous
+// one again). Cumulative, read by deltas like the pair set; only the maximum is drained. Samples over 1 s are
+// dropped for the same reason as the pair set's, and a non-stereo submit breaks the chain so a menu is not an
+// interval.
+std::atomic<int64_t>  g_subLastQpc{0};
+std::atomic<int64_t>  g_subLastDisplayNs{0};
+std::atomic<uint32_t> g_subIntCount{0};
+std::atomic<uint64_t> g_subIntSumUs{0};
+std::atomic<uint64_t> g_subIntSumSqUs{0};
+std::atomic<uint32_t> g_subIntMaxUs{0};     // worst since the last probe read - DRAINED on read
+std::atomic<uint32_t> g_subStepCount{0};    // steps measured (needs the runtime's period)
+std::atomic<uint32_t> g_subStepTwo{0};      // one display slot refilled with the previous frame
+std::atomic<uint32_t> g_subStepMore{0};     // two or more
 // How long the present thread actually spent BLOCKED in the wait handoff, per
 // trace window. This is the gating discriminator the pairs/s number cannot
 // give: free-running pairs spend ~0 ms/s here; pairs gated by xrWaitFrame
@@ -5866,6 +5883,36 @@ void on_present_end(ID3D11Texture2D* frame) {
         while (efUs > efMax &&
                !g_endFrameMaxUs.compare_exchange_weak(efMax, efUs, std::memory_order_relaxed)) {}
     }
+    {   // 41.x (Dishonored, 2026-10-05): the submit cadence (see g_subIntCount). Present thread only.
+        if (measuredStereo) {
+            LARGE_INTEGER nowQ; QueryPerformanceCounter(&nowQ);
+            const int64_t prevQ = g_subLastQpc.exchange(nowQ.QuadPart, std::memory_order_relaxed);
+            const int64_t prevD = g_subLastDisplayNs.exchange((int64_t)fei.displayTime, std::memory_order_relaxed);
+            static int64_t qpf = 0;
+            if (!qpf) { LARGE_INTEGER f; QueryPerformanceFrequency(&f); qpf = f.QuadPart ? f.QuadPart : 1; }
+            if (prevQ != 0) {
+                const int64_t us64 = (nowQ.QuadPart - prevQ) * 1000000 / qpf;
+                if (us64 > 0 && us64 < 1000000) {
+                    const uint32_t us = (uint32_t)us64;
+                    g_subIntCount.fetch_add(1, std::memory_order_relaxed);
+                    g_subIntSumUs.fetch_add(us, std::memory_order_relaxed);
+                    g_subIntSumSqUs.fetch_add((uint64_t)us * us, std::memory_order_relaxed);
+                    uint32_t m = g_subIntMaxUs.load(std::memory_order_relaxed);
+                    while (us > m && !g_subIntMaxUs.compare_exchange_weak(m, us, std::memory_order_relaxed)) {}
+                    const int64_t periodNs = (int64_t)g_frameState.predictedDisplayPeriod;
+                    if (periodNs > 0 && prevD != 0 && (int64_t)fei.displayTime > prevD) {
+                        const int64_t step = ((int64_t)fei.displayTime - prevD + periodNs / 2) / periodNs;
+                        g_subStepCount.fetch_add(1, std::memory_order_relaxed);
+                        if (step == 2) g_subStepTwo.fetch_add(1, std::memory_order_relaxed);
+                        else if (step > 2) g_subStepMore.fetch_add(1, std::memory_order_relaxed);
+                    }
+                }
+            }
+        } else {
+            g_subLastQpc.store(0, std::memory_order_relaxed);
+            g_subLastDisplayNs.store(0, std::memory_order_relaxed);
+        }
+    }
     if (XR_FAILED(r)) {
         XRLOG("xr: xrEndFrame failed: %s", res_str(r));
         teardown_session("endframe failed");
@@ -7701,6 +7748,15 @@ static void pair_probe_fill(PairProbe* out, bool drain) {
     out->intervalCount = g_pairIntCount.load(std::memory_order_relaxed);
     out->intervalSumUs = g_pairIntSumUs.load(std::memory_order_relaxed);
     out->intervalSumSqUs = g_pairIntSumSqUs.load(std::memory_order_relaxed);
+    // 2026-10-05: the submit cadence, for a method without pairs (see g_subIntCount).
+    out->submitIntCount = g_subIntCount.load(std::memory_order_relaxed);
+    out->submitIntSumUs = g_subIntSumUs.load(std::memory_order_relaxed);
+    out->submitIntSumSqUs = g_subIntSumSqUs.load(std::memory_order_relaxed);
+    out->submitIntMaxUs = drain ? g_subIntMaxUs.exchange(0, std::memory_order_relaxed)
+                                : g_subIntMaxUs.load(std::memory_order_relaxed);
+    out->submitSteps = g_subStepCount.load(std::memory_order_relaxed);
+    out->submitStepTwo = g_subStepTwo.load(std::memory_order_relaxed);
+    out->submitStepMore = g_subStepMore.load(std::memory_order_relaxed);
 }
 
 // 41.1 (Dishonored): cumulative, NOT drained - a per-present reader must not eat

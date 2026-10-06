@@ -1088,6 +1088,71 @@ int main() {
         char d[160]; snprintf(d, sizeof(d), "still: %d of %d hand texels the held eye's own | moving (control): %d of %d", k1, h1, k2, h2);
         check("a still weapon keeps the held eye's own shading", a && b && h1 > 500 && k1 > h1 * 8 / 10 && k2 < h2 / 20, d);
     }
+    {   // 2026-10-05: a swapchain image the runtime created TYPED sRGB (the simulator's; VDXR and the shim are typeless).
+        // The fresh eye reaches its image by a raw copy; the rebuilt eye is drawn through a view. Through a typeless
+        // image's UNORM view the bytes are the shader's; through a typed sRGB image's view they are encoded once more,
+        // and the two eyes alternated bright and normal in simulator captures. The rebuilt bytes must be the same on
+        // both kinds of image; with the handling off (the control) the typed image must show the extra gamma step.
+        auto mk8 = [&](DXGI_FORMAT f, UINT bind, D3D11_USAGE use, UINT cpu) {
+            D3D11_TEXTURE2D_DESC td = {};
+            td.Width = N; td.Height = N; td.MipLevels = td.ArraySize = 1; td.Format = f;
+            td.SampleDesc.Count = 1; td.Usage = use; td.BindFlags = bind; td.CPUAccessFlags = cpu;
+            ID3D11Texture2D* x = nullptr;
+            g.dev->CreateTexture2D(&td, nullptr, &x);
+            return x;
+        };
+        ID3D11Texture2D* typeless = mk8(DXGI_FORMAT_R8G8B8A8_TYPELESS, D3D11_BIND_RENDER_TARGET, D3D11_USAGE_DEFAULT, 0);
+        ID3D11Texture2D* srgb = mk8(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, D3D11_BIND_RENDER_TARGET, D3D11_USAGE_DEFAULT, 0);
+        ID3D11Texture2D* st8 = mk8(DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D11_USAGE_STAGING, D3D11_CPU_ACCESS_READ);
+        const Eye h0 = eyeOf(still, 0), f1 = eyeOf(still, 1);
+        auto hImg = image(still, h0, N, N), fImg = image(still, f1, N, N);
+        // Mid-tones in rgb (the depth in alpha is untouched): a gamma step moves these by tens of levels.
+        auto tone = [&](std::vector<float>& img) {
+            for (size_t i = 0; i < (size_t)N * N; ++i) {
+                float* q = &img[i * 4];
+                const float a = q[0] * 3.0f, b = q[1] * 0.37f + q[0];
+                const bool hand = q[2] > 0.5f;
+                q[0] = 0.10f + 0.55f * (a - floorf(a));
+                q[1] = 0.08f + 0.60f * (b - floorf(b));
+                q[2] = hand ? 0.70f : 0.25f;
+            }
+        };
+        tone(hImg); tone(fImg);
+        auto into = [&](ID3D11Texture2D* dst, bool decode, std::vector<uint8_t>& px) {
+            dvr::afw::set_typed_srgb_decode(decode, "test");
+            g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
+            Scene sc = capture(g, still, still, Opt(), N, N, hImg, fImg);
+            dvr::afw::Pose out{}; const char* why = nullptr;
+            bool ok = dst && st8 && dvr::afw::warp_held(g.dev, g.ctx, 0, 1, sc.sf, dst, N, N, (float)kTan, (float)kTan, &out, &why);
+            px.assign((size_t)N * N * 4, 0);
+            if (ok) {
+                g.ctx->CopyResource(st8, dst);
+                D3D11_MAPPED_SUBRESOURCE m;
+                ok = SUCCEEDED(g.ctx->Map(st8, 0, D3D11_MAP_READ, 0, &m));
+                if (ok) {
+                    for (int y = 0; y < N; ++y) memcpy(&px[(size_t)y * N * 4], (const uint8_t*)m.pData + y * m.RowPitch, (size_t)N * 4);
+                    g.ctx->Unmap(st8, 0);
+                }
+            }
+            release(sc);
+            return ok;
+        };
+        std::vector<uint8_t> pa, pb, pc;
+        const bool a = into(typeless, true, pa), b = into(srgb, true, pb), c = into(srgb, false, pc);
+        dvr::afw::set_typed_srgb_decode(true, "test");
+        double sumB = 0, sumC = 0; int maxB = 0; size_t n = 0;
+        for (size_t i = 0; i < pa.size(); ++i) {
+            if ((i & 3) == 3) continue;   // alpha
+            const int db = abs((int)pb[i] - (int)pa[i]), dc = abs((int)pc[i] - (int)pa[i]);
+            sumB += db; sumC += dc; if (db > maxB) maxB = db; ++n;
+        }
+        const double meanB = n ? sumB / n : 999, meanC = n ? sumC / n : 0;
+        char d[220]; snprintf(d, sizeof(d), "typed sRGB vs typeless: mean %.3f, worst %d of 255 | control (handling off): mean %.1f",
+                              meanB, maxB, meanC);
+        check("a typed sRGB swapchain image gets the same rebuilt bytes as a typeless one", a && b && c && meanB < 0.6 && maxB <= 2 &&
+              meanC > 20.0, d);
+        if (typeless) typeless->Release(); if (srgb) srgb->Release(); if (st8) st8->Release();
+    }
     printf("afw warp: %d PASS, %d FAIL\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

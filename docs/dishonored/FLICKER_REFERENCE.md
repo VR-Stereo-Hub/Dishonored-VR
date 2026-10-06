@@ -1,4 +1,340 @@
-## 2026-10-05: the simulator's left eye alternates between two exposures, frame to frame (OBSERVED in the simulator, not investigated, no headset report)
+## 2026-10-05: audit headset run 1 - the silent-gate grace removed every single-eye tick; the 5.66 s stall is the network path to the headset (MEASURED, headset run)
+
+1. **Symptom identity:** the run named by the audit (appendix 9.3, items 1-5): ordinary play
+   with `CameraSilentGrace=1`, a ping trace of the headset running beside it.
+2. **Reproduction identity:** build `v1.0.3-103-g889315d37` Release (banner checked), installed
+   ini = the audit's expected ini; Quest 3 over VDXR 1.0.10 at 144 Hz, afw, 1832x1900 to
+   2750x2850 DLSS; 877 s, one load, one pause (618-630 s), four notes (676-702 s), mantles.
+   Log, ini and ping csv copied to the local log archive (`2026-10-05-flicker-audit-run1`).
+   The PC has no wireless interface: it is wired (Ethernet 3), the headset is on Wi-Fi.
+3. **Hypotheses and counterpredictions:** (F1) with the grace on, gameplay camera-silent gates
+   and `pushed eye -1 TWICE` fall to zero and a still camera still drops to a single draw;
+   (F9) ping spikes on the stall ticks = the network path, a flat trace = the PC side;
+   (F8) each check costs several ms; (F11) the line says raw bytes on VDXR.
+4. **Change identity:** none during the run (the four audit changes as installed).
+5. **Results:**
+   - F1: `gates -> SINGLE draw (camera silent` 0 (the build `-85` baseline: 7 in 10 min),
+     `pushed eye TWICE` 0 (was 6), `STALE . EYE` 0 (was 3), `present handed in NO frame` 0
+     (was 14); `staleEye L=0 R=0` in all 288 eye windows. The grace kept 615 ticks: 4 in
+     gameplay, the rest in the pause menu (442, 618-630 s) and while reading notes (161,
+     676-702 s), all by the in-draw branch ("uploads arrived while that draw ran") - the
+     menus' head-look writes the camera inside the draw. So the lever ALSO turns the paused
+     and note-reading world from alternating single/double ticks (20 gates a second in the
+     baseline pause) into a full-rate stereo pair: `stereo: beat ... L/s=52 R/s=53 none/s=0`
+     while paused. Not a fault in the log; whether it looks better or worse in the headset
+     is the open perceptual half. A still camera was not isolated in this run (the head is
+     never still enough in VR to leave an interval without an upload); the load screen at
+     start still read 8,448 single ticks, so a quiet scene still drops to single.
+   - F9 (LINK): 97 stalls inside the 600 s trace (144 in the log, period 5.656 s, endFrame
+     median 35.8 ms). 91 of 97 (94%) have a ping spike (RTT >= 15 ms or lost; median RTT 5
+     ms) within +-150 ms at the best clock offset (-300 ms, inside the +-1 s clock
+     uncertainty of this trace); null control with random stall times and the same offset
+     search: mean 25%, p95 28%. Alignment-free, folding the ping trace at 5.656 s puts the
+     spike peak (6.8% against a 2.0% mean, 3.4x) in the same phase bin as the stalls, and
+     15 of the 41 lost pings fall within 200 ms after a stall. Aligned through the csv's
+     original file time instead (0.16 s from the name): 96 of 97 at offset 0, about 10 at
+     every offset 300 ms or more away. The network path to the headset goes silent on the
+     same 5.66 s beat as the submit; the PC is wired, so the radio side (the headset's
+     Wi-Fi, the access point or router) is the place to look. What this does NOT separate:
+     the wired hop to the router (a trace to the router at the same time would).
+   - F8: the three checks cost 2.18, 1.59 and 0.52 ms on the present thread - a real but
+     small hitch, not the frame-length one this audit estimated. The bound stays.
+   - F11: `afw/warp: the rebuilt eye is written through a format-28 view of a format-27
+     swapchain image - raw bytes`: VDXR is typeless, as predicted.
+   - F3: SUBMIT CADENCE in 264 windows: wall-clock interval median 1.23 slots per frame
+     (117.5 presents/s at 144 Hz), but only 2.45% of display-time steps skipped a slot. The
+     two disagree: VDXR's `predictedDisplayTime` does not step one display period per real
+     slot, so the step count UNDER-REPORTS repeats on this runtime. Read the slots-per-frame
+     figure; the skipped-slot percentage is not evidence on VDXR (instrument limit, recorded
+     in 4.4).
+   - Tool fault: the ping csv's tick column was empty (`[Environment]::TickCount64` does not
+     exist on Windows PowerShell 5.1). Recovered through the file name and the boot time;
+     the tool now writes GetTickCount. The correlator's first null control (shifting the
+     spike train) was invalid for a periodic train and its fixed offset broke under the
+     clock uncertainty; both corrected (random stall times, offset searched in both the
+     statistic and the control) before the verdict above.
+6. **Status:** F1 HEADSET-MEASURED (counters), perceptual verdict pending, notably for the
+   pause and note screens; F9 localised to the network path, OPEN for the cause - next: one
+   session with two traces (`-Target <router ip>` and `-FromStreamer`) and, if the router is
+   clean, the access point's and headset's Wi-Fi settings (band, channel, a periodic scan or
+   power save; the streamer's own network page). F8 and F11 closed as predicted, F3's step
+   count limited on VDXR.
+
+## 2026-10-05: the full stereo and afw pipeline audit against this reference (CODE-DERIVED and LOG-MEASURED; four changes built, nothing headset-run yet)
+
+1. **Symptom identity:** not one symptom: an audit. Every row of section 1 re-derived from
+   today's code, every elimination of section 4 re-checked, every state transition, timing
+   regime, motion and content case enumerated with its invariant, and the smoothness of the
+   played configuration (afw, DLSS, 144 Hz over VDXR) measured from the logs on disk. The
+   matrix is appendix 9; the findings each have an entry above this one.
+2. **Reproduction identity:** branch `claude/flicker-audit` off `staging` `6329ae552`
+   (#178-#181, #184). The installed build `v1.0.3-96-g6329ae552` had NOT been run: every log
+   on the dev PC is an older build (`-58` to `-85`), so the newest headset log (build `-85`,
+   661 s, afw then reentry then afw, 1832x1900 to 2750x2850 DLSS Quality, Quest 3 over VDXR
+   1.0.10 at 144 Hz) is the baseline evidence, copied to the local log archive with the
+   other nine before anything else. Two of the ten logs are SIMULATOR runs (`dvr-xrsim`,
+   90 Hz) that sit in the same rotation; every per-log claim here names its runtime.
+3. **Hypothesis and counterprediction:** per finding, in its own entry. The audit's own
+   rule: a row counts as present only when its code is at a file and line in today's tree
+   AND its default is live in the shipped ini AND a guarding suite ran today and passed;
+   anything else is written down as absent or stale, not assumed.
+4. **Change identity:** four, each default-safe and each with a live A/B or a seam word:
+   `[Stereo] CameraSilentGrace` (default 0; a render-path lever, F10 Display), `[Diagnostics]
+   DepthShareChecks` (default 3; a bound on a diagnostic), the typed-sRGB decode in the afw
+   compose (`afw typedsrgb on|off`, on; no effect on typeless images), the submit-cadence
+   figures on `stereo: rate` (logging). Plus six host harnesses repaired and the packaged
+   ini regenerated. One behavioural change per BUILD is honoured for the headset: only
+   CameraSilentGrace changes a rendered frame on a VDXR rig, and it is armed in the
+   installed ini explicitly.
+5. **Results, in order of what reaches the headset:**
+   - F1 (MEASURED cause, candidate): the gameplay camera-silent gate's draw-RETURN baseline;
+     0.7 single-eye ticks a minute; the generator of the VR-77 bursts. Entry above.
+   - F9 (MEASURED, OPEN): xrEndFrame blocks 5-6 slots every 5.66 s of wall clock, every VDXR
+     session; the top smoothness item; one ping-trace run decides link vs PC. Entry above.
+   - F8 (CODE-DERIVED, fixed): the depth-share proof, a two-device sync on the present thread
+     every 5 s all afw session; bounded. Entry above.
+   - F11 (MEASURED, resolved): the simulator's per-eye exposure alternation is a typed sRGB
+     view; fixed; no headset effect. Entry above.
+   - F3/F10 (instrument gap, filled): afw had no cadence number; it has one now. Entry above.
+   - F2 (MEASURED NEGATIVE): under afw the ring order is the only eye claim (c5 pairing and
+     both repairs are off by design) and it was never wrong: empty pops 0 in 316 ten-second
+     ledger windows across 9 logs (2 in one window at a method switch). No eye-order check
+     exists under afw; recorded as a theoretical risk with a measured zero.
+   - F4 (RETRACTED as current): the `hud/markers-sharp: REFUSED` once-a-second Warn that
+     filled 842 lines of an earlier session is 0 in 9 of the 10 logs on disk and 1 in the
+     tenth; the code still logs it as a state (`DVR_LOG_EVERY_MS` 1000) but it does not
+     fire on this rig. Not changed.
+   - F5 (not flicker, noted): a 3 s startup crash of build `-85` at 16:03 (an access
+     violation reading address 0 at `Dishonored.exe+0x5ca20b` on another thread, after the
+     second `Direct3DCreate9`); not investigated; the dump folder of that run was the
+     default `%LOCALAPPDATA%` one.
+   - Lever census (MEASURED, see 4.4): six accepted levers have a code default of 0 and ship
+     as 1 in the default ini (`PauseSceneFreshness`, `MenuSceneFreshness`,
+     `PaletteEyeMenuHalfStep`, `WheelCloseAnimation`, `MenuExitHeading`,
+     `PossessionStereo`): an ini without the key runs them OFF. `PoseFromView`, `ArmIK`,
+     `GrabAnim`, `GrabReadyOpen`, `GrabReadyHide` are accepted at 1 on the dev rig and ship
+     0. `C5SameEyeGuard` (1), `TimeoutRefuse` (0), `AutoDepth` (1) have no ini line at all.
+     The packaged `release/dishonored_vr.ini` had fallen behind the writer (#181/#184 keys
+     missing); regenerated.
+   - Harnesses (MEASURED): 55 host suites run; 44 passed as found, 6 did not compile and
+     were repaired, 4 remain stale (VERIFICATION names them), 1 needs local fixtures.
+   - Other readings from the newest log, for the matrix: fgmask served masks in afw gameplay
+     (about 3,400 candidates per 5 s, all drawn); `afw/warp` 33,921 rebuilds, 33,914 full,
+     11 refused "fresh eye not captured"; capture timeouts 21 delivered, 0 refused;
+     `hud/beat` read timeouts 2,331 of 1.8 M waits; `pe/cost` median 57.6 us an event, p90
+     85.9, max 478; pickup own cost median 16.8 us, one frame over 250 us; `STALE R EYE` 2 and
+     `STALE L EYE` 1 (all held-present cases of F1); 14 `present handed in NO frame`, 0 black;
+     `interact/flicker` 15 lines (the VR-195 game-state flicker is still logged).
+   Not run: the simulator, the headset. Everything above is from code and from logs already
+   on disk.
+6. **Status:** the four changes are headset pending; F9 is open with its one run named;
+   the headset risks are listed in appendix 9 in priority order with the exact run each.
+   Branch pushed, draft PR against `staging`, no merge.
+
+## 2026-10-05: xrEndFrame blocks 5-6 display periods every 5.66 s of wall clock on VDXR at 144 Hz, in every session since 1.0.1-253 (MEASURED, OPEN; discriminator tool built, one headset run decides)
+
+1. **Symptom identity:** a hitch, not an eye defect: the whole view, both eyes, is held
+   for 5-6 display slots about every 5.7 s (a 32-45 ms frame gap, median 36-39 ms),
+   under afw and reentry alike, in menus too. Each stall can also trigger the camera-
+   silent single tick of the entry above it (gate #3 of that entry followed one). The
+   TOP smoothness item of the 2026-10-05 audit; distinct from the 5.000 s depth-share
+   check (different period, not inside xrEndFrame) and from the per-event spikes the
+   `pe/cost` line records (those are game-thread time).
+2. **Reproduction identity:** 15 headset logs scanned (local log archive, builds
+   `v1.0.1-253` through `v1.0.3-85`), Quest 3 over VDXR 1.0.10, Streamer 1.34.22, HEVC
+   10-bit, 144 Hz (period 6.94 ms), PC wired. Under afw 9.5-16.5 gaps a minute with the
+   modal interval 5.65 s (`perf: frame gap NNms ... sat in: present-tail (xrEndFrame)`,
+   tick deltas 5656/5672 ms, the 16 ms tick quantisation of GetTickCount); presents per
+   cycle vary 637-762, so the period is wall clock, not a frame count. Under reentry 2.5-3
+   a minute logged (the gap census only prints above its threshold) with the same 5.65 s
+   mode. Nearly absent in a session at about 70 submits/s (2/min); ZERO on `dvr-xrsim`.
+   `xrWaitFrame` takes 3-6 ms on the stalled present and 0.0 otherwise; the presents
+   before a stall are ordinary. The 2026-09-18 PERFORMANCE entry measured a 4.0-4.5 s
+   beat of 88-94 ms at 120 Hz: the same symptom at another refresh.
+3. **Hypothesis and counterprediction:** nothing in the mod runs on a 5.66 s period (every
+   timer in the tree was listed: 1, 2, 5, 10 s and the per-present paths). The stall is
+   inside `xrEndFrame`, after the mod's work, so the reading is back-pressure from
+   downstream of the submit: the streamer's encoder, the link, or the headset (a periodic
+   Wi-Fi scan or power-save beacon is the shape). NOT PROVEN. Discriminator:
+   `tools\net-ping-watch.ps1 -FromStreamer` pings the headset at 50 Hz during a session
+   with `[Environment]::TickCount64` timestamps, the clock of the log's `[  tick]`
+   column. RTT spikes or losses on a 5.66 s beat at the same ticks as the log's frame
+   gaps = the link; a flat trace while the gaps continue = the PC side (encoder,
+   compositor, or the runtime's own pacing), and the next instrument is the streamer's
+   own performance overlay at those ticks. Counterprediction for "it is the mod": a
+   session on the simulator shows it (it does not), or a mod timer with that period
+   exists (none does).
+4. **Change identity:** no render change. The `stereo: rate` line now measures the afw
+   submit cadence (next entry) so a session reports how many display slots were refilled
+   with a repeated frame; `tools\net-ping-watch.ps1` is the discriminator (local output,
+   never committed).
+5. **Results:** measured from the logs; the ping trace has not run. Not run: a session
+   with the trace, a session at another refresh (90 or 120 Hz, for the period), a session
+   with the streamer's bitrate lowered (an encoder-side back-pressure moves with it, a
+   link outage does not).
+6. **Status:** OPEN. The one run: start `net-ping-watch.ps1 -FromStreamer -Minutes 5`
+   after the session is up, play 5 minutes, then line its spike ticks up against
+   `perf: frame gap` ticks in the log. Everything else about this item is already on
+   disk. PERFORMANCE.md carries the timing record.
+
+## 2026-10-05: the played method had no cadence instrument - the rate line's evenness verdict read n/a under afw (INSTRUMENT GAP, filled)
+
+1. **Symptom identity:** not a flicker: a blind spot. `stereo: rate` derives EVEN/UNEVEN
+   CADENCE from the pair interval, sampled where a pair closes. afw submits every present
+   as its own frame and has no pairs, so for the configuration that is actually played
+   the line read `cadence n/a (no pair intervals this window)` and the doubled-edge
+   question (one frame in N held an extra slot) had no number.
+2. **Reproduction identity:** every afw window of every headset log; `xr: pair phase`
+   never prints under afw either (0 pairs).
+3. **Hypothesis and counterprediction:** the pair statistics are the wrong population for
+   afw; the right one is the stereo submit itself. The new sample can print the welcome
+   answer (a whole number of slots per frame and no step over one) and the unwelcome one,
+   and its population is every successful stereo `xrEndFrame` of the window, so a zero is
+   a measured zero.
+4. **Change identity:** `openxr_runtime.cpp` (a marked `41.x (Dishonored, 2026-10-05)`
+   block after the endFrame cost record, present thread only): the wall-clock interval
+   between consecutive stereo submits (mean, sd, max) and the step in the runtime's own
+   `predictedDisplayTime` in display periods (1 = the next slot, 2 = one slot refilled
+   with the previous frame, 3+ = more). `PairProbe` carries them; `stereo.cpp` prints,
+   when there are no pair intervals: `SUBMIT CADENCE (no pairs: every present is its own
+   frame): interval mean X ms sd Y worst Z = S slots per frame; of N display-time steps
+   A skipped one slot and B more (P%; ...)`. Logging only; no lever.
+5. **Results:** builds; not yet seen on a run. Expected from the newest log's numbers
+   (124-129 presents/s at 144 Hz): about 1.15 slots per frame, 13-15% of steps skipping
+   a slot - which is the arithmetic of a GPU-bound 7.8-8.0 ms frame against a 6.94 ms
+   slot, printed instead of inferred.
+6. **Status:** instrument, default on, headset pending. What it will NOT say: which eye
+   the repeated slot showed (afw re-submits both; the compositor reprojects both).
+
+## 2026-10-05: the simulator's per-eye exposure alternation is the afw rebuild written through a typed sRGB swapchain view (MEASURED cause, fix built, host-verified; no headset effect expected)
+
+1. **Symptom identity:** the top open entry of this morning: in simulator captures one
+   eye is bright and neutral (mean luma about 93) and the other darker (35-42), and which
+   eye is bright swaps between captures. Whole view, one eye at a time, no geometry
+   difference. Resolved here; the entry below it is kept as the observation.
+2. **Reproduction identity:** the captures already on disk (`%LOCALAPPDATA%\DishonoredVR\
+   xrsim\capture\q1`, `q2`, `q3`, from the 2026-10-05 grab-animation simulator run, build
+   `v1.0.3-74-g1c564a6ad`, `dvr-xrsim` at about 93 Hz, afw). No new run was made.
+3. **Hypothesis and counterprediction:** the simulator creates its swapchain images TYPED
+   `R8G8B8A8_UNORM_SRGB` (`src/tools/xrsim/xrsim_session.cpp`); VDXR and the SteamVR shim
+   (`ovrshim_main.cpp`) hand out TYPELESS images. Under afw the FRESH eye reaches its image
+   by `CopyResource` (raw bytes, the game's own gamma-encoded output) while the HELD eye is
+   re-rendered through a render-target view of the same format as the image, and a view
+   of a typed sRGB image encodes on write: the rebuilt eye is encoded twice, one gamma
+   step brighter, and it is a different eye every present. Falsifiable prediction: the
+   bright eye of a capture equals the dark eye of the same capture encoded once more.
+   Measured on the three captures: encoding the dark eye reproduces the bright one, mean
+   absolute error 52.2 -> 4.5 of 255, in both eyes. The engine-side candidates of the
+   morning entry (a per-eye eye-adaptation or tonemap state, a capture artifact) predict
+   no such relation and are retracted.
+4. **Change identity:** `afw_warp.cpp`: `typed_srgb()` recognises a typed sRGB target
+   view; `warp_held` and `synth_eye` (the MSW path writes the same way) pass it to the
+   compose, which decodes before the view encodes, so the bytes that land equal the
+   fresh eye's copy. `prm9.w` carries the flag (a spare constant, no buffer change). One
+   line names the path once: `afw/warp: the rebuilt eye is written through a format-N
+   view of a format-M swapchain image - ...`. Live A/B `afw typedsrgb on|off` (on). The
+   typeless path is untouched: through a UNORM view the shader's bytes land as they are.
+5. **Results:** `tools\afw-warp-host.ps1` 61 PASS incl. the new case: a typed sRGB
+   target gets the same rebuilt bytes as a typeless one (mean 0.036 LSB, worst 1 of 255),
+   and the control with the handling off shows the step (mean 65.5). Not run: the
+   simulator (a capture after this build should read both eyes within a few luma of each
+   other and the `format-29 view of a format-29` line), the headset (no effect expected:
+   VDXR's images are typeless, so the new line must read `format-28 view of a format-27`
+   or similar and say `raw bytes`).
+6. **Status:** RESOLVED by measurement as a simulator-only artifact; fix built so a
+   runtime that hands out typed sRGB images cannot alternate; headset check is the one
+   line. The top entry below it is superseded.
+
+## 2026-10-05: the depth-share proof check stalls the present thread every 5 s for the whole afw session (CODE-DERIVED, fix built, cost now logged, headset pending)
+
+1. **Symptom identity:** a hitch of about a frame, whole view, both eyes, every 5.000 s,
+   only while the shared depth ring is on (afw keeps it on for its whole session; the
+   `[Diagnostics] DepthShare` key is off, the ring is armed by the method). Not an eye
+   defect: the frame is late, not wrong. Distinct from the 5.66 s xrEndFrame stall of the
+   audit entry (different period, different thread state, present in menus too).
+2. **Reproduction identity:** every afw session: `depthshare: check N ... IDENTICAL to the
+   game's own target this present` 62 times in the newest headset log (build
+   `v1.0.3-85-g4a452e2b2`, 661 s), exactly 5 s apart, agreeing every time since the ring
+   was built (42 of 42 in the earlier session read for the audit).
+3. **Hypothesis and counterprediction:** `depth_probe.cpp` `share_tick`: while the ring
+   is on, every 5 s the PRESENT thread reads a 5x5 grid of the game's depth target back
+   through D3D9 (`StretchRect` + `GetRenderTargetData` + `LockRect`, a pipeline drain),
+   busy-waits on the copy fence for up to 50 ms, and maps a D3D11 staging texture with a
+   blocking `Map`: a CPU/GPU sync of both devices on the present thread, to prove a
+   statement that has never been false once the ring is built. Counterprediction: the
+   check's cost, printed from this build on, reads under a millisecond; then the hitch
+   is elsewhere and the bound is harmless. The 5.66 s stall is NOT this check: its period
+   differs (5.000 s vs 5.664 s), and the stall is inside `xrEndFrame`, which the check
+   does not call.
+4. **Change identity:** `[Diagnostics] DepthShareChecks` (default 3): three proofs after
+   each ring build (and after `depthprobe share on`), then none; -1 restores the old
+   behaviour (one every 5 s all session). Live `depthprobe share check [n|always]`, F10
+   Display "Depth share: prove it every 5 s". The check line now carries its cost:
+   `depthshare: check N (K left) cost X ms on the present thread (max Y)`. The proof
+   itself is unchanged.
+5. **Results:** code-derived; the cost is not yet measured on a headset run (the line
+   that measures it ships in this build). Not run: simulator, headset. A run decides with
+   the three check lines' `cost` figures (expected: several ms each) and the absence of a
+   5.000 s component in the frame-gap census after the third.
+6. **Status:** fix built, default on (a bound on a diagnostic, not a render lever: the
+   proof still runs three times and prints DIFFERS when it fails), headset pending.
+
+## 2026-10-05: the gameplay camera-silent gate measures from the previous draw's RETURN, so a present stall or a catch-up tick costs a single-eye tick (MEASURED cause, candidate built, headset pending)
+
+1. **Symptom identity:** the generator behind two existing rows, not a new symptom. Under
+   afw: the hands and weapon step sideways in ONE eye for one present (the held eye is
+   rebuilt from a capture two ticks old instead of one; the rebuild still lands at the
+   current head pose, so it is a content-age step, not a frozen eye). Under reentry: a
+   held present (`HoldUntagged=3` repeats the previous layer, so no mono flash). Both
+   eyes' geometry otherwise steady. Rows: "Occasional single-draw bursts and held frames
+   during gameplay" (VR-77) and the residual rate left after the pickup scan fix (the
+   2026-10-05 pickup entry below).
+2. **Reproduction identity:** build `v1.0.3-85-g4a452e2b2` Release (local test branch,
+   newest headset log on the dev PC, copied to the local log archive), Quest 3 over VDXR
+   1.0.10 at 144 Hz, 1832x1900 rendered to 2750x2850 (DLSS Quality, transformer model),
+   `[Stereo] Method=afw` for 0-66 s and 413-661 s and `reentry` between. 7 gameplay
+   `gates -> SINGLE draw (camera silent ...)` in about 10 minutes (0.7/min), each followed
+   by `xr: present handed in NO frame` and, under afw, `reentry: pushed eye -1 TWICE`
+   (5 of them) or `+1 TWICE` (1). Bursts of 20 in a second while paused are the pause
+   gate and are not this.
+3. **Hypothesis and counterprediction:** `SceneDrawDecide` compares the c5 serial at
+   decision time with `g_sdLastDrawC5Serial`, which is stored when the previous draw
+   RETURNS, so the uploads made during that draw are discarded and the gate asks whether
+   the IDLE interval between the previous draw's return and this tick carried an upload.
+   Two things empty that interval without the camera being still: a present-thread stall
+   (the game thread cannot upload while blocked behind the present) and a catch-up tick
+   (0.9-2.8 ms game frames). The same defect class was fixed for the present-progress
+   guard (VR-229: entry baseline plus one grace interval) and for the paused scene
+   (`pause_scene_freshness.h`), never for gameplay. Counterprediction, if the gates were a
+   genuinely still camera: the tick before each gate would also show no upload and its
+   length would be ordinary. Measured against the log: gate #3 followed a 46 ms present
+   gap (a 36 ms xrEndFrame, the 5.7 s stall of the audit entry above), gates #1, #2 and #7
+   followed game frames of 0.9-2.8 ms, the ticks before them all carried uploads. Under
+   reentry the same gate exists and costs a held frame instead of an eye.
+4. **Change identity:** `[Stereo] CameraSilentGrace` (default 0 = the shipped rule; 1 in
+   the installed ini for the next run), live `reentry silentgrace on|off`, F10 Display
+   "Keep stereo through one quiet camera interval". The policy is
+   `dvr::stereo::camera_silent()` in `core/gfx/draw_present_progress.h` (the VR-229
+   progress class reused: an upload counted from the stub's entry, one quiet interval
+   forgiven after observed progress, never a second). It is purely additive: a tick the
+   shipped rule accepts is accepted; a load screen, quiet on every interval, still drops
+   to a single draw from its second interval. `reentry: beat ... silentGrace=on N` counts
+   the ticks it kept, `reentry: camera-silent grace - kept the second draw ...` prints
+   every 2 s while it acts. Commit: this branch (`claude/flicker-audit`).
+5. **Results:** host only. `tools\camera-silent-host.ps1`: 254,276 checks, the shipped rule
+   fails the in-draw, stalled-interval and catch-up schedules (the negative control: the
+   suite can print the unwelcome answer), the grace rule passes them, every grace-only
+   tick has an upload within the previous two intervals, the lever only adds permission.
+   Not run: simulator, desktop, headset. A headset run decides with `reentry: beat`
+   `silentGrace=on N` rising while `gates -> SINGLE draw (camera silent` in gameplay and
+   `pushed eye -1 TWICE` fall towards zero; a still camera (standing, not moving the
+   head) must still read as SINGLE from its second quiet interval.
+6. **Status:** candidate, default OFF, headset pending. Adjacent and NOT built: under afw
+   the alternation restarts on the left after any single tick (`scene_draw.cpp`, the
+   aer pair rule), so one single tick costs the right eye up to 4 ticks of content age
+   where continuing the alternation would cost 3. A lower-priority lever of its own.
+
+## 2026-10-05: the simulator's left eye alternates between two exposures, frame to frame (OBSERVED in the simulator; RESOLVED the same day: a typed sRGB swapchain view, see the entry above)
 
 1. **Symptom identity:** seen while capturing the grab animation, not reported by a player.
    Every simulator capture had one eye bright and neutral and the other darker and orange
@@ -18,7 +354,9 @@
    re-entry pair order rather than the capture schedule.
 4. **Change identity:** none.
 5. **Results:** simulator only; no desktop or headset check ran.
-6. **Status:** OPEN, unclassified. Recorded so the next per-eye brightness report starts here.
+6. **Status:** RESOLVED 2026-10-05 (see the typed-sRGB entry above): the rebuilt eye was
+   written through a typed sRGB view, which encodes. The engine-side candidates in 3 are
+   retracted. Kept as the observation record.
 
 ## 2026-10-04: objective marker text flickers - it changes LAYER, native HUD ownership was off (MEASURED cause, fix built, headset pending)
 
@@ -3346,17 +3684,20 @@ pose metadata without reopening the disproved historical theories.
 | Weapon detaches or flicker returns after swap/load | Candidate list, contract lifetime/capacity, equipment roots, or config gate | Recovery/retention fixes landed; distinguish from eye-state regression |
 | Persistent outward displacement in each eye after stability integration | Live script mono flag resets eye state for an older queued stereo draw | VR-69 render-side eye restoration confirmed |
 | Flicker on crouch, downhill movement, or falls | Z clamp breaks ownership of an already-offset camera vector | VR-69 clamp reconciliation confirmed |
-| About a second of weapon flicker after resuming from a pause, swaps fine | The menu ran the level-load transition: identity dropped and relearned, plus a UI rescan hold | VR-93, section 3.13. Relearning fixed behind `AttachKeepOnMenu`, the hold behind `UiKeepOnMenu`; both headset-confirmed for pauses, both ship OFF. Books are not covered |
+| About a second of weapon flicker after resuming from a pause, swaps fine | The menu ran the level-load transition: identity dropped and relearned, plus a UI rescan hold | VR-93, section 3.13. Relearning fixed behind `AttachKeepOnMenu`, the hold behind `UiKeepOnMenu`; both headset-confirmed for pauses; shipped OFF then, and since 2026-09-16 the default ini carries all three at 1 (2026-10-05 census). Books are not covered |
 | Sustained flicker after closing a note, worst crouched; the scene jumps right in the right eye and left in the left (an eye swap), or later left eye only | **A late tag**: a present shows a draw's image before that draw's tag reaches the ring, the ring runs one tag behind until a drain, and under `SharedWait=0` the unlabelled image is held out of its eye. Ledger signature `EMPTY REFUSE` then `TOOK` | **VR-80 fixed, headset-confirmed** behind `[Stereo] LateTagRepair` (the repair plus the capture-slot relabel). Section 3.15, "The solution". Why the push-to-present margin collapses after a crouched close is open (VR-99), as is an occasional single frame. Section 3.14 is the separate zero-`c5` case (VR-97) |
-| Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
+| Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling. 2026-10-05: ONE GENERATOR MEASURED - the gameplay camera-silent gate's baseline is the previous draw's RETURN, so a present-thread stall or a catch-up tick empties the interval it tests (`gates -> SINGLE draw (camera silent` after a 46 ms present gap or a sub-3 ms game frame) | VR-77 open; VR-76 fixes its mirror consequence. `[Stereo] CameraSilentGrace` (default OFF): headset run 1 (2026-10-05) 0 camera-silent gates, 0 double pushes, 0 stale eyes in 877 s; it also keeps pause and notes at full stereo; perceptual verdict pending |
 | Object occluded in one eye vanishes from both (a head behind the sword in the left eye gone from the right; doors, mechanisms) | Both reentry passes share one view state, so one eye's occlusion-query results cull the other eye | VR-79 2026-09-24: `occlusion off` (the engine's TOGGLEOCCLUSION switch) HEADSET-CONFIRMED to fix it but reads laggier. CANDIDATE `[Stereo] Occlusion=pereye`: the right eye gets its own engine view state, so each eye culls only what it cannot see (ENGINE_NOTES "VR-79"). Not yet headset-checked |
 | Grass (and some other objects) invisible for one or two frames while walking in a straight line | OPEN. NOT the VR-79 per-eye view state: it also blinks with the engine's own culling (native), in BOTH eyes (headset 2026-09-24). Remaining suspect: older than VR-79, likely the early report of grass and objects vanishing up close | VR-226. Eliminated: pereye (reproduces under native). Next: whether `occlusion off` stops it (occlusion) or not (distance/near culling, streaming) |
 | Trails/smear while walking with experimental Temporal AA | Camera parallax in history reprojection; c5/world sign at the consumer | 2026-09-26: depth-vector candidate measured on simulator, normal yaw confirmed; default OFF, headset OPEN. See PERFORMANCE and PLAN-motion-vectors-dlss |
 | Slight hand/weapon flicker on FAST head yaw while the world stays smooth (gameplay) | Hands normalised against a head sample a fixed two presents back (measured 8-15% of fast-turn frames on another generation, up to 1.7 deg); rarer: the eye guessed from a hand jump the yaw sweep pushes out of band | CANDIDATE 2026-09-26 `[Hands] PoseFromView` (view found by c5; its own head sample and eye); host-tested, headset open. Top entry |
-| Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
+| Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately. 2026-10-05: under afw the `stereo: rate` line now prints the SUBMIT CADENCE (slots per frame, slots refilled with a repeated frame); before it read n/a for the played method |
+| A hitch (the whole view held 5-6 display slots) about every 5.7 s, both eyes, afw and reentry, menus too; `perf: frame gap 32-45ms ... sat in: present-tail (xrEndFrame)` on a 5.65 s beat | Downstream of the submit (streamer, encoder, link, headset): no mod timer has that period, the simulator never shows it, xrWaitFrame also lengthens on the stalled present | 2026-10-05 headset run 1: the NETWORK PATH - 94% of stalls coincide with a ping spike to the headset (chance 28%), the fold puts the ping beat on the stall phase; PC wired, headset on Wi-Fi. Cause on the radio side OPEN; next a second trace to the router |
+| A hitch of about a frame every 5.000 s under afw only | The depth-share proof check: a D3D9 readback, a fence busy-wait and a blocking D3D11 Map on the present thread every 5 s all session | 2026-10-05 bounded to three checks after a ring build (`[Diagnostics] DepthShareChecks`), the check line prints its cost; headset pending |
 | Arms/weapon jump sideways in ONE eye during a head roll | Palette eye classifier held the previous eye on an unreadable jump | VR-95, section 3.11. Cause measured and confirmed; the shipped correction is OFF and its own regression is open |
 | Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |
 | Stereo "reloads" (the world drops to the screen and comes straight back) on every pause-menu RESUME, and the same on the menu OPEN | The scene verdict falls for a few presents at both edges: on open the owner read publishes 50 ms after the menu flag, on resume the view pipeline is silent until its first dispatch; the runtime's 3-present fallback fires in the gap | VR-117: a ride stand-in (300 ms open gap, 1500 ms resume grace) and the HUD quads built after the hold path; simulator-confirmed (`pause-ride.xrs`), headset pending |
+| One eye a gamma step brighter than the other, the bright eye swapping every present (SIMULATOR captures; not reported from a headset) | The afw/MSW rebuild written through a render-target view of a TYPED sRGB swapchain image, which encodes once more; the fresh eye arrives by a raw copy. VDXR and the SteamVR shim give typeless images, so the headset never showed it | 2026-10-05 MEASURED (encoding the dark eye reproduces the bright one, 52.2 -> 4.5 of 255) and fixed: the compose decodes for a typed sRGB target, `afw typedsrgb on\|off`, host case PASS; the `afw/warp: the rebuilt eye is written through a format-...` line names the path |
 | Objective marker text flickers, or pieces of one HUD widget sit on different layers (gameplay, both eyes) | `[Hud] SemanticOwnership` off: draws are owned by rectangle and position, and a title near the reticle or another marker changes owner between the prompt group, the default window and the task marker (`hud/why ... CHANGED`). Check `hud/semantic: hooks=1` at startup FIRST | Cause measured 2026-10-04; default now 1; headset pending. Top entry of this file and of HUD_ANCHORS.md |
 | The HUD flickers between the HUD window and the frame (both eyes, gameplay, about 10 Hz); `frame` mode does not | The HUD redirect's gate followed the per-present eye tag, and re-entry leaves 6 to 21 presents a second untagged by design (`none/s`); each one disarmed the redirect for the next present (`hud/beat presents=441 armed=400`) | VR-117: gate on the runtime's projection MODE (`dvr::hud::projection_mode`); headset-measured cause; the fix simulator-verified (`hud/beat presents=467 armed=467` in every 3 s window with `stereo: beat none/s=1`); headset-confirmed on the second run (2026-09-15): no window/frame flicker reported |
 | Instant square contraction at dialogue, retained into gameplay in1.0.1 | Narrow cinematic sensor is retained by persistent writer;3s draw bridge expires | VR-227 candidate; affected-player acceptance open; see top entry |
@@ -3870,6 +4211,23 @@ contract. Any queued per-view identity design must validate the boundary again.
 Sources: [TRAPS](../TRAPS.md), [VR-33 record](VR-33-HANDS-AND-WEAPONS.md),
 [VR-76 handoff](VR-76-CODEX-HANDOFF.md), and archived corrections above.
 
+### 4.4 The 2026-10-05 audit: eliminations, retractions and the lever census
+
+| Earlier reading or candidate | Evidence / correction |
+|---|---|
+| The simulator's per-eye exposure alternation is an engine eye-adaptation or tonemap state, or a capture artifact | Retracted: encoding the dark eye reproduces the bright one (52.2 -> 4.5 of 255); it is the afw rebuild written through a typed sRGB view. Typeless runtimes (VDXR, the shim) cannot show it |
+| The recurring xrEndFrame stall is the depth-share check | Wrong period (5.000 s vs 5.664 s) and the stall is inside xrEndFrame, which the check does not call. The check WAS a hitch of its own and is bounded |
+| The recurring xrEndFrame stall is full-arm IK, a per-frame scan, streaming or VRAM | None of these can have a wall-clock period; the earlier entries already found no correlation. The period is the discriminator |
+| `hud/markers-sharp: REFUSED` floods the log every second | Retracted as current: 0 lines in 9 of 10 logs on disk, 1 in the tenth; the code path is unchanged but does not fire on this rig |
+| Build `-80` (prev5/prev6) had no stalls, so a later build introduced them | Retracted before it was written: those two logs are SIMULATOR runs. Check `instance created on runtime` per log before any A/B across the rotation |
+| Under afw the ring can skew like it did under reentry | No evidence: empty pops 0 in 316 ten-second ledger windows across 9 logs; the c5 repairs are off there by design. Still no eye-order check under afw (theoretical, measured zero) |
+| `pushed eye -1 TWICE` under afw leaves the right eye frozen at the old head pose | Corrected: afw rebuilds the held eye from its last capture at the CURRENT head pose every present, so a double push costs one tick of content age in that eye, not a stale pose. The `STALE R EYE` warn counts it all the same |
+| A green list of host suites in a doc means the code is guarded | Six suites did not compile and guarded nothing (VERIFICATION); run them, read the last line |
+| The default ini and the code default agree | Six accepted levers ship 1 in the ini with a code default of 0; an ini without the key runs them off: `[Hud] PauseSceneFreshness`, `MenuSceneFreshness`, `WheelCloseAnimation`, `MenuExitHeading`, `[Hands] PaletteEyeMenuHalfStep`, `[Cine] PossessionStereo` |
+| The SUBMIT CADENCE skipped-slot percentage counts repeated slots | Not on VDXR: its `predictedDisplayTime` does not step one period per real slot (1.23 slots per frame by the wall clock, 2.45% skipped by display time). Read slots per frame |
+| A random shift of a spike train is a null control | Not for a periodic train: shifts that land on a multiple of the period coincide too. The null is random event TIMES, with the same offset search as the statistic |
+| The packaged ini is the writer's output | It had fallen behind (#181/#184 keys missing); `tools/default-profile-host.ps1` failed on the staging tip. Regenerated |
+
 ## 5. Current controls and code map
 
 These values describe the reviewed tree and recorded stable profile, not an
@@ -3880,9 +4238,13 @@ compiled fallback. Check loader, generated default, persistence, and consumer.
 |---|---|---|
 | `[Stereo] Method=reentry`, `Armed=1` | Sequential native scene redraw | Mono/arm-off removes stereo; not a neutral comparison |
 | `[Stereo] C5Pair=1` | Ring versus c5 arbitration | `reentry c5pair on\|off`; an A/B can deliberately restore bad pairing |
-| `[Stereo] LateTagRepair` | 0 shipped, 1 on the test PC: VR-80 late-tag repair plus capture-slot relabel | `reentry latetag on\|off`, F10 Display; needs `C5Pair=1`; the relabel refuses in sync and `SharedWait=1` |
-| `[Stereo] RingLedger` | 0; per-present ring records in bounded windows, 10 s reconcile | Diagnostic only; windows are event-biased, so their distributions are not rates |
+| `[Stereo] LateTagRepair`, `SingleTagRepair` | 1 (promoted 2026-09-13): VR-80 late-tag repair plus capture-slot relabel; held OFF while aer/afw runs (ring order is the claim there) | `reentry latetag on\|off`, F10 Display; needs `C5Pair=1`; the relabel refuses in sync and `SharedWait=1` |
+| `[Stereo] CameraSilentGrace` | 0 shipped (2026-10-05 candidate): the gameplay camera-silent gate forgives one quiet interval after observed camera progress, so a present stall or a catch-up tick is not a single-eye tick | `reentry silentgrace on\|off`, F10 Display; `reentry: beat` `silentGrace=`; a still camera must still read SINGLE from its second quiet interval |
+| `[Stereo] RingLedger` | 1 shipped; per-present ring records in bounded windows, 10 s reconcile | Diagnostic only; windows are event-biased, so their distributions are not rates |
 | `[Stereo] HoldUntagged=3` | Bounded suppression of brief mono delivery | `stereo hold <n>`; 0 restores mono interruptions |
+| `[Diagnostics] DepthShareChecks=3` | Three depth-share proofs after a ring build, then none (2026-10-05); -1 = one every 5 s all session, the old behaviour | `depthprobe share check [n\|always]`, F10 Display; each check prints its cost on the present thread |
+| `afw typedsrgb on\|off` (seam only, on) | The afw/MSW compose decodes before a TYPED sRGB target view encodes (2026-10-05) | Only a runtime that hands out typed sRGB images (the simulator) is affected; the one-time `afw/warp: the rebuilt eye is written through a format-...` line names the path |
+| `stereo: rate` SUBMIT CADENCE | Under a method without pairs (afw): slots per frame, slots refilled with a repeated frame (2026-10-05) | Logging only; replaces `cadence n/a`; cannot say which eye a repeated slot showed |
 | `[VR] DesktopEyeSource=draw` | Current-backbuffer pin | `desktopeye draw\|tag\|status`; source switches invalidate held pixels |
 | `desktopeye on\|off` | Host desktop copy gate | Separate from `vrmirror on\|off` runtime hook gate |
 | `[VR] DesktopEye` | Old documented name | Not a parsed working ini switch |
@@ -4016,6 +4378,11 @@ These references do not claim every hash is an ancestor of current mainline.
 
 | Commit(s) | Durable meaning |
 |---|---|
+| `35c33cfb1` | 2026-10-05 audit: the gameplay camera-silent grace (`CameraSilentGrace`, default off) with its host suite |
+| `2ccaeb7c8` | 2026-10-05 audit: the depth-share proof bounded to three checks (`DepthShareChecks`) |
+| `7fbd99d47` | 2026-10-05 audit: the afw compose decodes for a typed sRGB swapchain view (the simulator's exposure alternation) |
+| `52cd451f4` | 2026-10-05 audit: submit cadence on the rate line; `net-ping-watch.ps1` for the 5.66 s stall |
+| `fff0ee25d`, `e54cdcbc3` | 2026-10-05 audit: six host harnesses repaired; packaged and golden ini regenerated |
 | `813807e3` | Decide pass gates once before the first eye tag |
 | `8020855a`, `230ac120` | No stale re-push without delivery; protect shared consumer reads |
 | `c8cfe107` | c5-backed ring-order correction |
@@ -5842,3 +6209,149 @@ also report source-minus-pawn, without asserting debug-field freshness.
 No camera-memory write or root-cause fix. Next baseline/X-release/Blink test
 and installed identity are in STATUS.md. Run549 evidence is archived locally;
 the then-installed550 DLL is a separate identity from that log.
+
+## 9. Appendix: the 2026-10-05 pipeline audit matrix
+
+Every section 1 row (numbered R1-R50 here, in table order, plus the dated entries that
+have no row), re-derived from the tree at `6329ae552` plus this branch. "Commits on its
+files since the fix date" is `git log --since=<date> -- <files>` on the row's key files: a
+count of how much has moved under the fix, not a list of regressions. A guard is counted
+only if its suite RAN on 2026-10-05 and passed; "stale" means it did not compile and
+guarded nothing until repaired; "none" means no host suite covers the row.
+
+| Row | Symptom | Mechanism and default today | Commits on its files since the fix date | Guarding host suite (run 2026-10-05) | Verdict |
+|---|---|---|---|---|---|
+| R1 | IK arms small flicker | IK history keyed by the locate identity (`arm_ik_draw.inc`); `[Hands] ArmIK` code default 0, installed 1 | 4 since 2026-10-04 (newest `0e197552a`) | arm-ik-host 1085 PASS; animation-rules-host 138 PASS | present; headset pending |
+| R2 | AFW rebuilt duplicate inside a wall | fill() excludes the foreground, stale test wants a fresh not-foreground sample (`afw_warp.cpp`); `afw fgmask` on | 1 since 2026-09-30 (newest `a964c2ab4`) | afw-warp-host 61 PASS (incl. the new typed-sRGB case) | present, default on; headset pending |
+| R3 | AFW hands slide against the head | `[Hands] PoseFromView` + rotation-assisted ties (`mesh_split.cpp`, `pose_record.cpp`); code default 0, INSTALLED 1 (accepted in headset) | 15 since 2026-09-30 (newest `8229e37d7`) | pose-view-host 30 PASS | present; the ACCEPTED value is not the code default (see 4.4) |
+| R4 | pause child-screen hand jitter | open: diagnostic only (`menu_immersion.cpp`) | 0 since 2026-09-27 | menu-immersion-host DOES NOT COMPILE (stale) | open; guard absent |
+| R5 | pause in a low-FOV dialogue boxes the world | VR-228 cinematic scope accepts the menu permission (`cinematic_fov.cpp`); `[Cine] LockFov` 1 | 6 since 2026-09-24 (newest `c8ff666e5`) | cinematic-fov-host 30054 PASS; cinematic-handoff-host 17 PASS | present, default on; headset pending |
+| R6 | VR-229 reload-dependent cinematic flicker | scoped stereo right-axis publication; present-progress guard = entry baseline + one grace (`draw_present_progress.h`, `scene_draw.cpp`) | 8 since 2026-09-25 (newest `f035d8a8f`) | cinematic-handoff-host 17 PASS; camera-silent-host 254276 PASS (the same policy reused for gameplay) | present, default on; headset partially accepted |
+| R7 | journal/wheel choppy, sometimes mono | `[Hud] PauseSceneFreshness` / `MenuSceneFreshness` (`pause_scene_freshness.h`); CODE default 0, ini ships 1 | 15 since 2026-09-22 (newest `22e6ef7f9`) | menu-freshness-host 72 PASS | present; live only where the ini carries the key (4.4) |
+| R8 | wheel hands flicker on head turns | MenuHeadBegin single-draw scope, composed yaw translation (`menu_immersion.cpp`, `scene_draw.cpp`); `[Hands] PaletteEyeMenuHalfStep` code default 0, ini 1 | 8 since 2026-09-25 (newest `f035d8a8f`) | menu-keep-host 43 PASS; menu-immersion-host stale | present; headset pending |
+| R9 | world FOV rectangle fixed behind wheel/note | menu head-look scopes (`menu_immersion.cpp`) | 0 since 2026-09-25 | menu-immersion-host stale | present; guard absent |
+| R10 | desktop window alternates eyes | the desktop eye pin (`desktop_eye.cpp`), `[VR] DesktopMirrorOff` 1, `DesktopEyeSource=draw` | 6 since 2026-09-11 (newest `52d3ef80d`) | desktop-eye-host REPAIRED today: 79339 policy + 431857 copy checks PASS | present, default on |
+| R11 | single-frame rightward jump (desktop) | `DesktopEyeSource=draw` (`desktop_eye.cpp`) | 6 since 2026-09-11 (newest `52d3ef80d`) | desktop-eye-host (as above) | present, default on |
+| R12 | right-eye flicker with physical pickup | bounded per-frame scan (60 us) (`physical_pickup.cpp`); `pickup/silent` instrument | 0 since 2026-10-05 | none host (measured in headset) | present; headset-confirmed; its GENERATOR is F1 below |
+| R13 | one eye starved on a slow GPU (capture timeouts) | `[Capture] TimeoutRefuse` 0 (deliver), `AutoDepth` 1 (`capture.cpp`) | 2 since 2026-10-03 (newest `77321d0b0`) | shared-capture-native-host PASS (pixels); no timeout-policy host | present, default on; headset reported better |
+| R14 | rare one-eye flicker moving sideways | `[Stereo] C5SameEyeGuard` code default 1, no ini key (`reentry_pair.inc`) | 0 since 2026-10-04 | reentry-pair-host PASS; single-tag-host REPAIRED 23 checks | present, default on (off under aer/afw: pairing is off there) |
+| R15 | eye frozen/swapped after pause/load | `LateTagRepair` 1, `SingleTagRepair` 1 (`reentry.cpp`, `reentry_pair.inc`); both OFF under aer/afw by design | 16 since 2026-09-13 (newest `f035d8a8f`) | single-tag-host 23 PASS; reentry-pair-host PASS; stereo-state-host 30 PASS | present, default on under reentry; not applicable under afw |
+| R16 | untagged mono flash | `[Stereo] HoldUntagged` 3 (`reentry_pair.inc`, runtime hold) | 60 since 2026-09-09 (newest `e7e9cc24c`) | stereo-state-host 30 PASS; flicker-diagnostic-host PASS | present, default on |
+| R17 | both eyes black one frame | previous-layer fallback (`zeroLayerHeld/Black`, runtime 5486-5560) | 54 since 2026-09-09 (newest `e7e9cc24c`) | none host | present, default on; 14 holds in the newest headset log, 0 black |
+| R18 | pause causes XR session loss | `g_feedSnap` banking of the held layer | 53 since 2026-09-11 (newest `e7e9cc24c`) | none host | present |
+| R19 | mono after load until a jump | `[Load] PawnFromController` (`possession_state.cpp`) | 0 since 2026-09-20 | load-startup-host DOES NOT COMPILE (stale) | present; guard absent |
+| R20 | first-seconds flicker after load (VR-16) | none (open, historical) | 51 since 2026-09-01 (newest `f035d8a8f`) | none | open |
+| R21 | left-eye weapon parts vanish (VR-112) | identity-lens bypass + per-view inverse lens (`weapon_attach.cpp`, `mesh_split.cpp`) | 41 since 2026-09-20 (newest `8229e37d7`) | weapon-dial-host 2249 PASS; rounded-wrist-host 912 PASS | present; headset-confirmed on build 264 |
+| R22 | dark weapon copy at the native position | pass identity + suppression, `AttachDropUncorrected` 1, `AttachSuppressUnplaced` 1 | 18 since 2026-09-12 (newest `8229e37d7`) | weapon-dial-host | present, default on |
+| R23 | both weapons disappear together | `AttachSnapshotMaxMs` 100 | 18 since 2026-09-12 (newest `8229e37d7`) | none host | present |
+| R24 | weapon detaches after swap/load | recovery and retention (`weapon_attach.cpp`) | 18 since 2026-09-12 (newest `8229e37d7`) | none host | present |
+| R25 | outward displacement per eye (VR-69) | MpEyeForPresent/MpWorldTarget (`mesh_split.cpp`) | 56 since 2026-09-10 (newest `8229e37d7`) | palette-eye-host PASS | present |
+| R26 | crouch/downhill clamp flicker (VR-69) | camera clamp rebase (`camera.cpp`) | 18 since 2026-09-10 (newest `502be16ce`) | camera-clamp-host REPAIRED today: 19 checks PASS (6 legacy-clamp failures are the old rule, as designed) | present |
+| R27 | weapon flicker after resume (VR-93) | `AttachKeepOnMenu` 1, `UiKeepOnMenu` 1, `AttachKeepOnNote` 1 (`menu_keep.cpp`) | 0 since 2026-09-16 | menu-keep-host 43 PASS | present; the table's "both ship OFF" is stale: all three ship ON |
+| R28 | sustained flicker after a note (VR-80) | LateTagRepair + `relabel_last_grab` (`capture.cpp`, `reentry.cpp`) | 25 since 2026-09-13 (newest `f035d8a8f`) | single-tag-host; reentry-pair-host | present under reentry; n/a under afw |
+| R29 | single-draw bursts in gameplay (VR-77) | NEW 2026-10-05: one generator measured (the draw-RETURN baseline, F1); `[Stereo] CameraSilentGrace` default 0 | 0 since 2026-10-05 | camera-silent-host 254276 PASS (negative controls included) | candidate built, default OFF, armed in the installed ini; headset pending |
+| R30 | occluded object vanishes from both eyes (VR-79) | `[Stereo] Occlusion` pereye (`stereo_occlusion.cpp`) | 3 since 2026-09-24 (newest `558cf763a`) | occlusion-owner-host PASS | present, default pereye; silhouette known issue |
+| R31 | grass blinks walking straight (VR-226) | none (open) | 3 since 2026-09-24 (newest `558cf763a`) | none | open |
+| R32 | TAA smear | `[Clarity] Temporal` 0 (parked) | 6 since 2026-09-26 (newest `bafdd090f`) | clarity-gpu-host 54 PASS; taa-audit-host 72 PASS | parked, default off |
+| R33 | hand flicker on fast yaw | `[Hands] PoseFromView` (as R3) | 22 since 2026-09-26 (newest `8229e37d7`) | pose-view-host 30 PASS | present; installed 1, code 0 |
+| R34 | doubled edges on head turns | `[Pace] Lag` 2, `ImageOrientation` 1; cadence (`stereo: rate`) | 67 since 2026-09-04 (newest `e7e9cc24c`) | pair-pacing-ab-host 26 PASS | present; NEW: the rate line now measures the afw submit cadence (F3) |
+| R35 | one-eye jump on a head roll (VR-95) | `PaletteEyePredictToggle` 0 (ships OFF) | 45 since 2026-09-14 (newest `8229e37d7`) | palette-eye-host PASS | open; lever off |
+| R36 | still flicker with the predict toggle (VR-95) | same lever, off | 45 since 2026-09-14 (newest `8229e37d7`) | palette-eye-host | open; lever off |
+| R37 | stereo reloads on pause (VR-117) | ride stand-in 300/1500 ms (`stereo_state.cpp`); HUD quads after the hold path | 39 since 2026-09-15 (newest `e7e9cc24c`) | ui-ride-host 107 PASS; stereo-state-host 30 PASS | present |
+| R38 | objective marker text flickers | `[Hud] SemanticOwnership` 1 (`hud_layout.cpp`, `hud_owner.cpp`) | 5 since 2026-10-04 (newest `22e6ef7f9`) | hud-owner-host 97 PASS; markers-routing-host 74 PASS; objective-marker-host REPAIRED today 7816 PASS | present, default on; headset pending |
+| R39 | HUD flickers window/frame | the redirect gate follows `projection_mode()` not the tag (`hud_capture.cpp`) | 15 since 2026-09-15 (newest `d98dbcc96`) | hud-route-host 503 PASS; hud-controls-host 104 PASS | present |
+| R40 | square contraction at dialogue (VR-227) | cinematic sensor bridge (`cinematic_fov.cpp`) | 6 since 2026-09-24 (newest `c8ff666e5`) | cinematic-fov-host | present; acceptance open |
+| R41 | projection contracts after load (VR-213) | persistent ratio no longer consumes its readback (`cinematic_fov.cpp`) | 6 since 2026-09-23 (newest `c8ff666e5`) | cinematic-fov-host; fov-lever-host 1284732 PASS | present; headset open |
+| R42 | view pulses with F10 Display open (VR-50) | legacy FOV control braces (`legacy_fov_control.inc`) | 0 since 2026-09-21 | legacy-fov-control-host 7 PASS | present |
+| R43 | grab prompt toggles (VR-195) | `[Aim] HandRayGameAnchor` 1 (`interact_aim.cpp`); `interact/flicker:` counts focus changes (15 lines in the newest log) | 1 since 2026-09-22 (newest `8a662ede0`) | none host | present, default on; game-state flicker still logged |
+| R44 | view slides on a head roll (VR-91) | `[Neck] RollArc` 0 (`head_track.cpp`) | 15 since 2026-09-14 (newest `ca40321fc`) | yawtest-host: arithmetic PASS, ownership half DOES NOT COMPILE (stale) | present; half the guard absent |
+| R45 | view off the body after a chain/explosion (VR-165) | `[CameraShake] PopSmoothing` 0 (`cam_shake.cpp`); cause measured, fix open | 1 since 2026-09-22 (newest `95c526af1`) | none host | open; 2 `camera/popsmooth: the fix is ON but cannot act` lines in the newest log (the bits did not resolve by name) |
+| R46 | UberUI NaN timer black world (VR-140) | `pp/repair` (`menu_immersion.cpp`) | 4 since 2026-09-18 (newest `5ae7f635e`) | menu-immersion-host stale | present (1 repair in the newest log); guard absent |
+| R47 | possession mono (VR-135) | `[Cine] PossessionStereo` code default 0, ini 1 (`possession_state.cpp`) | 1 since 2026-09-18 (newest `02d34c1e8`) | stereo-state-host | present where the ini carries the key |
+| R48 | MSW stick-turn echo / guards | `ModSpacewarpGuard`, `StickStop`, `Hands` code 0, INSTALLED 1 (MSW itself off: `ModSpacewarp=0`) | 2 since 2026-10-02 (newest `e7e9cc24c`) | msw-slot-host 12 PASS | present; MSW off in the installed ini, so inert |
+| R49 | DLSS black speckles left eye | jitter per eye (`clarity.cpp`); `DlssJitter` 0, `DlssJitterWide` 1 | 3 since 2026-09-27 (newest `dc0fc1f15`) | dlss-objmotion-host PASS; clarity-gpu-host | present; headset-confirmed |
+| R50 | simulator per-eye exposure alternation (top entry) | NEW 2026-10-05: typed sRGB swapchain image, the rebuild decoded first (`afw_warp.cpp`); `afw typedsrgb on|off` | 0 since 2026-10-05 | afw-warp-host typed-sRGB case PASS (mean 0.036 LSB, control 65.5) | RESOLVED by measurement; fix built; no headset effect expected (typeless images) |
+
+
+### 9.1 Cases and invariants
+
+Each case names the invariant the pipeline must hold, where the code holds it, the log
+line that would show it broken, and what the audit found. "Code" = read in today's tree;
+"measured" = seen in a log on disk; "open" = neither can settle it.
+
+| Case | Invariant | Held by | Violation shows as | Verdict |
+|---|---|---|---|---|
+| Startup to first stereo frame | No stereo claim before both eyes have a capture; the first presents may be mono | `reentry.cpp` first-pair arming; `xr: first frame submitted` | `STALE . EYE` in the first second; VR-16 starvation | measured: brief settling only (R20 open, historical) |
+| Load screen (camera still for seconds) | The second draw is withheld from the second quiet interval, never kept by a grace | `camera_silent()`: one quiet interval forgiven after progress, never two | `silentGrace=` rising on a load; `DOUBLE` on a still camera | code + host (the load-screen schedule in `camera-silent-tests`) |
+| Pause open / resume (VR-117, VR-93) | The projection holds through the edges; the HUD quads ride after the hold path | ride stand-in 300/1500 ms; HUD block after the hold; `AttachKeepOnMenu`, `UiKeepOnMenu` | `stereo: beat` `mono/s` at the edges; weapon relearn lines | code + host (ui-ride, menu-keep); headset-confirmed earlier |
+| Pause menu held open | Alternating single/double ticks are the pause gate, every other present held | `PauseSceneFreshness` (ini 1, code 0) | 20 gates in a second while paused (seen, expected) | measured (expected), the lever's default split is in 4.4 |
+| Note / book open and close (VR-80) | A late tag is repaired under reentry; under afw the ring order is the claim | `LateTagRepair`, `relabel_last_grab`; off under afw | one-sided stream after a note | code + host (single-tag); afw: no evidence of skew (F2) |
+| Wheel open (VR-126, VR-178) | One single-draw scope at the head-look begin; the eye half-step for the palette | `MenuHeadBegin`, `PaletteEyeMenuHalfStep` (ini 1, code 0) | hands flicker on head turns in the wheel | code; menu-immersion suite stale (guard absent) |
+| Cinematic enter / exit (VR-229, VR-228, VR-227) | Scoped stereo axis published; progress guard with one grace; the FOV sensor bridged | `draw_present_progress.h`, `cinematic_fov.cpp` | eye separation on a reload; square view | code + host (cinematic-*); headset partially accepted |
+| Possession (VR-135) | Stereo kept through possession | `PossessionStereo` (ini 1, code 0) | mono during possession | code; default split in 4.4 |
+| Method switch (`stereo <name>`) | A refusing method leaves the previous one running; the ring is cleared, not skewed | `stereo.cpp` registry; `ringCleared` | empty pops right after the switch | measured: 2 empty pops in one window at a switch, then 0 |
+| Resolution change / DLSS toggle (run 26) | The swapchains rebuild through the queued resize; DLSS history is reset | `on_resize`, `clarity` reset | aliasing, white dots, a doubled sword until restart | code + host (clarity-gpu); fixed 2026-09-29, headset pending |
+| XR session loss on pause (R18) | The held layer is banked, never a pointer into a dead local | `g_feedSnap` | `XR_ERROR_HANDLE_INVALID` | code; 0 in the logs on disk |
+| GPU-bound steady state (the played regime: 7.8-8.0 ms frames at 6.94 ms slots) | Every present is its own XR frame; a frame that misses its slot repeats the previous one in BOTH eyes (no eye asymmetry) | afw: one draw per tick, `xrWaitFrame` inline | SUBMIT CADENCE: slots per frame > 1.00, skipped-slot percentage | measured (124-129 presents/s); the cadence line now prints it; the repeat is symmetric |
+| Catch-up tick (a sub-3 ms game frame) | A short tick is not a still camera | F1: `CameraSilentGrace` | `gates -> SINGLE draw (camera silent` after a 0.9-2.8 ms frame | measured cause; candidate built (R29) |
+| Present-thread stall (xrEndFrame 32-45 ms) | A blocked game thread is not a still camera; the frame repeats in both eyes | F1 for the gate; the runtime holds the layer | `perf: frame gap ... present-tail (xrEndFrame)` then a gate | measured; the stall itself is F9 (open) |
+| Slow script frame (a per-event scan) | Own work per present is bounded (60 us) | pickup scan bound; `pe/cost` | `pickup/silent`, `pe/cost` max | measured: median 57.6 us, max 478 us; one pickup frame over 250 us |
+| Capture wait timeout (slow GPU) | A timed-out wait DELIVERS the previous image (never refuses one eye) | `TimeoutRefuse=0`, `AutoDepth` | `stereo: beat` lopsided `none/s` | code; 21 delivered, 0 refused on this rig |
+| Periodic diagnostic work on the present thread | Nothing on the present thread syncs the GPU on a timer | F8 bound | `depthshare: check ... cost` | code-derived; cost line ships now |
+| Still camera (standing, head still) | SINGLE from the second quiet interval (the engine's own economy); no `silentGrace` growth | `camera_silent()` | `silentGrace=` rising while still | host; the headset run must confirm the number stays flat when still |
+| Head turn (yaw) | Hands normalised against the head sample of their own locate | `PoseFromView` (installed 1), `Pace Lag` 2 | hand flicker on fast yaw (R33) | code + host; accepted on this rig at 1 |
+| Stick turn under afw / MSW | The held eye is re-rendered at the current pose; MSW does not extrapolate across a jump | `warp_held`, MSW guards (MSW off here) | trails, a zoom, an echo | code + host; MSW inert on this rig (`ModSpacewarp=0`) |
+| Head roll (VR-91, VR-95) | No neck arc from a rolled frame; the palette eye classifier holds its eye on an unreadable jump | `RollArc=0`; `PaletteEyePredictToggle=0` | one-eye jump on a roll | code; R35/R36 open with the lever off |
+| Walk sideways (R14) | A cross-tick step is not a same-eye repeat | `C5SameEyeGuard` (code 1, no ini line; off under afw) | ledger `TOOK` after the same eye, then `pushed eye TWICE` | code + host; not applicable under afw |
+| Crouch / fall / downhill (VR-69) | The Z clamp keeps ownership of an offset vector | camera clamp rebase | flicker on descent | code + host (camera-clamp repaired) |
+| A chain or an explosion (VR-165) | The camera offset returns to rest | `PopSmoothing` (off); springs read | `camera/popsmooth: the fix is ON but cannot act` (2 in the newest log: the bits did not resolve by name) | open; the fix cannot act on this build - a TRAPS question (the names) before a code one |
+| Hands and weapon content under afw | The foreground mask comes from the drawn hands; the fill never copies foreground | `fgmask`, `fill()` | `fgmask: 0 candidates` in gameplay; duplicates in walls | measured: about 3,400 candidates per 5 s, all drawn |
+| HUD content (window vs frame, markers) | The redirect gate follows the projection mode, not the tag; markers owned semantically | `hud_capture.cpp`, `SemanticOwnership=1` | HUD alternating anchors; marker text changing layer | code + host (hud-route, hud-owner, objective-marker repaired) |
+| Depth content (the XR depth layer) | Both eyes' depth or neither | `write_xr_depth`, `g_depthChained/Dropped` | a layer with depth on one eye | code |
+| Colour content (sRGB) | The rebuilt eye's bytes equal the fresh eye's copy on any swapchain format | F11 `typed_srgb()` decode | one eye a gamma step brighter | measured + host; resolved |
+| The desktop window | The pin shows one eye; the drawn-eye source | `DesktopMirrorOff=1`, `DesktopEyeSource=draw` | alternating window | code + host (desktop-eye repaired) |
+| Eye order under afw (no pairing) | The ring order IS the claim; a double push rebuilds the held eye from older content | `reentry.cpp` 276-277 | `pushed eye TWICE`, empty pops | measured: 0 empty pops in steady afw; double pushes are all F1 |
+
+### 9.2 The pipeline, stage by stage (the played method, afw)
+
+| Stage | Thread | Eye identity | Held state | Late / refusal behaviour | Log line |
+|---|---|---|---|---|---|
+| Game tick: `SceneDrawDecide` | game | the next eye (`g_sdAerNext`), alternating per tick; restarts on the left after a single tick | `g_sdLastDrawC5Serial`, `g_sdCameraProgress` (new) | camera-silent, menu, pause, progress gates -> SINGLE (mono draw) | `reentry: gates -> SINGLE/DOUBLE (...)`, `reentry: beat` |
+| Draw root call-site patch | game (render lane inside the draw) | the tag pushed into the ring per draw | the ring (`g_srPushed/Popped`) | a draw without a tag is an untagged present later | `reentry: pushed eye X TWICE`, ledger |
+| c5 upload (`hkSetVSConstF`) | render | `camera::note_render_pos` serial | the serial | none; under afw c5 only feeds the silent gate | `pickup/silent`, `camera/...` |
+| Present (`hkPresent`) | present | pops the ring tag for this present | `HoldUntagged=3` | an untagged present returns false: the runtime re-submits the previous layer | `xr: present handed in NO frame` |
+| Capture (shared texture) | present | the delivered serial and tag | the shared slots | a wait timeout DELIVERS the previous image (`TimeoutRefuse=0`) | capture timeout lines, `stereo: beat none/s` |
+| DLSS / clarity | present (D3D11) | per eye history | the history per eye | an untagged present takes the plain copy (`clarity: pass refused`) | `clarity:` |
+| Fresh eye to swapchain | present | `srSign` | `note_capture` keeps the image for the warp | acquire/wait infinite | `afw/warp: beat` |
+| Held eye rebuild (`warp_held`) | present | `held = 1 - fresh` | the held capture, its depth, hands | refused -> `copy_held` (plain copy) -> stale image note | `afw/warp:` refusals, `fresh eye not captured` |
+| Depth layer | present | both eyes or neither | `g_depthSc` | drop with a reason | `g_depthDropWhy` |
+| HUD quads | present | none (quads) | banked with the layer | after the hold path (VR-117) | `hud/beat` |
+| `xrEndFrame` | present | the layer's two views | `g_feedSnap` bank | failure -> teardown; a stall is F9 | `perf: frame gap ... present-tail`, `stereo: rate` |
+| Desktop mirror | present (D3D9) | the drawn eye | the pin | off by default | `desktopeye:` |
+| MSW thread | its own, under `g_cycleMx` | synthesised slots | banked quads, grips | off on this rig | `msw: beat` |
+
+### 9.3 Risks that need a headset, in priority order, with the run that closes each
+
+1. **F1 CameraSilentGrace (armed in the installed ini).** Play 5 minutes of ordinary movement,
+   then stand still 20 s. Decides: `reentry: beat ... silentGrace=on N` rising with movement
+   while gameplay `gates -> SINGLE draw (camera silent` and `pushed eye -1 TWICE` fall to
+   zero; standing still, `silentGrace=` stays flat and SINGLE returns. Any eye swap, frozen
+   eye or new `STALE . EYE` line retires the lever (`reentry silentgrace off`).
+2. **F9 the 5.66 s stall.** The same session with `tools\net-ping-watch.ps1 -FromStreamer
+   -Minutes 5` running. Decides: spike intervals at 5.66 s on the ticks of `perf: frame gap`
+   lines = link; flat = PC side (next: the streamer's overlay, a bitrate change, 90/120 Hz).
+3. **F8 the depth-share checks.** Nothing to do: the three `depthshare: check ... cost X ms`
+   lines decide what each check cost, and the frame-gap census after the third must have no
+   5.000 s component.
+4. **F3 the submit cadence.** Nothing to do: `stereo: rate ... SUBMIT CADENCE` once a window;
+   the expected reading is about 1.15 slots per frame with 13-15% skipped; a figure far from
+   it is the first thing to explain.
+5. **F11 typed sRGB.** Nothing to do: the one-time `afw/warp: the rebuilt eye is written
+   through a format-N view` line must say `raw bytes` on VDXR. A simulator run (ask first)
+   would show both eyes within a few luma of each other.
+6. **R29/F1b the afw alternation restart.** Not built; only if (1) leaves a residual of single
+   ticks that cost the right eye: the ledger's eye ages would show 4-tick gaps.
+7. **R45 VR-165 PopSmoothing cannot act** on this build (`camera/popsmooth: the fix is ON but
+   cannot act`): a TRAPS question (the property names) before a run.
+8. **R4/R8/R9 menu-immersion rows** have no compiling guard; a wheel/pause-screen head-turn
+   check is the headset question if they are touched again.
