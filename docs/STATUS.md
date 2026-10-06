@@ -20,6 +20,13 @@ Branch `claude/steamvr-launch` off staging `93785a460` (the flicker audit merged
   command file is normal for a player; now one Info line) and `hud/markers-sharp: REFUSED`
   once a second (now on a change of reason).
 
+- Two more field bundles (a fast GPU at 120 Hz): afw flicker = capture timeouts at 2-4% of
+  grabs, under AutoDepth's 10% threshold (held presents and double pushes track them; reentry
+  barely times out). `[Capture] AutoDepthPercent` (default 10, F10 Display, `capture
+  autodepth <pct>`) lets 2 be tried. afw's frame rate on that machine reaches the 120 Hz cap
+  at 100% with DLSS to 2750x2850; at 150% the capture copy and per-present rebuild/DLSS make it
+  GPU-bound (PERFORMANCE).
+
 **Next:** a SteamVR-rig check of the shim from an elevated game (Steam run as administrator):
 the log must say `loader property override XR_RUNTIME_JSON -> set (the SteamVR shim)` and
 `instance created on runtime 'DishonoredVR SteamVR shim (OpenVR)'`.

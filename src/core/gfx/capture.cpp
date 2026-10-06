@@ -145,6 +145,10 @@ uint32_t                  g_timeoutRefused = 0, g_timeoutRefusedWindow = 0;
 // out for two windows running, the ring steps once to depth 2 (3 slots): each copy gets one
 // more present to finish. An explicit SharedDepth (ini or `capture depth`) always wins.
 bool                      g_autoDepth = true;
+// [Capture] AutoDepthPercent (default 10, the rule above): the timeout share of a window that counts as a strike.
+// 2026-10-05: a 4070 Ti at 120 Hz under afw timed out on 2-4% of grabs per window (max 10.9%, once), about one to
+// three one-eye hitches a second, and the 10% rule never acted. 2 would have stepped it in its first windows.
+int                       g_autoDepthPct = 10;
 bool                      g_depthExplicit = false;
 int                       g_autoStrikes = 0;
 uint32_t                  g_fenceWaitUsWindow = 0;  // the fence wait's own sum, for the window line
@@ -232,7 +236,7 @@ void cost_tick() {
             const uint32_t timeouts = g_timeoutDeliveredWindow + g_timeoutRefusedWindow;
             if (g_mode == Mode::Shared && g_autoDepth && !g_depthExplicit && !g_sharedWait &&
                 g_sharedDepthWant == 1 && g_windowGrabs >= 30) {
-                g_autoStrikes = (timeouts * 10 >= g_windowGrabs) ? g_autoStrikes + 1 : 0;
+                g_autoStrikes = (timeouts * 100 >= (uint32_t)g_autoDepthPct * g_windowGrabs && timeouts) ? g_autoStrikes + 1 : 0;
                 if (g_autoStrikes >= 2) {
                     g_autoStrikes = 0;
                     DVR_WARN("capture: AUTO DEPTH - %u of %u grabs (%.0f%%) timed out waiting for the GPU's frame copy, "
@@ -983,11 +987,21 @@ bool timeout_refuse() { return g_timeoutRefuse; }
 void set_auto_depth(bool on, bool explicitDepth) {
     g_autoDepth = on;
     g_depthExplicit = explicitDepth;
-    DVR_INFO("capture: auto depth %s%s", on ? "ON - steps the ring to depth 2 once if >=10%% of grabs time out for two "
-                                              "windows running (a GPU that cannot finish a frame copy in one present)"
-                                            : "OFF ([Capture] AutoDepth=0)",
-             explicitDepth ? "; [Capture] SharedDepth is set explicitly, so it never acts" : "");
+    DVR_INFO("capture: auto depth %s (at >=%d%% of grabs timing out for two windows running; [Capture] AutoDepthPercent)%s",
+             on ? "ON - steps the ring to depth 2 once when a GPU cannot finish a frame copy in one present"
+                : "OFF ([Capture] AutoDepth=0)",
+             g_autoDepthPct, explicitDepth ? "; [Capture] SharedDepth is set explicitly, so it never acts" : "");
 }
+void set_auto_depth_percent(int pct, const char* who) {
+    if (pct < 1) pct = 1;
+    if (pct > 100) pct = 100;
+    if (pct == g_autoDepthPct) return;
+    DVR_INFO("capture: auto depth threshold %d%% -> %d%% (%s) - a window whose grabs time out at least this often is a "
+             "strike, two strikes step the ring to depth 2 once", g_autoDepthPct, pct, who ? who : "?");
+    g_autoDepthPct = pct;
+    g_autoStrikes = 0;
+}
+int auto_depth_percent() { return g_autoDepthPct; }
 void set_shared_depth(int depth, const char* who) {
     // Anyone but the automatic step and the ini's default read makes the depth explicit.
     if (who && strncmp(who, "auto", 4) != 0 && strcmp(who, "ini") != 0) g_depthExplicit = true;

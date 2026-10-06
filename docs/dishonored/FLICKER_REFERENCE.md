@@ -1,3 +1,39 @@
+## 2026-10-05: afw flicker on a fast GPU at 120 Hz - capture timeouts at 2-4%, under the AutoDepth threshold (MEASURED from field logs; threshold lever built, headset pending)
+
+1. **Symptom identity:** reported from a field tester's headset: flicker under afw, not under
+   reentry, at every DLSS mode and at 100% resolution too; the sword steps sideways and back
+   in a recording. Whole held content of ONE eye for one present at a time - the R13 row
+   (capture timeouts), not a new class.
+2. **Reproduction identity:** two support bundles of 2026-10-04 (local only; they carry the
+   tester's paths), release `v1.0.3`, Quest 3 over VDXR at 120 Hz (8.33 ms), RTX 4070 Ti class,
+   eight sessions: two reentry, six afw; render 1832x1900 to 2590x2684, DLSS output 2750x2850
+   and 3368x3491.
+3. **Hypothesis and counterprediction:** capture timeouts (v1.0.3 refuses a grab after 10 ms,
+   the present goes out untagged and is held, the next push repeats an eye) predict held
+   presents and double pushes in proportion to timeouts, and both near zero under reentry.
+   Measured: afw sessions 354, 9, 752, 301, 48, 144 timeouts with 113, 25, 164, 73, 24, 52
+   held presents and 110, 16, 165, 72, 23, 51 double pushes; reentry 22 / 16 / 10 and 7 / 8 /
+   8. The afw sessions also show the rebuild's degraded modes at the same rate (`temporal
+   only` and `fresh only` about 5% of held-eye rebuilds each: no fresh depth or no held image,
+   where the hands can ghost). DLSS was checked and is NOT a cause: its fallback episodes
+   (5-11 evaluations a second, 24-29 fallbacks) sit at mode and resolution changes; in steady
+   play each eye is evaluated 41-79 times a second with 0 fallbacks.
+   On staging the timeouts are DELIVERED instead (2026-10-03), which keeps the eyes paired,
+   but a delivered copy is unfinished, so that eye still shows its previous frame: the same
+   one-present step in one eye. AutoDepth exists to stop that and would not have acted here:
+   the per-window timeout share was median 2.4-4.2% in the four heavy afw sessions (p90 up
+   to 8%, max 10.9% once), and two consecutive windows at >= 10% happened once in all of them.
+4. **Change identity:** `[Capture] AutoDepthPercent` (default 10 = the shipped rule; not in
+   the default ini), live `capture autodepth <pct>`, F10 Display "Capture: deeper ring at
+   timeouts". At 2 his sessions would have stepped to depth 2 within their first windows.
+   Depth 2 costs one present of capture latency (the pose travels with the image).
+5. **Results:** built, not run; no host test (the rule is one comparison inside the window
+   close, `capture.cpp`). Not run: his headset on a staging build with the threshold at 2.
+   The run that decides: `capture: AUTO DEPTH` once early, then `capture: wait timeouts this
+   window` falling, `pushed eye TWICE` near zero, and no perceived step of the sword.
+6. **Status:** cause measured; candidate lever built, default unchanged; whether 2 becomes the
+   default is a headset decision (latency vs a one-eye hitch a second).
+
 ## 2026-10-05: a player's support bundle - one-eye double pushes track capture timeouts on the 1.0.3 release (MEASURED from a field log; already fixed on staging, not released)
 
 1. **Symptom identity:** a field bundle (support collection of 2026-10-04) from a Quest 3 on

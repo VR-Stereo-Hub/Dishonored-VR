@@ -2050,6 +2050,8 @@ static void LoadConfig()
         {   // A SharedDepth the player wrote always wins over the automatic step.
             char sd[16] = "";
             GetPrivateProfileStringA("Capture", "SharedDepth", "", sd, sizeof(sd), ini);
+            // Not in the default ini: a missing key is the shipped 10%. capture.cpp says why it is a key.
+            dvr::capture::set_auto_depth_percent((int)IniFloat(ini, "Capture", "AutoDepthPercent", 10), "ini");
             dvr::capture::set_auto_depth(IniFloat(ini, "Capture", "AutoDepth", 1) != 0.0f, sd[0] != 0);
         }
         // Not in the default ini: a missing key is the 1.0.1 behaviour (deliver). capture.cpp says why.

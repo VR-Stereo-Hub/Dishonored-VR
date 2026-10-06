@@ -1503,6 +1503,13 @@ static void OvlTabDisplay()
         if (ImGui::Combo("Capture mode", &mode, kModes, 4))
             dvr::capture::set_mode(mode == 0 ? "sync" : mode == 1 ? "deferred" : mode == 2 ? "shared" : "off");
         OvlTip("How the frame is copied to the headset. Off freezes the image on purpose, as an A/B control.");
+        int adPct = dvr::capture::auto_depth_percent();
+        if (dvr::ovl::slider_int("Capture: deeper ring at timeouts", &adPct, 1, 20, "%d%%")) {
+            dvr::capture::set_auto_depth_percent(adPct, "F10 Display");
+            char v[8]; _snprintf_s(v, sizeof(v), _TRUNCATE, "%d", adPct);
+            ConfigWriteKey("Capture", "AutoDepthPercent", v, "F10 Display");
+        }
+        OvlTip("If one eye stutters about once a second: lower this (2) so the capture gets one more frame to finish.");
         ImGui::SameLine();
         ImGui::TextDisabled("%s", !dvr::capture::probed() ? "probe pending"
                                   : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared refused (plain device)");

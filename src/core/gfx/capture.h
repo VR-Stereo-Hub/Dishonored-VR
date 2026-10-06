@@ -140,6 +140,10 @@ void     set_timeout_refuse(bool refuse, const char* who);
 // [Capture] AutoDepth (default on): step the ring to depth 2 once when >=10% of grabs time
 // out for two 3 s windows running. `explicitDepth` = [Capture] SharedDepth is in the ini.
 void     set_auto_depth(bool on, bool explicitDepth);
+// [Capture] AutoDepthPercent (default 10): the share of a window's grabs that must time out for a strike.
+// `capture autodepth <pct>`, F10 Display. 2026-10-05: a fast GPU at 120 Hz under afw timed out on 2-4%.
+void     set_auto_depth_percent(int pct, const char* who);
+int      auto_depth_percent();
 bool     timeout_refuse();
 
 // 41.1 (Dishonored): the content-bbox cadence, and why it is a lever at all.
