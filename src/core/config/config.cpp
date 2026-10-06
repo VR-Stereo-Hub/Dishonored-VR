@@ -18,7 +18,7 @@ static bool WriteDefaultIni(const char* ini)
         "; (auto-refreshed when the mod's defaults change)\n"
         "[Meta]\n"
         "Version=%d\n"
-        "DefaultsRev=1\n"
+        "DefaultsRev=2\n"
         "[Tracking]\n"
         "; head tracking drives the game camera via mouse emulation.\n"
         "; Calibrate: pick a landmark, turn your head 90 degrees; if the\n"
@@ -989,11 +989,12 @@ static bool WriteDefaultIni(const char* ini)
         "; Requires locally prepared dishonored_vr_arm_rig.bin in Paths/DataDir.\n"
         "; Native hands/fingers still animate; IK replaces the arm pose. L3+R3 / F10: IK tab.\n"
         "ArmIK=1\n"
-        "ArmShoulderForwardCm=-6\n"
+        "; The fit (2026-10-06) was tuned in a headset; F10 Reset IK adjustments returns to it.\n"
+        "ArmShoulderForwardCm=-16\n"
         "ArmShoulderRightCm=0\n"
-        "ArmShoulderUpCm=-20\n"
-        "ArmShoulderWidthCm=36\n"
-        "ArmLengthScale=1\n"
+        "ArmShoulderUpCm=-25\n"
+        "ArmShoulderWidthCm=38.1\n"
+        "ArmLengthScale=1.27\n"
         "ArmElbowOut=0.6\n"
         "; ArmIKGameArmInAnim=1: while a game animation owns a hand, that arm becomes the game's\n"
         "; own arm, blended in and out with the hand. 0 = the IK arm follows the animated wrist.\n"
@@ -1918,6 +1919,24 @@ static void LoadConfig()
         Log("config: defaults revision 1 applied once to this ini - CameraSilentGrace, GrabAnim, GrabReadyOpen/Hide, "
             "HideTakedownArms, PoseFromView, ArmIK, HeartBack, CrouchToggle on; DlssModel 0 (K); reach 60/74/75 cm. "
             "Every other key is unchanged");
+    }
+    // 2026-10-06: the headset-accepted IK fit becomes the default. Only a key still at the earlier default
+    // (or absent) moves; a fit the player tuned in F10 is theirs and stays.
+    if (!missing && GetPrivateProfileIntA("Meta", "DefaultsRev", 0, ini) < 2) {
+        static const struct { const char* key; float was; const char* now; } kRev2[] = {
+            { "ArmShoulderForwardCm", -6.0f, "-16" }, { "ArmShoulderUpCm", -20.0f, "-25" },
+            { "ArmShoulderWidthCm", 36.0f, "38.1" }, { "ArmLengthScale", 1.0f, "1.27" } };
+        char moved[192] = "", kept[192] = "";
+        for (const auto& k : kRev2) {
+            const float v = IniFloat(ini, "Hands", k.key, k.was);
+            const bool atOld = std::fabs(v - k.was) < 0.001f;
+            if (atOld) WritePrivateProfileStringA("Hands", k.key, k.now, ini);
+            char item[48]; _snprintf_s(item, _TRUNCATE, " %s=%g", k.key, atOld ? atof(k.now) : (double)v);
+            strncat_s(atOld ? moved : kept, sizeof(moved), item, _TRUNCATE);
+        }
+        WritePrivateProfileStringA("Meta", "DefaultsRev", "2", ini);
+        Log("config: defaults revision 2 applied once to this ini - IK fit moved to the new default:%s; kept as "
+            "tuned:%s", moved[0] ? moved : " none", kept[0] ? kept : " none");
     }
     {   // [Paths] DataDir: where the harness files go. Applied before any of
         // them is written (the command seam and status.json start after the
@@ -2941,11 +2960,11 @@ static void LoadConfig()
         const float v=IniFloat(ini,"Hands",key,def);
         return std::isfinite(v)?std::clamp(v,lo,hi):def;
     };
-    g_ikForward=ikFloat("ArmShoulderForwardCm",-6,-50,50);
+    g_ikForward=ikFloat("ArmShoulderForwardCm",-16,-50,50);
     g_ikRight=ikFloat("ArmShoulderRightCm",0,-50,50);
-    g_ikUp=ikFloat("ArmShoulderUpCm",-20,-80,20);
-    g_ikWidth=ikFloat("ArmShoulderWidthCm",36,10,80);
-    g_ikLength=ikFloat("ArmLengthScale",1,.5f,2);
+    g_ikUp=ikFloat("ArmShoulderUpCm",-25,-80,20);
+    g_ikWidth=ikFloat("ArmShoulderWidthCm",38.1f,10,80);
+    g_ikLength=ikFloat("ArmLengthScale",1.27f,.5f,2);
     g_ikElbowOut=ikFloat("ArmElbowOut",.6f,0,2);
     g_ikGameArmInAnim = IniFloat(ini, "Hands", "ArmIKGameArmInAnim", 1) != 0.0f;
     Log("config: [Hands] ArmIKGameArmInAnim=%d (%s)", g_ikGameArmInAnim.load() ? 1 : 0, g_ikGameArmInAnim.load()

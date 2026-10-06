@@ -1,4 +1,15 @@
-## 2026-10-05: 1.0.4 release candidate on claude/steamvr-launch (PR #187, not merged)
+## 2026-10-06: the headset-tuned IK fit is the 1.0.4 default (claude/ik-fit-default, not merged)
+
+**Current state.** #187 is merged into staging (`c07aa0c9b`); release PR #188 (staging -> VR-Main) is
+open. This branch makes the IK fit tuned in a headset the default: forward -16, up -25, width 38.1,
+arm length 1.27 (was -6, -20, 36, 1), in the code, the default and packaged ini, the F10 reset and
+ARM_IK.md. `[Meta] DefaultsRev=2` moves an existing ini once, and only the keys still at the old
+default; the `config: defaults revision 2` line says which moved and which were kept. Installed on
+the dev PC through the built launcher's `update` (fresh defaults), not yet run.
+
+**Next.** The owner merges this into staging so #188 carries it, then the release ritual below.
+
+## 2026-10-05: 1.0.4 release candidate on claude/steamvr-launch (PR #187, merged 2026-10-05)
 
 **Current state.** Version 1.0.4 (CMakeLists). #187 carries: the SteamVR shim when elevated, the capture
 AutoDepth threshold lever, field log noise, latched grab poses, carry in the grabbing hand (mirrored ray),

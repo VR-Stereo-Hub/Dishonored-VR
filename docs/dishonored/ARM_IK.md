@@ -30,13 +30,19 @@ when reach allows. This supersedes the initial fixed-shoulder design.
 
 | `[Hands]` setting | Default | Range / meaning |
 |---|---:|---|
-| `ArmIK` | 0 | Full-arm rendering, default off; live menu toggle |
-| `ArmShoulderForwardCm` | -6 | -50..50; positive moves both forward |
+| `ArmIK` | 1 | Full-arm rendering, default on since 1.0.4; live menu toggle |
+| `ArmShoulderForwardCm` | -16 | -50..50; positive moves both forward |
 | `ArmShoulderRightCm` | 0 | -50..50; positive shifts their shared center right |
-| `ArmShoulderUpCm` | -20 | -80..20; positive raises both |
-| `ArmShoulderWidthCm` | 36 | 10..80; total separation, split equally |
-| `ArmLengthScale` | 1 | 0.5..2; longitudinal arm length, separate from hand size |
+| `ArmShoulderUpCm` | -25 | -80..20; positive raises both |
+| `ArmShoulderWidthCm` | 38.1 | 10..80; total separation, split equally |
+| `ArmLengthScale` | 1.27 | 0.5..2; longitudinal arm length, separate from hand size |
 | `ArmElbowOut` | 0.6 | 0..2; mirrored outward component of the elbow pole |
+
+The four fit defaults (forward, up, width, length) are the fit tuned in a headset
+on 2026-10-06; before that they were -6, -20, 36 and 1. `[Meta] DefaultsRev=2`
+moves an existing ini to them once, key by key, and only where a key still holds
+the old default: a fit set in F10 stays. The log line `config: defaults revision 2`
+names which keys moved and which were kept.
 
 Controls save when released; reset changes these six adjustments without
 switching IK off. Reload arm reference retries a missing/changed local rig.

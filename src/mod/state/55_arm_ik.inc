@@ -2,8 +2,8 @@
 // No engine object or engine bone pointer is retained by this feature.
 #include "game/dishonored/hands/arm_rig.h"
 static std::atomic<bool> g_ikOn{false},g_ikReload{false};
-static std::atomic<float> g_ikForward{-6},g_ikRight{0},g_ikUp{-20},g_ikWidth{36};
-static std::atomic<float> g_ikLength{1},g_ikElbowOut{.6f};
+static std::atomic<float> g_ikForward{-16},g_ikRight{0},g_ikUp{-25},g_ikWidth{38.1f};
+static std::atomic<float> g_ikLength{1.27f},g_ikElbowOut{.6f};
 // [Hands] ArmIKGameArmInAnim: while a game animation owns a hand, that side's IK arm blends to
 // the game's own arm by the hand-back weight (full game arm when the game fully owns it).
 // Off = the IK arm follows the animated wrist from the tracked shoulder (the original design).

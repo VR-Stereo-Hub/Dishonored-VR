@@ -1753,9 +1753,9 @@ static void OvlTabIK()
         control("Elbows outward","ArmElbowOut",g_ikElbowOut,0,2,"%.2f");
     }
     if(dvr::ovl::button("Reset IK adjustments")){
-        g_ikForward=-6;g_ikRight=0;g_ikUp=-20;g_ikWidth=36;g_ikLength=1;g_ikElbowOut=.6f;
+        g_ikForward=-16;g_ikRight=0;g_ikUp=-25;g_ikWidth=38.1f;g_ikLength=1.27f;g_ikElbowOut=.6f;
         const char* keys[]={"ArmShoulderForwardCm","ArmShoulderRightCm","ArmShoulderUpCm","ArmShoulderWidthCm","ArmLengthScale","ArmElbowOut"};
-        const char* values[]={"-6","0","-20","36","1","0.6"};
+        const char* values[]={"-16","0","-25","38.1","1.27","0.6"};
         for(int i=0;i<6;++i)ConfigWriteKey("Hands",keys[i],values[i],"F10 IK reset");
         g_ikReload=true;
     }
