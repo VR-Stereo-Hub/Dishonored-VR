@@ -129,7 +129,7 @@ static void OvlTopRow()
 // ---- Hands ----------------------------------------------------------------------------------
 static void OvlTabHands()
 {
-    if (OvlSec("Hand size and position", kOvlB,
+    if (OvlSec("Hand size, position and weapon FOV", kOvlB,
                "How big the hands are and where they sit on your controllers.")) {
         dvr::ovl::slider_float("Hand / weapon size", &g_mpModelScale, 0.4f, 1.6f, "%.2f");
         OvlTip("Scales the hands and whatever they hold, around your palm. Not the world scale. "
@@ -138,7 +138,7 @@ static void OvlTabHands()
         MpTrimPanel();   // left, right and powers position steps
         OvlHandsFovControls("F10 Hands");   // VR-39
     }
-    if (OvlSec("Sleeve", kOvlB, "How much of the arm is drawn with each hand.")) {
+    if (OvlSec("How much arm is shown (sleeve)", kOvlB, "How much of the arm is drawn with each hand.")) {
         const bool fullArmIK=g_ikOn.load();
         if(fullArmIK)ImGui::TextWrapped("Full-arm IK uses the entire arm mesh. Sleeve cuts are disabled. See the IK tab for activation status.");
         ImGui::BeginDisabled(fullArmIK);
@@ -173,7 +173,7 @@ static void OvlTabHands()
             ImGui::EndDisabled();
         }
     }
-    if (OvlSec("Game arms during actions", kOvlA,
+    if (OvlSec("Game animations on your arms (takedowns, mantling, cutscenes)", kOvlA,
                "Which game actions show the game's own animated arms instead of your tracked hands, "
                "and which actions are allowed at all.")) {
         bool enabled = dvr::anim::enabled();
@@ -308,7 +308,7 @@ static void OvlTabHands()
             ImGui::TreePop();
         }
     }
-    if (OvlSec("Head-turn smoothing", kOvlA, "Keeps the hands and weapons steady when you turn your head quickly.")) {
+    if (OvlSec("Hand steadiness on fast head turns", kOvlA, "Keeps the hands and weapons steady when you turn your head quickly.")) {
         if (dvr::ovl::checkbox("Hands follow each eye's own view", &g_mpPoseFromView)) {
             ConfigWriteKey("Hands", "PoseFromView", g_mpPoseFromView ? "1" : "0", "F10 Hands");
             Log("hands: PoseFromView -> %d (live)", (int)g_mpPoseFromView);
@@ -385,7 +385,7 @@ static void OvlTabHands()
 // ---- Aim ------------------------------------------------------------------------------------
 static void OvlTabAim()
 {
-    if (OvlSec("Reticle", kOvlB, "The dot that shows where your hand is aiming.")) {
+    if (OvlSec("Reticle (the aim dot)", kOvlB, "The dot that shows where your hand is aiming.")) {
         if (dvr::aim::draw_reticle_ui()) {   // VR-141: saved at once
             const auto rc = dvr::aim::config(); char rv[32];
             ConfigWriteKey("Crosshair", "Dot", rc.dot ? "1" : "0", "F10 Aim");
@@ -406,7 +406,7 @@ static void OvlTabAim()
             OvlTip("Keeps the dot visible beside this panel so you can tune it. It hides behind the panel itself.");
         }
     }
-    if (OvlSec("What aims with the controller", kOvlB,
+    if (OvlSec("Aim with the controller or your head, per weapon", kOvlB,
                "For each thing you can aim: follow your controller, or your head like the flat game.")) {
         auto row = [](const char* label, bool hand, bool* changed, const char* tipText) {
             ImGui::PushID(label);
@@ -536,7 +536,7 @@ static void OvlBindsSection()
 // are unchanged.
 static void OvlTabInteract()
 {
-    if (OvlSec("Reaching and grabbing", kOvlB,
+    if (OvlSec("Reach and grab: loot, books, doors, carrying, levers", kOvlB,
                "Take loot, open doors and books, carry things and pull levers by reaching and squeezing the grip.")) {
         {
             bool grab = PickupEnabled();
@@ -586,7 +586,7 @@ static void OvlTabInteract()
             }
         }
     }
-    if (OvlSec("Grab hand", kOvlB, "How the hand looks when it can grab, and the grab itself.")) {
+    if (OvlSec("Hand pose and grab animation", kOvlB, "How the hand looks when it can grab, and the grab itself.")) {
         if (dvr::ovl::checkbox("Open right hand when it is empty", &g_ohOn))
             ConfigWriteKey("Hands", "OpenEmptyRightHand", g_ohOn ? "1" : "0", "F10 Hands");
         OvlTip("With the sword put away, the right hand relaxes open like the left instead of making a fist.");
@@ -625,7 +625,7 @@ static void OvlTabInteract()
             }
         }
     }
-    if (OvlSec("Held objects", kOvlB, "Where a carried bottle, rock or object sits in your hand.")) {
+    if (OvlSec("Carried objects: position in the hand and throwing", kOvlB, "Where a carried bottle, rock or object sits in your hand.")) {
         ImGui::TextUnformatted("Position (steps follow your view; carry something to see it)");
         static int stepIx = 1;
         static const float kCm[3] = { 0.5f, 1.0f, 3.0f }, kDeg[3] = { 1.0f, 3.0f, 10.0f };
@@ -728,7 +728,7 @@ static void OvlTabInteract()
 
 static void OvlTabControls()
 {
-    if (OvlSec("Controller layout", kOvlB, "D-pad shortcuts, the pause chord and what each button does.")) {
+    if (OvlSec("Controller shortcuts: D-pad, pause chord, sticks", kOvlB, "D-pad shortcuts, the pause chord and what each button does.")) {
         auto c = dvr::controller::config();
         const char* mods[] = { "Off", "Right thumbrest", "R3 (right stick click)", "Left thumbrest" };
         const int modes[] = { dvr::controller::Off, dvr::controller::RightRest, dvr::controller::R3, dvr::controller::LeftRest };
@@ -763,7 +763,7 @@ static void OvlTabControls()
     dvr::snap::draw_ui();    // VR-219: snap turn (its own section)
     dvr::swing::draw_ui();   // VR-37: the motion sword (its own section)
     dvr::drop::draw_ui();    // drop takedowns (its own section)
-    if (!OvlSec("Button mapping", kOvlB, "Choose which controller button does each game action.")) {
+    if (!OvlSec("Button mapping (which button does what)", kOvlB, "Choose which controller button does each game action.")) {
         if (s_bindCapture >= 0) { s_bindCapture = -1; dvr::binds::captureUntilMs = 0; }
         return;
     }
@@ -854,7 +854,7 @@ static void OvlHandsFovControls(const char* who)
 // ---- Comfort --------------------------------------------------------------------------------
 static void OvlTabComfort()
 {
-    if (OvlSec("Crouch", kOvlB, "Crouching for real crouches Corvo.")) {
+    if (OvlSec("Real crouching", kOvlB, "Crouching for real crouches Corvo.")) {
         bool pc = g_crouchOn;
         if (dvr::ovl::checkbox("Real crouching crouches Corvo", &pc)) {
             g_crouchOn = pc;
@@ -868,7 +868,7 @@ static void OvlTabComfort()
         OvlSaveOnRelease("Tracking", "CrouchDropM", g_crouchDropM, "%.2f");
     }
     CamShakeDrawUi();   // VR-172: the game's own camera shake (its own section)
-    if (OvlSec("World scale and tracking", kOvlB, "How big the world feels, and how your head moves in it.")) {
+    if (OvlSec("World scale and head tracking", kOvlB, "How big the world feels, and how your head moves in it.")) {
         dvr::ovl::slider_float("World scale (uu per metre)", &g_posScaleUU, 10.0f, 200.0f, "%.0f");
         OvlTip("Smaller makes the world feel bigger. Changes how far one real metre moves you. "
                "Saved when you let go.");
@@ -886,7 +886,7 @@ static void OvlTabComfort()
             OvlTip("The stick walks where you look. Off: it walks where your body faces.");
         }
     }
-    if (OvlSec("Neck pivot", kOvlA,
+    if (OvlSec("Neck pivot (how your head turns around your neck)", kOvlA,
                "Where your view rotates from when you look up and down. Look up and down at "
                "something an arm's length away: with the right setting it stays put.")) {
         bool uprightArc = dvr::camera::upright_pitch_arc();
@@ -925,7 +925,7 @@ static void OvlTabComfort()
                                 g_neckStanceTarget ? "CROUCHED" : "standing", g_neckEffBelowM, g_neckEffBehindM);
         }
     }
-    if (OvlSec("Cinematics", kOvlA, "How scripted scenes and special cameras behave.")) {
+    if (OvlSec("Cutscenes and special cameras", kOvlA, "How scripted scenes and special cameras behave.")) {
         bool pitchLock = CinePitchEnabled();
         if (dvr::ovl::checkbox("Suppress animation up/down tilt", &pitchLock)) { CinePitchSet(pitchLock); OvlSaveBool("Cine", "LockPitch", pitchLock); }
         bool rollLock = CineRollEnabled();
@@ -944,7 +944,7 @@ static void OvlTabComfort()
         if (dvr::ovl::checkbox("Hide cinematic black borders", &borders)) { CineBordersSet(borders); OvlSaveBool("Cine", "HideBorders", borders); }
         OvlTip("Removes the letterbox bars in scenes. The picture under them is really there.");
     }
-    if (OvlSec("Rain", kOvlB, "Remove the close rain overlay while keeping world rain.")) {
+    if (OvlSec("Rain on your face (close rain overlay)", kOvlB, "Remove the close rain overlay while keeping world rain.")) {
         bool rain = RainHideEnabled();
         if (dvr::ovl::checkbox("Hide close rain overlay", &rain)) { RainHideSet(rain); OvlSaveBool("Rain", "Hide", rain); }
         OvlTip("Hides the close rain lens overlay. Keeps the sky rain box and ground-impact system.");
@@ -1053,7 +1053,7 @@ static void OvlFrameBurst()
 // ---- Display --------------------------------------------------------------------------------
 static void OvlTabDisplay()
 {
-    if (OvlSec("Stereo rendering", kOvlB, "How the two eyes are rendered. Try both and compare.")) {
+    if (OvlSec("Rendering method: Stereo or AFW", kOvlB, "How the two eyes are rendered. Try both and compare.")) {
         // VR-39: reentry (both eyes every tick) against AER (one eye per tick, alternating).
         const char* wanted = dvr::stereo::wanted_name();
         const bool isAer = !_stricmp(wanted, "aer"), isAfw = !_stricmp(wanted, "afw");
@@ -1188,7 +1188,7 @@ static void OvlTabDisplay()
     }
     const int resizeState = ResLiveState();
     const bool busy = resizeState == 1 || resizeState == 2 || resizeState == 4;
-    if (OvlSec("Texture packs", kOvlB, "Optional texture memory compatibility. Takes effect next launch.")) {
+    if (OvlSec("Texture pack memory (restart)", kOvlB, "Optional texture memory compatibility. Takes effect next launch.")) {
         static int nextPaged = -1;
         if (nextPaged < 0) {
             char ini[MAX_PATH], mode[16];
@@ -1206,7 +1206,7 @@ static void OvlTabDisplay()
         }
         OvlTip("For crashes with large texture packs. Frees 32-bit address space between locks, but still reserves system commit and adds upload work. May stutter under memory pressure. Windows pagefile settings are unchanged. Off selects conventional shadows; the surface redirect remains enabled.");
     }
-    if (OvlSec("Resolution", kOvlB, "How many pixels the game renders for the headset.")) {
+    if (OvlSec("Resolution (render size)", kOvlB, "How many pixels the game renders for the headset.")) {
         static float pixelPercent = -1.0f;
         if (pixelPercent < 0)
             pixelPercent = g_resWantW && g_resWantH
@@ -1322,7 +1322,7 @@ static void OvlTabDisplay()
         OvlSaveOnRelease("Clarity", "Sharpen", dvr::clarity::sharpen(), "%.2f");
         OvlTip("Contrast-adaptive sharpening on the final picture. 0 is off.");
     }
-    if (OvlSec("Clarity and anti-aliasing", kOvlA,
+    if (OvlSec("Sharpness, texture filtering and other anti-aliasing", kOvlA,
                "Texture filtering and DLSS tuning. Each option switches live, so you can compare.")) {
         {   // [Hud] UpscaleSharp (hud_capture.h)
             bool sharp = dvr::hudcap::upscale_sharp();
@@ -1444,7 +1444,7 @@ static void OvlTabDisplay()
             ImGui::TextDisabled("Jitter: %s", dvr::dlss::jitter::summary());
         }
     }
-    if (OvlSec("Desktop window", kOvlB, "What the game window on your monitor shows.")) {
+    if (OvlSec("Desktop window (what your monitor shows)", kOvlB, "What the game window on your monitor shows.")) {
         bool mirrorOff = dvr::desktop_eye::mirror_off();
         if (dvr::ovl::checkbox("Disable desktop mirror", &mirrorOff)) {
             dvr::desktop_eye::set_mirror_off(mirrorOff);
@@ -1470,7 +1470,7 @@ static void OvlTabDisplay()
             ImGui::EndDisabled();
         }
     }
-    if (OvlSec("Object culling", kOvlA, "How the game skips objects it thinks you cannot see.")) {
+    if (OvlSec("Object culling (hidden objects popping in)", kOvlA, "How the game skips objects it thinks you cannot see.")) {
         int oc = OcclusionModeGet();
         if (dvr::ovl::radio_button("Per eye", &oc, 1)) OcclusionModeSet(1, "F10 Display");
         OvlTip("Each eye hides only what IT cannot see. Recommended.");
@@ -1481,7 +1481,7 @@ static void OvlTabDisplay()
         if (dvr::ovl::radio_button("Off", &oc, 2)) OcclusionModeSet(2, "F10 Display");
         OvlTip("Nothing is ever hidden. Always correct, but slower.");
     }
-    if (OvlSec("Fullscreen and vsync", kOvlA, "The game window's mode. Each switch briefly pauses the game.")) {
+    if (OvlSec("Game window: fullscreen and vsync", kOvlA, "The game window's mode. Each switch briefly pauses the game.")) {
         ImGui::BeginDisabled(busy);
         bool liveFull = ResLiveFullscreen();
         if (dvr::ovl::checkbox("Fullscreen", &liveFull)) {
@@ -1501,7 +1501,7 @@ static void OvlTabDisplay()
                             ResLiveDeviceWindowed() ? "windowed" : "fullscreen",
                             g_vsyncWant == 1 ? "vsynced (forced)" : (g_vsyncWant == 0 ? "uncapped (forced)" : "the game's own choice"));
     }
-    if (OvlSec("Flat screen (menus and loading)", kOvlA, "The big screen shown for the main menu and loads.")) {
+    if (OvlSec("Flat screen for menus and loading", kOvlA, "The big screen shown for the main menu and loads.")) {
         if (dvr::ovl::slider_float("Screen distance (m)", &g_screenDist, 0.8f, 4.0f, "%.2f"))
             dvr::vr::set_screen(g_screenDist, g_screenWidth);
         OvlSaveOnRelease("Screen", "DistanceMeters", g_screenDist, "%.2f");
@@ -1739,7 +1739,7 @@ static void OvlTabIK()
                "and keeps the hand where the animation put it.");
         ImGui::Unindent();
     }
-    if(OvlSec("Shoulder position",kOvlB,"Moves the resting shoulder pair together. Reach can move either shoulder from this position.")){
+    if(OvlSec("IK shoulder position and arm length",kOvlB,"Moves the resting shoulder pair together. Reach can move either shoulder from this position.")){
         auto control=[](const char* label,const char* key,std::atomic<float>& value,float lo,float hi,const char* format){
             float current=value.load();
             if(dvr::ovl::slider_float(label,&current,lo,hi,format))value=current;

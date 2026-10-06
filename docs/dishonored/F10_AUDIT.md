@@ -43,6 +43,11 @@ Hands > Sleeve. Nothing about a sleeve. One tab now holds all of it.
 * **Hide still cutscene arms** is no longer greyed out under full-arm IK, and it works with IK on.
   The takedown arm hide stays greyed out under IK (IK always draws whole arms).
 
+Every section is collapsed when the panel opens (none passes the open flag), and 32 section names were
+rewritten to say what is inside ("Sleeve" became "How much arm is shown (sleeve)", "Game arms during
+actions" became "Game animations on your arms (takedowns, mantling, cutscenes)", and so on). Basic keeps
+the rendering method (Stereo or AFW) and Upscaling and anti-aliasing.
+
 Counted after the pass (Basic / Advanced / Debug controls): Hands 3/26/11, Aim 2/1/9, Interact
 14/12/2, Controls 7/0/0, Comfort 4/23/10, HUD 1/0/3, Display 13/18/43, plus the top row. Basic is
 what a player sets once; everything that needs explaining is Advanced or below.
