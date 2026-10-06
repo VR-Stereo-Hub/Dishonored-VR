@@ -13,7 +13,6 @@
 
 - **Full-arm IK on by default:** your whole arms follow your controllers, with shoulder, width, arm length and elbow controls in the IK tab. It works out of the box: the data it needs now ships with the mod.
 - **The Heart has a back:** the Heart is now a complete object when you turn it in your hand. On by default, no setup.
-- **Hide still cutscene arms:** an option that hides the game's arms in cutscenes when they freeze in a pose pointing behind you (the opening cutscene). Off by default, in F10 Advanced > Hands.
 - **Cutscene arms (experimental):** keep your tracked arms in cutscenes and let the game take them only while it animates them. Off by default.
 - **ReShade shows your preset's effects** in F10 > ReShade, and their settings apply.
 - **Capture setting for fast GPUs:** "Capture: deeper ring at timeouts" in F10 Display, for a machine where one eye stutters about once a second under AFW.

@@ -37,6 +37,14 @@ namespace dvr { namespace camera {
 static bool second_pass_for_current_thread() { return secondPass; }
 } }
 
+// 2026-10-05: ownership now also proves liveness (IsLiveObject, refreshed through RefreshLiveSet) and
+// keys the generation on the pair's class and name (patterns.h offsets); the fixtures are always live.
+static const uint32_t kNameOff = 0x28, kClassOff = 0x30;
+static uint32_t g_yawOwnerName[2][2] = {}; static uint8_t* g_yawOwnerClass[2] = {};
+static bool IsLiveObject(uint8_t* p) { return p != NULL; }
+static void RefreshLiveSet(int) {}
+// head_track.cpp declares these between the two slices (the cinematic hand-off and the freshness clock).
+static bool g_yawCinematicResume = false; static double g_yawPublishedMs = 0;
 #include "yaw_owner_impl.inc"
 
 static int failures = 0;
