@@ -69,6 +69,7 @@ bool cinematicArms = false;
 // MsCineHideStatic); this lane publishes only whether a cutscene is running (cineNow).
 bool cineHideStatic = false;
 std::atomic<bool> cineNow{false};
+std::atomic<unsigned long long> hideDrawMs{0};   // the last arm-mesh draw that reached the hide (GetTickCount64)
 void apply_shape() { handoff.smooth=smoothBlend.load(); handoff.inMs=blendInMs; handoff.outMs=blendOutMs; }
 // Mantle is controlled independently by MantleHandBack. The previous controller
 // preference remains the default; the current cinematic-comfort test enables it.
@@ -422,6 +423,7 @@ Snapshot snapshot() {
 bool mantle_enabled() { AcquireSRWLockShared(&lock); bool on=mantleHandback; ReleaseSRWLockShared(&lock); return on; }
 bool cine_hide_static() { AcquireSRWLockShared(&lock); bool on=cineHideStatic; ReleaseSRWLockShared(&lock); return on; }
 bool in_cinematic() { return cineNow.load(); }
+void note_hide_draw() { hideDrawMs.store(GetTickCount64()); }
 void set_cine_hide_static(bool on) {
     AcquireSRWLockExclusive(&lock); cineHideStatic=on; ReleaseSRWLockExclusive(&lock);
     if (!on) cineNow.store(false);
@@ -829,6 +831,9 @@ void tick() {
     const bool cineHideOn=cineHideStatic;
     ReleaseSRWLockExclusive(&lock);
     if (cineHideOn) cine_resolve();   // bCinematicMode for CineHideStaticArms (one name walk a session, outside the lock)
+    if (cineHideOn && s.valid && s.game && now - hideDrawMs.load() > 2000)
+        DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,2000,"cine/hidearms: the game owns the arms (%s, body=%d) but NO arm-mesh draw has reached "
+            "the hide for 2 s - these arms are drawn by another mesh or path, which the hide does not cover",s.state[0],s.bodyMode);
     cine_visibility(pawn,s,cineArmsOn,ctrlLive?g_peCtrl:nullptr);   // outside the lock: it calls into the engine
     if (s.valid!=previous.valid || s.game!=previous.game || memcmp(s.state,previous.state,sizeof(s.state)) || s.bodyMode!=previous.bodyMode || strcmp(s.sequence,previous.sequence) || now>=nextBeat) {
         report(s); nextBeat=now+5000;

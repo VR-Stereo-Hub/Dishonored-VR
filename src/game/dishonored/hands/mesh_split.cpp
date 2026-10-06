@@ -4264,10 +4264,18 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     // 2026-10-05: not only a flagged cutscene - the opening scene runs in StatePlayerMasterSoiree with the game
     // owning the arms and bCinematicMode off, and the hide never armed. Still + both hands behind the camera is the
     // test; any game-owned arm pose qualifies.
-    if (dvr::anim::native_full_arms() && dvr::anim::cine_hide_static()) {
+    if (dvr::anim::cine_hide_static()) {
         // CineHideStaticArms: only THIS geometry (the arm mesh the split was built from), never another draw.
+        // 2026-10-05: the boat ride logged nothing at all, so every gate is reported (2 s) while the option is on.
+        const bool owned = dvr::anim::native_full_arms();
+        dvr::anim::note_hide_draw();
         MsContract hc; const char* hwhy = NULL;
-        if (MsQualify(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount, &hc, &hwhy)) {
+        const bool qual = MsQualify(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount, &hc, &hwhy);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+            "cine/hidearms: arm-mesh draw seen - game owns the arms %d, IK %d, this draw is the split's arm mesh %d (%s), "
+            "anim reason '%s'", (int)owned, (int)ik, (int)qual, qual ? "yes" : (hwhy ? hwhy : "not this geometry"),
+            dvr::anim::snapshot().reason);
+        if (owned && qual) {
             MsSampleArmSpeed();
             if (MsCineHideStatic(dev)) { g_msDraws++; return true; }   // drawing nothing IS the answer
         }
