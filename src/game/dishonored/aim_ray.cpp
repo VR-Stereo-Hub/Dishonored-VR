@@ -176,6 +176,43 @@ void tick(bool gameplay, bool projectionWanted) {
             modelUsed = true;
         }
     }
+    // 2026-10-05: a RIGHT-hand carry (CarryInGrabHand). The hold was tuned on the left hand's ray, which is
+    // its measured model axis; the right hand has none of its own while carrying a bottle, and waiting for one
+    // left the carry without a ray (the hold stopped, the throw took the head). So the right hand gets the LEFT
+    // hand's ray mirrored: expressed in the left grip's own frame, reflected across its x axis (left and right
+    // controllers are mirror images in local coordinates), and placed on the right grip.
+    if (over == 1 && g_config.modelRay && g_ray.ok && !modelUsed) {
+        const auto modelL = dvr::hands::model_ray_snapshot(0);
+        const auto calL = dvr::hands::trim_snapshot(0), calR = dvr::hands::trim_snapshot(1);
+#if DVR_WITH_OPENXR
+        const dvr::vr::HandAimSample sL = dvr::vr::input_hand_aim_sample(0);
+#else
+        dvr::vr::HandAimSample sL;
+#endif
+        dvr::hf::Mat3 rc, g;
+        for (int i = 0; i < 9; ++i) { rc.m[i] = calL.R_C[i]; g.m[i] = calL.G[i]; }
+        float mo[3], md[3];
+        if (calL.ok && calR.ok && modelL.ok && modelL.latched && sL.gripValid && sample.gripValid &&
+            std::isfinite(calR.handToWorldScale) && calR.handToWorldScale > 0 &&
+            dvr::hf::palm_ray_to_xr(rc, g, calL.p0, calL.trimRdeg, calL.trimTm, modelL.originPalm, modelL.dirPalm, mo, md)) {
+            auto unrot = [](const float* q, const float* v, float* o) { dvr::xrmath::quat_rotate(-q[0], -q[1], -q[2], q[3], v, o); };
+            auto rot = [](const float* q, const float* v, float* o) { dvr::xrmath::quat_rotate(q[0], q[1], q[2], q[3], v, o); };
+            float rel[3] = { mo[0] - sL.gripPos[0], mo[1] - sL.gripPos[1], mo[2] - sL.gripPos[2] }, lo[3], ld[3], wo[3], wd[3];
+            unrot(sL.gripQuat, rel, lo); unrot(sL.gripQuat, md, ld);
+            lo[0] = -lo[0]; ld[0] = -ld[0];                          // the mirror
+            rot(sample.gripQuat, lo, wo); rot(sample.gripQuat, ld, wd);
+            for (int i = 0; i < 3; ++i) {
+                const float o = sample.gripPos[i] + wo[i];
+                g_ray.originXr[i] = calR.headPos[i] + calR.handToWorldScale * (o - calR.headPos[i]);
+                g_ray.dirXr[i] = wd[i];
+            }
+            g_ray.why = "carry: the left hand's measured ray, mirrored onto the right hand";
+            modelUsed = true;
+        } else {
+            g_ray.why = "carry: the right controller's own ray (the left hand's axis is not measured yet)";
+            modelUsed = true;                                        // never wait during a carry
+        }
+    }
     g_modelRayUsed = modelUsed;
 
     // WAITING FOR THE AXIS IS NOT A REASON TO SHOW THE OTHER RAY.
