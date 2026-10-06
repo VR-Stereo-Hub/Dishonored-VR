@@ -4102,7 +4102,7 @@ static void MsSampleArmSpeed()
     if (frame == lastFrame) return;
     lastFrame = frame;
     // Only CinematicArms reads this. With the lever off nothing is measured at all.
-    if (!dvr::anim::cinematic_arms()) { if (have) { have = false; g_msArmSpeed.store(-1.0f); g_msArmRefPose.store(-1.0f); } return; }
+    if (!dvr::anim::cinematic_arms() && !dvr::anim::in_cinematic()) { if (have) { have = false; g_msArmSpeed.store(-1.0f); g_msArmRefPose.store(-1.0f); } return; }
     const int hands[2] = { g_msHandBone[1], g_msHandBone[2] };
     if (g_mpCacheN <= 0 || g_mpCacheN != g_mpPalN || hands[0] < 0 || hands[1] < 0) { have = false; return; }
     const ULONGLONG now = GetTickCount64();
@@ -4206,6 +4206,52 @@ static bool MsQualify(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVert
 
 #include "arm_ik_draw.inc"
 
+// [Anim] CineHideStaticArms (2026-10-05): in a cutscene the game draws its own full arms, and some leave
+// them in a fixed pose pointing back past the head (the opening cutscene). Hidden while (a) the arms hold
+// still - the between-bone speed MsSampleArmSpeed measures stays under 8 uu/s for 500 ms - and (b) BOTH
+// hand bones are behind the camera plane: the palette point of each hand bone, through the draw's own
+// LocalToWorld (rebased on the view), against the camera's forward from the same draw. Render lane.
+// Logs the measured depths so the sign convention is checked by the first run (in front reads positive).
+static bool MsCineHideStatic(IDirect3DDevice9* dev)
+{
+    static ULONGLONG stillSince = 0;
+    static bool was = false;
+    const ULONGLONG now = GetTickCount64();
+    const float speed = g_msArmSpeed.load();
+    const bool fresh = speed >= 0 && now - g_msArmSpeedMs <= 200;
+    if (fresh && speed < 8.0f) { if (!stillSince) stillSince = now; } else stillSince = 0;
+    const bool still = stillSince && now - stillSince >= 500;
+    float depth[2] = { 0, 0 };
+    bool measured = false;
+    MpDrawCtx c;
+    const int hands[2] = { g_msHandBone[1], g_msHandBone[2] };
+    if (g_mpCacheN > 0 && g_mpCacheN == g_mpPalN && hands[0] >= 0 && hands[1] >= 0 && MpAcquireCtx(dev, &c) && c.ok) {
+        measured = true;
+        for (int k = 0; k < 2; ++k) {
+            const int b = hands[k];
+            if ((UINT)(b * 3 + 3) > (UINT)g_mpCacheN) { measured = false; break; }
+            const float* M = g_mpCache + b * 12;
+            const float* q = g_msBoneCen[b];
+            float p[3], w[3];
+            for (int i = 0; i < 3; ++i) p[i] = M[i * 4 + 0] * q[0] + M[i * 4 + 1] * q[1] + M[i * 4 + 2] * q[2] + M[i * 4 + 3];
+            for (int i = 0; i < 3; ++i) w[i] = c.col[0][i] * p[0] + c.col[1][i] * p[1] + c.col[2][i] * p[2] + c.t[i];
+            depth[k] = w[0] * c.f[0] + w[1] * c.f[1] + w[2] * c.f[2];
+        }
+    }
+    const bool behind = measured && depth[0] < -2.0f && depth[1] < -2.0f;
+    const bool hide = still && behind;
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+        "cine/hidearms: hand depth along the view L %+.1f R %+.1f uu (%s; in front reads positive), arm speed %.1f uu/s "
+        "%s -> %s", depth[0], depth[1], measured ? "measured" : "NOT measurable this draw", fresh ? speed : -1.0f,
+        still ? "still" : "moving or unknown", hide ? "HIDDEN" : "drawn");
+    if (hide != was) {
+        was = hide;
+        Log("cine/hidearms: cutscene arms %s (hand depth L %+.1f R %+.1f uu, arm speed %.1f uu/s)",
+            hide ? "HIDDEN - still, both hands behind the camera" : "drawn again", depth[0], depth[1], fresh ? speed : -1.0f);
+    }
+    return hide;
+}
+
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount)
 {
@@ -4213,6 +4259,14 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     const bool ik=g_ikOn.load();
     if(!ik)IkResetPose();
     g_msPassThrough = !ik && dvr::anim::native_full_arms();
+    if (g_msPassThrough && dvr::anim::in_cinematic()) {
+        // CineHideStaticArms: only THIS geometry (the arm mesh the split was built from), never another draw.
+        MsContract hc; const char* hwhy = NULL;
+        if (MsQualify(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount, &hc, &hwhy)) {
+            MsSampleArmSpeed();
+            if (MsCineHideStatic(dev)) { g_msDraws++; return true; }   // drawing nothing IS the answer
+        }
+    }
     if (g_msPassThrough) return false;
     const bool nativeHands=nativePose && !g_msPassThrough;
     if (g_msMode == MS_MODE_OFF && !nativeHands && !ik) return false;

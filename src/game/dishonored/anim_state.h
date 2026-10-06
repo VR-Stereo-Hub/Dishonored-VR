@@ -28,6 +28,9 @@ bool mantle_enabled();
 void set_mantle(bool on);
 bool takedown_arms_hidden();          // [Anim] HideTakedownArms (VR-283): takedowns draw split hands, arms hidden
 void set_takedown_arms_hidden(bool on);
+bool cine_hide_static();             // [Anim] CineHideStaticArms: hide still cutscene arms whose hands are behind the camera
+void set_cine_hide_static(bool on);
+bool in_cinematic();                 // a cutscene is running (published only while CineHideStaticArms is on)
 bool hand_anim_melee();   // [Anim] HandAnimMelee: sword swings play the game animation on the hands
 bool hand_anim_fire();    // [Anim] HandAnimFire: shots (*Fire* clips) play the game animation on the hands
 void set_hand_anim_melee(bool on);

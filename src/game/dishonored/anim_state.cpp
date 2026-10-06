@@ -63,6 +63,12 @@ unsigned blendInMs = 250, blendOutMs = 350;
 // pose blend. A hide-player cinematic (Kismet bHidePlayer) also has the pawn unhidden while
 // the body mode is arms-only, through the game's own setter. Off = CinematicHandBack rules.
 bool cinematicArms = false;
+// [Anim] CineHideStaticArms (2026-10-05, default 0): in a cutscene where the game shows its own arms,
+// hide them while they hold STILL with both hands BEHIND the camera (the opening cutscene leaves them
+// in a fixed pose pointing back past the head). The test runs on the draw lane (mesh_split.cpp,
+// MsCineHideStatic); this lane publishes only whether a cutscene is running (cineNow).
+bool cineHideStatic = false;
+std::atomic<bool> cineNow{false};
 void apply_shape() { handoff.smooth=smoothBlend.load(); handoff.inMs=blendInMs; handoff.outMs=blendOutMs; }
 // Mantle is controlled independently by MantleHandBack. The previous controller
 // preference remains the default; the current cinematic-comfort test enables it.
@@ -414,6 +420,15 @@ Snapshot snapshot() {
     ReleaseSRWLockShared(&lock); return s;
 }
 bool mantle_enabled() { AcquireSRWLockShared(&lock); bool on=mantleHandback; ReleaseSRWLockShared(&lock); return on; }
+bool cine_hide_static() { AcquireSRWLockShared(&lock); bool on=cineHideStatic; ReleaseSRWLockShared(&lock); return on; }
+bool in_cinematic() { return cineNow.load(); }
+void set_cine_hide_static(bool on) {
+    AcquireSRWLockExclusive(&lock); cineHideStatic=on; ReleaseSRWLockExclusive(&lock);
+    if (!on) cineNow.store(false);
+    Log("anim: CineHideStaticArms=%d (live; %s)",on?1:0,
+        on?"in a cutscene the game's arms are hidden while they hold still with both hands behind the camera"
+          :"cutscene arms are drawn as the game poses them");
+}
 bool takedown_arms_hidden() { AcquireSRWLockShared(&lock); bool on=hideTakedownArms; ReleaseSRWLockShared(&lock); return on; }
 void set_takedown_arms_hidden(bool on) {   // VR-283
     AcquireSRWLockExclusive(&lock); hideTakedownArms=on; ReleaseSRWLockExclusive(&lock);
@@ -775,6 +790,10 @@ void tick() {
     // also run in ordinary states (the intro's walk-in with Emily was StatePlayerMasterWalk).
     const bool cineMode=cinematicArms && ctrlLive && read_flag(g_peCtrl,cineProps.modeOff,cineProps.modeMask)==1;
     const bool cineArms=cinematicArms && (dvr::scene_state::cinematic(s.state[0]) || cineMode);
+    {   // CineHideStaticArms: a cutscene is running (the FSM state, or bCinematicMode once resolved)
+        const int anyMode=(cineHideStatic && ctrlLive && cineProps.tried) ? read_flag(g_peCtrl,cineProps.modeOff,cineProps.modeMask) : -1;
+        cineNow.store(cineHideStatic && s.valid && (dvr::scene_state::cinematic(s.state[0]) || cineMode || anyMode==1));
+    }
     if (!cineArms) { cineMotion=MotionGate{}; cineStats=CineMotionStats{}; cineGateOpen.store(false); cineRefVeto.store(false); }
     const bool cineAnim=cineArms && s.valid && cine_animating(s,pawn);
     const bool rules=(!cineArms && resolve_arm_rule(0,s.state[0])) || resolve_arm_rule(1,s.state[1]) || resolve_arm_rule(2,s.state[2]);
@@ -807,7 +826,9 @@ void tick() {
     if (s.valid) text(s.reason,sizeof(s.reason),match?(cineAnim?"cinematic: the game animates the arms":s.mantleSplit?(swing?"swing native pose with split hands (trigger attack)":fire?"shot native pose with split hands":takedownSplit?"takedown native pose with split hands":"mantle native pose with split hands"):"selected animation arms"):classifier.game?"release hysteresis":s.handMask?"returning to tracked hands":cineArms?"cinematic: tracked arms (CinematicArms)":"no selected active action");
     published=s;
     const bool cineArmsOn=cinematicArms;
+    const bool cineHideOn=cineHideStatic;
     ReleaseSRWLockExclusive(&lock);
+    if (cineHideOn) cine_resolve();   // bCinematicMode for CineHideStaticArms (one name walk a session, outside the lock)
     cine_visibility(pawn,s,cineArmsOn,ctrlLive?g_peCtrl:nullptr);   // outside the lock: it calls into the engine
     if (s.valid!=previous.valid || s.game!=previous.game || memcmp(s.state,previous.state,sizeof(s.state)) || s.bodyMode!=previous.bodyMode || strcmp(s.sequence,previous.sequence) || now>=nextBeat) {
         report(s); nextBeat=now+5000;
@@ -845,6 +866,9 @@ void configure(const char* ini) {
     mantleHandback=GetPrivateProfileIntA("Anim","MantleHandBack",1,ini)!=0;
     Log("config: [Anim] MantleHandBack=%d",mantleHandback);
     hideTakedownArms=GetPrivateProfileIntA("Anim","HideTakedownArms",0,ini)!=0;   // VR-283
+    cineHideStatic=GetPrivateProfileIntA("Anim","CineHideStaticArms",0,ini)!=0;
+    Log("config: [Anim] CineHideStaticArms=%d (%s)",cineHideStatic,
+        cineHideStatic?"cutscene arms held still behind the camera are hidden":"cutscene arms drawn as posed");
     Log("config: [Anim] HideTakedownArms=%d (%s)",hideTakedownArms,
         hideTakedownArms?"takedowns and fatalities: game-animated hands, forearms hidden at the sleeve length":"takedowns and fatalities: full game arms");
     handAnimMelee=GetPrivateProfileIntA("Anim","HandAnimMelee",1,ini)!=0;
@@ -916,6 +940,7 @@ void save(const char* ini) {
     WritePrivateProfileStringA("Anim","CinematicHandBack",c?"1":"0",ini);
     WritePrivateProfileStringA("Anim","MantleHandBack",mantle?"1":"0",ini);
     WritePrivateProfileStringA("Anim","HideTakedownArms",takedown_arms_hidden()?"1":"0",ini);   // VR-283
+    WritePrivateProfileStringA("Anim","CineHideStaticArms",cine_hide_static()?"1":"0",ini);
     WritePrivateProfileStringA("Anim","HandAnimMelee",hm?"1":"0",ini);
     WritePrivateProfileStringA("Anim","HandAnimMeleeRev","1",ini);            // VR-220: a saved value is this machine's choice
     WritePrivateProfileStringA("Anim","HandAnimMeleeSwing",hs?"1":"0",ini);   // VR-220

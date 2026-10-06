@@ -27,6 +27,14 @@ Branch `claude/steamvr-launch` off staging `93785a460` (the flicker audit merged
   at 100% with DLSS to 2750x2850; at 150% the capture copy and per-present rebuild/DLSS make it
   GPU-bound (PERFORMANCE).
 
+- Grab fix: the ready/grab hand started from (and closed into) another hand's grip - the open
+  pose was copied every frame both hands READ empty (the read lags an item draw) and the fist
+  was the right hand's live game pose. Both are latched now (`dvr::grab::PoseLatch`, 1.5 s).
+- `[Anim] CineHideStaticArms` (default 0): hides the game's cutscene arms while still with both
+  hands behind the camera. Check the sign of the `cine/hidearms:` depths on the first run.
+- ReShade field failure (error 1114 on 1.0.3) is fixed on staging by 758eb9124; the host suite
+  now covers a game folder with no ReShade.ini.
+
 **Next:** a SteamVR-rig check of the shim from an elevated game (Steam run as administrator):
 the log must say `loader property override XR_RUNTIME_JSON -> set (the SteamVR shim)` and
 `instance created on runtime 'DishonoredVR SteamVR shim (OpenVR)'`.

@@ -245,6 +245,12 @@ static void OvlTabHands()
             dvr::anim::set_takedown_arms_hidden(takedownArms);
             ConfigWriteKey("Anim", "HideTakedownArms", takedownArms ? "1" : "0", "F10 Hands");
         }
+        bool cineHide = dvr::anim::cine_hide_static();
+        if (dvr::ovl::checkbox("Hide still cutscene arms pointing behind you", &cineHide)) {
+            dvr::anim::set_cine_hide_static(cineHide);
+            ConfigWriteKey("Anim", "CineHideStaticArms", cineHide ? "1" : "0", "F10 Hands");
+        }
+        OvlTip("In a cutscene, the game's arms are hidden while they hold still with both hands behind your head.");
         ImGui::EndDisabled();
         OvlTip(ikArms ? "Not used while full-arm IK draws the arms; it applies again if IK is off or falls back to hands."
                       : "Assassinations on the ground and from the air, chokes and combat kills show the game's animated hands "
