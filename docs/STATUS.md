@@ -1,3 +1,17 @@
+## 2026-10-05: 1.0.4 release candidate on claude/steamvr-launch (PR #187, not merged)
+
+**Current state.** Version 1.0.4 (CMakeLists). #187 carries: the SteamVR shim when elevated, the capture
+AutoDepth threshold lever, field log noise, latched grab poses, carry in the grabbing hand (mirrored ray),
+the approved defaults with a one-time `[Meta] DefaultsRev` upgrade, the IK and Heart data shipped inside
+the DLL (`assets/vr/`, owner's decision in CLAUDE.md), the F10 Interact tab and clearer section names,
+and every host suite repaired and passing. The cutscene arm hide does not catch the boat ride; it is off
+by default and listed in KNOWN_ISSUES. RELEASE_NOTES has the 1.0.4 section.
+
+**Next.** The owner merges #187 into staging, then the release PR staging -> VR-Main (`release: v1.0.4`),
+then `tools\package.ps1` on the VR-Main tip, the v1.0.4 tag and the GitHub release with the zip, the
+setup exe and `DishonoredVR-Launcher-v1.0.4.exe` (LINEAR_AND_GITHUB.md, the release ritual and the
+launcher update contract).
+
 ## 2026-10-05: SteamVR not selected when the game runs as administrator; field log noise
 
 Branch `claude/steamvr-launch` off staging `93785a460` (the flicker audit merged as #186).
