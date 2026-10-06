@@ -18,6 +18,7 @@ static bool WriteDefaultIni(const char* ini)
         "; (auto-refreshed when the mod's defaults change)\n"
         "[Meta]\n"
         "Version=%d\n"
+        "DefaultsRev=1\n"
         "[Tracking]\n"
         "; head tracking drives the game camera via mouse emulation.\n"
         "; Calibrate: pick a landmark, turn your head 90 degrees; if the\n"
@@ -46,7 +47,7 @@ static bool WriteDefaultIni(const char* ini)
         "; frame. A load screen is quiet on every interval and still drops to mono. 0 = the\n"
         "; shipped rule. Live: `reentry silentgrace on|off`, F10 Display. The `reentry: beat`\n"
         "; line's silentGrace= counts the ticks it kept.\n"
-        "CameraSilentGrace=0\n"
+        "CameraSilentGrace=1\n"
         "; Occlusion (VR-79): native = the engine's culling as shipped, both eyes share one\n"
         "; history and an object hidden from one eye can vanish from both; pereye = the right\n"
         "; eye gets its own view state, so each eye culls only what IT cannot see; off = no\n"
@@ -208,11 +209,11 @@ static bool WriteDefaultIni(const char* ini)
         "; taken from the current resolution when SR is first turned on; the F10 resolution sets it while SR is\n"
         "; on). [Screen] RenderWidth/Height then hold the reduced size. Live: dlss quality <n>, dlss output <w> <h>.\n"
         "DlssQuality=0\n"
-        "; DlssModel: 1 fast (CNN presets E/F, the default: about 2 ms per eye image in play), 0 transformer\n"
-        "; (preset K, the sharpest image, about 4 ms: measured 14 percent slower at Ultra Quality on an RTX 4070\n"
+        "; DlssModel: 0 transformer (preset K, the default again 2026-10-05: the sharpest image), 1 fast (CNN\n"
+        "; presets E/F, about 2 ms per eye image against K's 4: measured 14 percent faster at Ultra Quality on an RTX 4070\n"
         "; Ti SUPER, 2026-10-05). DlssPreset nonzero overrides it: 10 J, 11 K, 12 L, 13 M (NVIDIA presets),\n"
         "; 16 NVIDIA's pick per mode (K, M for Performance, L for Ultra Performance). F10: the DLSS model list.\n"
-        "DlssModel=1\n"
+        "DlssModel=0\n"
         "DlssOutputWidth=0\n"
         "DlssOutputHeight=0\n"
         "; DlssMask=1 (A/B, off): pixels the camera vectors cannot explain (arms, weapon, NPCs) take\n"
@@ -867,7 +868,7 @@ static bool WriteDefaultIni(const char* ini)
         "RouteByDrawOrder=0\n"
         "DrawOrderHands=-1,-1,-1,-1,-1,-1,-1,-1\n"
         "[Hands]\n"
-        "HeartBack=0\n"
+        "HeartBack=1\n"
         "RoundedWrist=1\n"
         "RoundedWristDepth=0.570\n"
         "PaletteEyeMenuHalfStep=1\n"
@@ -917,7 +918,7 @@ static bool WriteDefaultIni(const char* ini)
         "CrouchDropUU=20\n"
         "CrouchHoldMs=250\n"
         "CrouchDiag=0\n"
-        "CrouchToggle=0\n"
+        "CrouchToggle=1\n"
         "CrouchButtonMask=8192\n"
         "CrouchMaskVer=2\n"
         "GraftRotation=0\n"
@@ -968,7 +969,7 @@ static bool WriteDefaultIni(const char* ini)
         "; (found by its camera position) instead of a sample two presents back and an eye\n"
         "; guessed from a jump. Aimed at the slight hand/weapon flicker on fast head turns.\n"
         "; 0 = the previous path. F10 Advanced > Hands > Head-turn smoothing.\n"
-        "PoseFromView=0\n"
+        "PoseFromView=1\n"
         "PaletteEyeAlternate=0\n"
         "PaletteEyeFromMeasured=0\n"
         "PaletteEyeHunt=0\n"
@@ -987,7 +988,7 @@ static bool WriteDefaultIni(const char* ini)
         "; Full-arm IK (experimental). Shared resting shoulders, independent reach correction.\n"
         "; Requires locally prepared dishonored_vr_arm_rig.bin in Paths/DataDir.\n"
         "; Native hands/fingers still animate; IK replaces the arm pose. L3+R3 / F10: IK tab.\n"
-        "ArmIK=0\n"
+        "ArmIK=1\n"
         "ArmShoulderForwardCm=-6\n"
         "ArmShoulderRightCm=0\n"
         "ArmShoulderUpCm=-20\n"
@@ -1006,11 +1007,11 @@ static bool WriteDefaultIni(const char* ini)
         "OpenEmptyRightHand=1\n"
         "; GrabAnim=1: a grip that picks something up or uses it (PhysicalPickup) plays a grab on that\n"
         "; hand: the fingers shape flat, close into a fist, stay closed while the grip is held and\n"
-        "; return. Off by default until it is accepted in a headset. The times are in ms: shape (to\n"
+        "; return. On by default (accepted in a headset 2026-10-05). The times are in ms: shape (to\n"
         "; flat, scaled by how closed the hand is: none when it is already open), close (flat to\n"
         "; fist), hold (the least time closed), release, and lag (how far the fingertips trail the\n"
         "; knuckles). Live: grab on|off, grab test left|right, grab time ...\n"
-        "GrabAnim=0\n"
+        "GrabAnim=1\n"
         "GrabAnimShapeMs=75\n"
         "GrabAnimCloseMs=110\n"
         "GrabAnimHoldMs=90\n"
@@ -1018,10 +1019,10 @@ static bool WriteDefaultIni(const char* ini)
         "GrabAnimLagMs=20\n"
         "; GrabReadyOpen=1 / GrabReadyHide=1: while a hand is close enough that its grip would pick\n"
         "; something up or use it, that hand opens like the sheathed hand and what it holds is not\n"
-        "; drawn, until it leaves reach (or a grab ends). Off by default until accepted in a headset.\n"
+        "; drawn, until it leaves reach (or a grab ends). On by default (accepted 2026-10-05).\n"
         "; Live: grab ready open|hide on|off.\n"
-        "GrabReadyOpen=0\n"
-        "GrabReadyHide=0\n"
+        "GrabReadyOpen=1\n"
+        "GrabReadyHide=1\n"
         "WeaponId=0\n"
         "WeaponIdMs=1500\n"
         "PaletteFrameTol=0.0200\n"
@@ -1377,7 +1378,7 @@ static bool WriteDefaultIni(const char* ini)
         "; HideTakedownArms (VR-283): takedowns (ground and aerial), chokes and combat kills\n"
         "; show the game-animated hands without forearms, cut at the F10 Sleeve length, like\n"
         "; mantling. 0 = the game's full arms. F10 Advanced > Hands > Game arms during actions.\n"
-        "HideTakedownArms=0\n"
+        "HideTakedownArms=1\n"
         "; CineHideStaticArms=1: in a cutscene that shows the game's arms, hide them while they hold\n"
         "; still with both hands behind the camera (the opening cutscene leaves them pointing back past\n"
         "; your head). Live: cinehidearms on|off, F10 Advanced > Hands.\n"
@@ -1902,6 +1903,22 @@ static void LoadConfig()
             keepJson[0] ? " - kept [VR] XrRuntimeJson" : "",
             keepRt[0] ? " - kept [VR] Runtime" : "");
     }
+    // 2026-10-05: the headset-accepted defaults reach EXISTING inis once. A version bump would rewrite the
+    // whole file; these keys alone are written, once ([Meta] DefaultsRev), and every other setting stays. A
+    // fresh ini already carries them and DefaultsRev=1.
+    if (!missing && GetPrivateProfileIntA("Meta", "DefaultsRev", 0, ini) < 1) {
+        static const char* const kRev1[][3] = {
+            { "Stereo", "CameraSilentGrace", "1" }, { "Hands", "GrabAnim", "1" }, { "Hands", "GrabReadyOpen", "1" },
+            { "Hands", "GrabReadyHide", "1" }, { "Anim", "HideTakedownArms", "1" }, { "Hands", "PoseFromView", "1" },
+            { "Hands", "ArmIK", "1" }, { "Hands", "HeartBack", "1" }, { "Hands", "CrouchToggle", "1" },
+            { "Clarity", "DlssModel", "0" }, { "Aim", "PhysicalPickupReachCm", "60" },
+            { "Aim", "PhysicalPickupBookReachCm", "74" }, { "Aim", "PhysicalDoorReachCm", "75" } };
+        for (const auto& k : kRev1) WritePrivateProfileStringA(k[0], k[1], k[2], ini);
+        WritePrivateProfileStringA("Meta", "DefaultsRev", "1", ini);
+        Log("config: defaults revision 1 applied once to this ini - CameraSilentGrace, GrabAnim, GrabReadyOpen/Hide, "
+            "HideTakedownArms, PoseFromView, ArmIK, HeartBack, CrouchToggle on; DlssModel 0 (K); reach 60/74/75 cm. "
+            "Every other key is unchanged");
+    }
     {   // [Paths] DataDir: where the harness files go. Applied before any of
         // them is written (the command seam and status.json start after the
         // config); the dev PC's tool sandbox virtualizes writes under the user
@@ -2034,7 +2051,7 @@ static void LoadConfig()
             // FSR (2026-09-27): not in the default ini on purpose; a missing key is DLSS.
             dvr::dlss::set_backend((int)IniFloat(ini, "Clarity", "Upscaler", 0), "ini");
             dvr::dlss::set_fsr_version((int)IniFloat(ini, "Clarity", "FsrVersion", 0), "ini");
-            dvr::dlss::set_model((int)IniFloat(ini, "Clarity", "DlssModel", 1), "ini");
+            dvr::dlss::set_model((int)IniFloat(ini, "Clarity", "DlssModel", 0), "ini");
             dvr::dlss::set_output((uint32_t)IniFloat(ini, "Clarity", "DlssOutputWidth", 0), (uint32_t)IniFloat(ini, "Clarity", "DlssOutputHeight", 0), "ini");
             dvr::dlss::set_mask(IniFloat(ini, "Clarity", "DlssMask", 0) != 0.0f, "ini");
             dvr::dlss::set_object_motion(IniFloat(ini, "Clarity", "DlssObjectMotion", 0) != 0.0f, "ini");   // VR-39
@@ -2697,7 +2714,7 @@ static void LoadConfig()
     if (g_graftHCY < -2.0f || g_graftHCY > 2.0f) g_graftHCY = 1.5f;
     if (g_graftHCP < -2.0f || g_graftHCP > 2.0f) g_graftHCP = 1.5f;
     g_blkProbeForce   = IniFloat(ini, "Blink", "BlinkProbe", 0) != 0.0f;
-    g_crouchToggle    = IniFloat(ini, "Hands", "CrouchToggle", 0) != 0.0f;
+    g_crouchToggle    = IniFloat(ini, "Hands", "CrouchToggle", 1) != 0.0f;
     g_elixirOn     = IniFloat(ini, "Input", "HealthElixirLongPress", 1) != 0.0f;  // 36.6
     g_elixirHoldMs = IniFloat(ini, "Input", "HealthElixirHoldMs", 400.0f);  // 36.7:
     if (g_elixirHoldMs < 150.0f)  g_elixirHoldMs = 150.0f;  // dedicated input now -
@@ -2893,7 +2910,7 @@ static void LoadConfig()
     g_mpEyeMenuHalfStep = IniFloat(ini,"Hands","PaletteEyeMenuHalfStep",0)!=0;
     Log("config: [Hands] PaletteEyeMenuHalfStep=%d - menu signed half-IPD jump candidate; no toggle prediction",(int)g_mpEyeMenuHalfStep);
     g_mpEyePredict    = IniFloat(ini, "Hands", "PaletteEyePredictToggle", 0) != 0.0f;
-    g_mpPoseFromView  = IniFloat(ini, "Hands", "PoseFromView", 0) != 0.0f;
+    g_mpPoseFromView  = IniFloat(ini, "Hands", "PoseFromView", 1) != 0.0f;
     Log("config: [Hands] PoseFromView=%d - %s", (int)g_mpPoseFromView,
         g_mpPoseFromView ? "hand draws use their own view's head sample and eye (found by c5 in the pose records)"
                          : "hand draws use the head two presents back and the jump-classified eye (the previous path)");
@@ -2918,7 +2935,7 @@ static void LoadConfig()
     g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 1) != 0.0f;
     g_mpAnchorHandBone = IniFloat(ini, "Hands", "AnchorBone", 1) != 0.0f;   // VR-183: palm frame from the hand bone
     g_msRigidWrist = IniFloat(ini, "Hands", "RigidWrist", 1) != 0.0f;         // VR-184: the wrist cut and cap rigid with the hand
-    g_ikOn = IniFloat(ini, "Hands", "ArmIK", 0) != 0.0f;
+    g_ikOn = IniFloat(ini, "Hands", "ArmIK", 1) != 0.0f;
     auto ikFloat = [&](const char* key, float def, float lo, float hi) {
         const float v=IniFloat(ini,"Hands",key,def);
         return std::isfinite(v)?std::clamp(v,lo,hi):def;
@@ -3145,7 +3162,7 @@ static void LoadConfig()
     g_sdSceneQuietMs  = IniFloat(ini, "Stereo", "SceneQuietMs", 400.0f);
     if (g_sdSceneQuietMs < 50.0f)   g_sdSceneQuietMs = 50.0f;
     if (g_sdSceneQuietMs > 2000.0f) g_sdSceneQuietMs = 2000.0f;
-    g_sdSilentGrace = IniFloat(ini, "Stereo", "CameraSilentGrace", 0) != 0.0f;
+    g_sdSilentGrace = IniFloat(ini, "Stereo", "CameraSilentGrace", 1) != 0.0f;
     Log("config: [Stereo] CameraSilentGrace=%d (resolved; absent = 0 = the camera-silent gate's shipped rule)",
         g_sdSilentGrace ? 1 : 0);
     // VR-62: the movie-player probe. Read-only observation, and it ships ON for

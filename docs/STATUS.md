@@ -43,6 +43,15 @@ Branch `claude/steamvr-launch` off staging `93785a460` (the flicker audit merged
   Not run. `carry/aim: carrying a movable in the RIGHT hand` and `crosshair: ray hand RIGHT for a carry`
   are the lines to read.
 
+- Defaults revision 1 (2026-10-05, approved): CameraSilentGrace, GrabAnim, GrabReadyOpen/Hide,
+  HideTakedownArms, PoseFromView, ArmIK, HeartBack, CrouchToggle on; DlssModel 0 (K) again, in the code,
+  the default ini and the launcher. `[Meta] DefaultsRev` writes exactly these keys (and the reach values)
+  into an existing ini once; nothing else changes. Stereo method stays reentry.
+- ArmIK and HeartBack need game-derived files (the arm rig, the Heart rig/back/material) that the repo
+  rule forbids committing. Without them both fall back silently. Shipping them needs a per-machine
+  generation step; not decided.
+- Right-hand carry fixed: it now mirrors the left hand's measured ray (it waited for a bolt axis).
+
 **Next:** a SteamVR-rig check of the shim from an elevated game (Steam run as administrator):
 the log must say `loader property override XR_RUNTIME_JSON -> set (the SteamVR shim)` and
 `instance created on runtime 'DishonoredVR SteamVR shim (OpenVR)'`.

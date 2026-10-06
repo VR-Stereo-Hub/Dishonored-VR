@@ -4022,8 +4022,8 @@ static void GrabAnimConfigure(const char* ini)
     g_grT.holdMs    = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimHoldMs", 90), 0, 2000);
     g_grT.releaseMs = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimReleaseMs", 130), 40, 1000);
     g_grT.lagMs     = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimLagMs", 20), 0, 200);
-    GrabAnimSet(IniFloat(ini, "Hands", "GrabAnim", 0) != 0.0f, "ini [Hands] GrabAnim");
-    GrabReadySet(IniFloat(ini, "Hands", "GrabReadyOpen", 0) != 0.0f, IniFloat(ini, "Hands", "GrabReadyHide", 0) != 0.0f,
+    GrabAnimSet(IniFloat(ini, "Hands", "GrabAnim", 1) != 0.0f, "ini [Hands] GrabAnim");
+    GrabReadySet(IniFloat(ini, "Hands", "GrabReadyOpen", 1) != 0.0f, IniFloat(ini, "Hands", "GrabReadyHide", 1) != 0.0f,
                  "ini [Hands] GrabReadyOpen / GrabReadyHide");
 }
 // The five times in ms: shape, close, hold, release, lag (F10 and the seam).

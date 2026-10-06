@@ -865,7 +865,7 @@ void configure(const char* ini) {
     Log("config: [Anim] CinematicHandBack=%d",cinematicHandback);
     mantleHandback=GetPrivateProfileIntA("Anim","MantleHandBack",1,ini)!=0;
     Log("config: [Anim] MantleHandBack=%d",mantleHandback);
-    hideTakedownArms=GetPrivateProfileIntA("Anim","HideTakedownArms",0,ini)!=0;   // VR-283
+    hideTakedownArms=GetPrivateProfileIntA("Anim","HideTakedownArms",1,ini)!=0;   // VR-283
     cineHideStatic=GetPrivateProfileIntA("Anim","CineHideStaticArms",0,ini)!=0;
     Log("config: [Anim] CineHideStaticArms=%d (%s)",cineHideStatic,
         cineHideStatic?"cutscene arms held still behind the camera are hidden":"cutscene arms drawn as posed");
