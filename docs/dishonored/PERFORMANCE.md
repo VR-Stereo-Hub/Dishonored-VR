@@ -57,6 +57,14 @@ window rather than inferred. It cannot say which eye a repeated slot showed.
 Not changed: no pacing or render lever; the two instruments are logging only; the
 depth-share bound is a bound on a diagnostic.
 
+**Headset run 1, same day (build `-103`, 877 s):** the stall is on the network path. 97 stalls
+inside a 600 s ping trace of the headset (50 Hz, median RTT 5 ms): 91 (94%) had an RTT spike
+(>= 15 ms) or a lost ping within +-150 ms, against 28% (p95) for random stall times; folding the
+ping trace at the stall period (5.656 s) puts its spike peak (3.4x the mean) on the stalls'
+phase. The PC is wired; the headset is on Wi-Fi. The depth-share checks cost 2.18, 1.59 and 0.52
+ms. The submit cadence read 1.23 slots per frame by the wall clock (117.5 presents/s); its
+display-time skip count (2.45%) under-reports on VDXR and is not a measure there.
+
 ## 2026-10-05: the unattended audit run - measured, and in which configuration
 
 One headset run of `tools/perf-plans/audit-all.txt` (41 segments of 20 s, 4 s warm-up each) on

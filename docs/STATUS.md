@@ -1,3 +1,17 @@
+## 2026-10-05: audit headset run 1 read
+
+Build `v1.0.3-103-g889315d37`, 877 s, afw, ping trace beside it (FLICKER_REFERENCE top entry).
+- F1 `CameraSilentGrace=1`: camera-silent gates 0 (baseline 7 in 10 min), double pushes 0,
+  stale eyes 0, held presents 0. It also keeps the pause menu and notes at full-rate stereo
+  (442 and 161 kept ticks there) instead of alternating single/double ticks: the perceptual
+  verdict, especially in pause and notes, is the open question before it becomes a default.
+- F9: the 5.66 s stall is the NETWORK PATH to the headset (94% of stalls coincide with a ping
+  spike, chance 28%; the fold agrees). The PC is wired, so the radio side is the suspect. Next
+  run: two traces at once, `net-ping-watch.ps1 -Target <router ip>` and `-FromStreamer`.
+- F8 checks cost 2.2/1.6/0.5 ms (small; bound kept). F11 raw bytes on VDXR as predicted. F3:
+  1.23 slots per frame; the skipped-slot percentage under-reports on VDXR.
+- Fixed: the ping tool's empty clock column (PowerShell 5.1), the correlator's null control.
+
 ## 2026-10-05: full stereo/afw flicker and smoothness audit - four changes built, installed, not yet run
 
 **Current state.** Branch `claude/flicker-audit` off `staging` `6329ae552`, draft PR against

@@ -1,3 +1,15 @@
+## 2026-10-05: TickCount64 is not there in Windows PowerShell 5.1
+
+`tools\net-ping-watch.ps1` stamped each sample with `[Environment]::TickCount64`, which exists on
+.NET Core 3.0+ only. Windows PowerShell 5.1 runs on .NET Framework, the property evaluated to
+nothing, and the first headset trace had an empty clock column - the one column it was written
+for. Recovered through the file name and the boot time (+-1 s), which also broke the first
+correlator's fixed-offset comparison until the offset was searched.
+- A script that must run under `powershell.exe` is written for .NET Framework 4.x: test it on
+  5.1, not on `pwsh`. The log's clock is GetTickCount: `[int64][Environment]::TickCount -band
+  [int64]4294967295`.
+- A smoke run must look at the column the tool exists for, not only at its summary.
+
 ## 2026-10-05: six host suites that did not compile, counted as guards
 
 The flicker audit ran every `tools\*-host.ps1` on the staging tip. Six threw at the

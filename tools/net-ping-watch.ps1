@@ -14,8 +14,9 @@
 #   .\tools\net-ping-watch.ps1 -Target 192.168.137.52 -Minutes 5
 #   .\tools\net-ping-watch.ps1 -FromStreamer -Minutes 5     # finds the headset as the streamer's peer
 #
-# Output: %LOCALAPPDATA%\DishonoredVR\pingwatch-<stamp>.csv (tick = [Environment]::TickCount64,
-# the mod log's `[  NNNNNNNN]` column; rtt in ms, -1 = no reply) and a summary with the
+# Output: %LOCALAPPDATA%\DishonoredVR\pingwatch-<stamp>.csv (tick = GetTickCount, the low 32 bits of
+# [Environment]::TickCount: the mod log's `[  NNNNNNNN]` column. TickCount64 does not exist on
+# Windows PowerShell 5.1 and wrote an empty column on the first run; rtt in ms, -1 = no reply) and a summary with the
 # spike timestamps and the intervals between them, so a 5.66 s beat is read off directly.
 # Local output only; nothing here is committed. Never launches anything.
 param(
@@ -57,7 +58,7 @@ for ($i = 0; $i -lt $n; $i++) {
     $due = $i * $intervalMs
     $wait = $due - $sw.Elapsed.TotalMilliseconds
     if ($wait -gt 1) { Start-Sleep -Milliseconds ([int]$wait) }
-    $tick = [Environment]::TickCount64
+    $tick = [int64][Environment]::TickCount -band [int64]4294967295   # GetTickCount: the log's clock
     $t0 = $sw.Elapsed.TotalMilliseconds
     $rtt = -1.0; $status = "none"
     try {
