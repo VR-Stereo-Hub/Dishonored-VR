@@ -1,3 +1,55 @@
+## 2026-10-05: full stereo/afw flicker and smoothness audit - four changes built, installed, not yet run
+
+**Current state.** Branch `claude/flicker-audit` off `staging` `6329ae552`, draft PR against
+`staging`, no merge. Every section 1 row of FLICKER_REFERENCE was re-derived from today's
+code, every section 4 elimination re-checked, 55 host suites run (6 repaired, 4 still
+stale, named in VERIFICATION), the ten logs on disk read (the installed `-96` build had
+never run; the newest headset log is build `-85`). The record is FLICKER_REFERENCE: the
+2026-10-05 entries, section 4.4 and appendix 9 (the matrix, the cases and invariants, the
+pipeline map, the headset risks in order). Findings, in the order they reach the headset:
+
+- F1, MEASURED cause, candidate built: the gameplay camera-silent gate's baseline is the
+  previous draw's RETURN, so a present stall or a catch-up tick makes a single-eye tick
+  (0.7/min in gameplay; under afw one eye a tick behind for one present). `[Stereo]
+  CameraSilentGrace` (default 0, host-verified 254,276 checks, armed =1 in the installed ini).
+- F9, MEASURED, OPEN: xrEndFrame blocks 5-6 display slots every 5.66 s of wall clock in
+  every VDXR 144 Hz session since 1.0.1-253 (never on the simulator; no mod timer has that
+  period). `tools\net-ping-watch.ps1 -FromStreamer` during one session decides link vs PC.
+- F8, fixed: the depth-share proof synced both devices on the present thread every 5 s all
+  afw session; bounded to three checks (`[Diagnostics] DepthShareChecks`), cost now logged.
+- F11, resolved: the simulator's per-eye exposure alternation was the afw rebuild through a
+  typed sRGB view; the compose decodes (`afw typedsrgb on|off`); no headset effect.
+- F3, filled: `stereo: rate` now prints the afw SUBMIT CADENCE (it read n/a for the played
+  method). Negatives and retractions: 4.4 (afw ring skew: measured zero; markers-sharp
+  flood: not current; six levers ship 1 in the ini with a code default of 0; the packaged
+  ini had fallen behind the writer and is regenerated).
+
+**Installed (2026-10-05):** the Release build of this branch's tip - the log banner names
+THIS commit (`v1.0.3-103-g<this hash>`; the DLL's sha256 and the exact tag are in
+`install-note.txt` of the backup folder below), byte-identical to the build; the previous
+`v1.0.3-96-g6329ae552` (never
+run), the whole ini and all ten logs are backed up together in the local log archive
+(`2026-10-05-flicker-audit-install-backup`). The installed ini equals the prepared expected
+ini byte for byte, CRLF verified (1718 lines, no bare LF); the only change against its backup
+is four added lines: `[Stereo] CameraSilentGrace=1` (ARMED for the run) and `[Diagnostics]
+DepthShareChecks=3`, each with a comment. Every other key keeps its value and its meaning
+(`Method=afw`, `DLAA=1`, `DlssModel=0`, `PoseFromView=1`, `ArmIK=1`, the grab keys at 1,
+`ModSpacewarp=0`, `Managed=paged`, 1832x1900, `DataDir=` empty). The DLSS helper in
+`dvr_dlss\` is the one already installed (this worktree has no NGX SDK). No launch.
+
+**Next steps.** One headset session, two questions in one run: (1) F1 - 5 minutes of
+ordinary play then 20 s standing still; `reentry: beat ... silentGrace=on N` must rise with
+movement while gameplay `gates -> SINGLE draw (camera silent` and `pushed eye -1 TWICE` fall
+to zero, and stay flat standing still (a still camera must still read SINGLE); any eye swap
+or new `STALE . EYE` retires the lever with `reentry silentgrace off`. (2) F9 - run
+`tools\net-ping-watch.ps1 -FromStreamer -Minutes 5` during the same session and lay its
+spike ticks against `perf: frame gap` ticks. Read without doing anything: the three
+`depthshare: check ... cost` lines, the `SUBMIT CADENCE` figures, the one-time `afw/warp:
+the rebuilt eye is written through a format-...` line (must say raw bytes on VDXR). After
+that: the lever census in TRAPS (six code defaults behind the shipped ini), F1b (afw
+alternation after a single tick) only if F1 leaves a residual, and VR-165's `popsmooth`
+that cannot act on this build.
+
 ## 2026-10-05: Heart glow locomotion accepted for staging
 
 Headset testing confirms the Heart glow remains aligned during locomotion on
