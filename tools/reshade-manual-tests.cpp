@@ -130,10 +130,18 @@ int main(int argc, char** argv) {
     memset(dvr::log::g_levels,2,sizeof(dvr::log::g_levels));
     const bool noEffects = argc > 1 && !strcmp(argv[1],"--disabled");
     const bool defaultOff = argc > 1 && !strcmp(argv[1],"--default-off");
+    // 2026-10-05: a field log (release 1.0.3) had `reshade: load failed error=1114` in five sessions: ReShade's
+    // DllMain refuses without a ReShade.ini beside the exe. The proxy's load must start it with NO ReShade.ini.
+    const bool noIni = argc > 1 && !strcmp(argv[1],"--no-ini");
     using namespace dvr::reshade_runtime;
     ini_checks();
     SetEnvironmentVariableW(L"RESHADE_DISABLE_GRAPHICS_HOOK",L"host-sentinel");
     load_optional();require(manual(),"manual selected");
+    if(noIni) {
+        require(GetModuleHandleW(L"ReShade32.dll")!=nullptr,"ReShade32.dll starts with no ReShade.ini beside the exe (field error 1114)");
+        require(createRuntime && updateRuntime && destroyRuntime,"official exports present after an ini-less load");
+        puts("PASS: ReShade starts without a ReShade.ini (the 1.0.3 error 1114 case)");return 0;
+    }
     if(defaultOff) {
         require(installed(),"installed runtime discovered when disabled");require(!enabled_next_start(),"missing Enabled is off");
         require(!GetModuleHandleW(L"ReShade32.dll"),"default-off does not load ReShade DLL");require(api()==nullptr,"no public runtime while disabled");

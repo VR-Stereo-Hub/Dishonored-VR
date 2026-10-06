@@ -52,6 +52,10 @@ try {
     "Techniques=`r`nTechniqueSorting=Invert@Test.fx`r`n" | Set-Content -LiteralPath (Join-Path $desktopOut 'test-preset.ini')
     & .\reshade_manual_test.exe --disabled
     if ($LASTEXITCODE -ne 0) { throw 'Disabled-effects native test failed.' }
+    # 2026-10-05: the 1.0.3 field failure - no ReShade.ini beside the exe. The load must still start ReShade.
+    Remove-Item -LiteralPath (Join-Path $desktopOut 'ReShade.ini') -ErrorAction SilentlyContinue
+    & .\reshade_manual_test.exe --no-ini
+    if ($LASTEXITCODE -ne 0) { throw 'No-ReShade.ini native test failed.' }
     "[ReShade]`r`nManualRuntime=1`r`n" | Set-Content -LiteralPath (Join-Path $desktopOut 'dishonored_vr.ini')
     & .\reshade_manual_test.exe --default-off
     if ($LASTEXITCODE -ne 0) { throw 'Default-off native test failed.' }
