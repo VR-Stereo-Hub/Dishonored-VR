@@ -10,6 +10,11 @@ on the view, against the camera forward from the same draw's ViewProjection). On
 arm mesh draw is skipped (`MsQualify`), and only while a cutscene runs (the FSM's cinematic states
 or `bCinematicMode`). Independent of CinematicArms.
 
+First run (2026-10-05): it never armed. The opening scene runs in `StatePlayerMasterSoiree` with the game
+owning the arms and `bCinematicMode` off, which the cutscene test did not count, and under full-arm IK the
+check sat on the non-IK path. It now arms whenever the game owns the arms, IK or not; still + both hands
+behind the camera remains the whole test.
+
 What the first run must check, from `cine/hidearms:` (every 2 s in a cutscene): the hand depths
 read POSITIVE while the arms are in front of the view and negative when they point back; if the
 sign is inverted the lever hides the wrong poses and must stay off. `cine/hidearms: cutscene arms

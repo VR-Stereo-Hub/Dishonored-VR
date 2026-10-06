@@ -4102,7 +4102,7 @@ static void MsSampleArmSpeed()
     if (frame == lastFrame) return;
     lastFrame = frame;
     // Only CinematicArms reads this. With the lever off nothing is measured at all.
-    if (!dvr::anim::cinematic_arms() && !dvr::anim::in_cinematic()) { if (have) { have = false; g_msArmSpeed.store(-1.0f); g_msArmRefPose.store(-1.0f); } return; }
+    if (!dvr::anim::cinematic_arms() && !(dvr::anim::cine_hide_static() && dvr::anim::native_full_arms())) { if (have) { have = false; g_msArmSpeed.store(-1.0f); g_msArmRefPose.store(-1.0f); } return; }
     const int hands[2] = { g_msHandBone[1], g_msHandBone[2] };
     if (g_mpCacheN <= 0 || g_mpCacheN != g_mpPalN || hands[0] < 0 || hands[1] < 0) { have = false; return; }
     const ULONGLONG now = GetTickCount64();
@@ -4261,7 +4261,10 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     g_msPassThrough = !ik && dvr::anim::native_full_arms();
     // CineHideStaticArms: the game owns the arms in a cutscene, with or without full-arm IK (IK draws the
     // game's arm on its shoulder then), so the test runs before either path draws them.
-    if (dvr::anim::native_full_arms() && dvr::anim::in_cinematic()) {
+    // 2026-10-05: not only a flagged cutscene - the opening scene runs in StatePlayerMasterSoiree with the game
+    // owning the arms and bCinematicMode off, and the hide never armed. Still + both hands behind the camera is the
+    // test; any game-owned arm pose qualifies.
+    if (dvr::anim::native_full_arms() && dvr::anim::cine_hide_static()) {
         // CineHideStaticArms: only THIS geometry (the arm mesh the split was built from), never another draw.
         MsContract hc; const char* hwhy = NULL;
         if (MsQualify(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount, &hc, &hwhy)) {
