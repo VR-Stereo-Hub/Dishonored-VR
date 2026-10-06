@@ -5,7 +5,9 @@ $out=Join-Path $repo 'build/animation-action-abi'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 $source=Get-Content (Join-Path $repo 'src/game/dishonored/anim_state.cpp') -Raw
 $begin=$source.IndexOf('__declspec(naked) void action_stub()')
-$end=$source.IndexOf('void report(', $begin)
+# The naked stub alone, to its own closing brace (2026-10-05: code added between it and report() broke
+# the old end marker).
+$end=$source.IndexOf("`n}", $begin) + 3
 if($begin -lt 0 -or $end -le $begin){throw 'Production stub missing'}
 $stub=$source.Substring($begin,$end-$begin)
 $prefix=@'

@@ -5,7 +5,7 @@ $eyeOut = Join-Path $repo 'build\aim-ray-test'
 New-Item -ItemType Directory -Force -Path $eyeOut | Out-Null
 $runtime = [IO.File]::ReadAllText((Join-Path $repo 'src/core/vr/openxr_runtime.cpp'))
 $bodies = ''
-foreach ($name in @('quat_facing','publish_laser_image','build_aim_point','note_aim_visual','build_aim_visual')) {
+foreach ($name in @('quat_facing','fill_laser_pixels','publish_laser_image','aim_point_occluded','build_aim_point','note_aim_visual','build_aim_visual')) {
     $pattern = '(?ms)^(?:XrQuaternionf|bool|void|AimVisualResult) ' + $name + '\(.*?^\}'
     $body = [regex]::Match($runtime, $pattern)
     if (-not $body.Success) { throw "Production function missing: $name" }
