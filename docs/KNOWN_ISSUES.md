@@ -3,9 +3,6 @@
 - Full-arm IK is on by default and its reference data now ships inside the mod (1.0.4); a
   missing or incompatible reference still falls back to floating hands and reports the reason
   in the IK tab.
-- On the opening boat ride the game's arms can sit in a still pose pointing back past your
-  head. The F10 option "Hide still cutscene arms pointing behind you" does not catch that
-  scene yet.
 - A short hitch about every 6 seconds on Virtual Desktop comes from the Wi-Fi link to the
   headset (the headset stops answering for a moment on the same beat), not the game. A
   dedicated 5/6 GHz access point or another channel is the thing to try.

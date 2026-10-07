@@ -46,11 +46,12 @@
 - **ReShade not starting** after installing it from the launcher, and F10 > ReShade listing every effect instead of your preset's (its settings now apply too).
 - **Objective marker text flickering** and HUD pieces splitting apart.
 - **The Heart's glow and the Possession and Blink effects sliding off your hand** while walking.
+- **The still arms pointing behind you on the opening boat ride** are hidden, whichever way you look.
+- **Shoulders in front of you during takedowns and scripted scenes** with full-arm IK: the game's arm now reaches back to your own shoulder (F10 > IK > Game arm stretch limit if it still shows, or looks too long).
 
 ## Known issues
 
 - **A short hitch about every 6 seconds on Virtual Desktop** is the Wi-Fi link to the headset, not the game. A dedicated 5/6 GHz router or another channel is the thing to try.
-- On the opening boat ride the game's arms can sit in a still pose pointing behind you.
 - ReShade presets that need depth still need non-manual ReShade mode. The mod's own spacewarp is still Debug-only.
 
 # Dishonored VR 1.0.3

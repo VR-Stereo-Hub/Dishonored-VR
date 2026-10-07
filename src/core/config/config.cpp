@@ -18,7 +18,7 @@ static bool WriteDefaultIni(const char* ini)
         "; (auto-refreshed when the mod's defaults change)\n"
         "[Meta]\n"
         "Version=%d\n"
-        "DefaultsRev=2\n"
+        "DefaultsRev=3\n"
         "[Tracking]\n"
         "; head tracking drives the game camera via mouse emulation.\n"
         "; Calibrate: pick a landmark, turn your head 90 degrees; if the\n"
@@ -1386,12 +1386,14 @@ static bool WriteDefaultIni(const char* ini)
         "HideTakedownArms=1\n"
         "; CineHideStaticArms=1: in a cutscene that shows the game's arms, hide them while they hold\n"
         "; still with both hands behind the camera (the opening cutscene leaves them pointing back past\n"
-        "; your head). Live: cinehidearms on|off, F10 Advanced > Hands.\n"
-        "CineHideStaticArms=0\n"
-        "; CineHidePoses: the still poses that hide captured (each hand's position in the arm mesh's own\n"
-        "; space, L xyz R xyz, up to four, ';' between), hidden from then on whichever way you look.\n"
-        "; Written by the mod; empty = none yet. `cinehidearms forget` clears them.\n"
-        "CineHidePoses=\n"
+        "; your head). On by default since the boat was confirmed in a headset (2026-10-07). Live:\n"
+        "; cinehidearms on|off, F10 Advanced > Hands.\n"
+        "CineHideStaticArms=1\n"
+        "; CineHidePoses: the still poses the hide knows (each hand's position in the arm mesh's own\n"
+        "; space, L xyz R xyz, up to four, ';' between), hidden whenever they recur whichever way you\n"
+        "; look. Ships with the opening boat ride's pose; the mod adds a pose when still arms hold both\n"
+        "; hands behind the camera. `cinehidearms forget` clears them.\n"
+        "CineHidePoses=54.23 -104.30 -23.16 -54.24 -104.30 -23.14\n"
         "; HandAnimMelee: a TRIGGER sword attack plays the game's swing on the tracked hand\n"
         "; and returns it to the controller. A physical swing (the motion sword) never does:\n"
         "; your arm is the animation. HandAnimMeleeSwing=1 hands physical swings back too.\n"
@@ -1945,6 +1947,18 @@ static void LoadConfig()
         WritePrivateProfileStringA("Meta", "DefaultsRev", "2", ini);
         Log("config: defaults revision 2 applied once to this ini - IK fit moved to the new default:%s; kept as "
             "tuned:%s", moved[0] ? moved : " none", kept[0] ? kept : " none");
+    }
+    // 2026-10-07: the still-cutscene-arm hide, confirmed on the boat, becomes the default, with the boat's pose
+    // baked in where the ini has none of its own.
+    if (!missing && GetPrivateProfileIntA("Meta", "DefaultsRev", 0, ini) < 3) {
+        WritePrivateProfileStringA("Anim", "CineHideStaticArms", "1", ini);
+        char poses[512] = "";
+        GetPrivateProfileStringA("Anim", "CineHidePoses", "", poses, sizeof(poses), ini);
+        const bool hadPoses = strspn(poses, " \t") != strlen(poses);
+        if (!hadPoses) WritePrivateProfileStringA("Anim", "CineHidePoses", "54.23 -104.30 -23.16 -54.24 -104.30 -23.14", ini);
+        WritePrivateProfileStringA("Meta", "DefaultsRev", "3", ini);
+        Log("config: defaults revision 3 applied once to this ini - CineHideStaticArms on; CineHidePoses %s. Every other key is unchanged",
+            hadPoses ? "kept (this ini had captured its own)" : "set to the opening boat ride's pose");
     }
     {   // [Paths] DataDir: where the harness files go. Applied before any of
         // them is written (the command seam and status.json start after the

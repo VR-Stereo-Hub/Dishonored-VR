@@ -46,6 +46,28 @@ holds still, whichever way the player looks; `cinehidearms forget` clears them. 
 `cine/hidearms:` logs the mesh-space hand positions, the nearest captured pose and which rule hid the arms;
 `pose CAPTURED` marks a capture with its numbers, so a later build can ship the boat's pose baked in.
 
+Boat run on v1.0.3-131-g06d345d75 (2026-10-07): HEADSET-CONFIRMED, the arms stay hidden whichever way the
+player looks. The run also showed the pose is not perfectly still: it drifts about 6 uu over the ride
+(hands L x 53.4 -> 55.5, z -25.0 -> -19.4 across 80 s), so at 2 uu tolerance it was captured four times (1 to
+2 uu apart) and filled every slot. Tolerance is now 10 uu per hand; `CineHideStaticArms` ships ON with the
+middle capture baked in as `CineHidePoses` (54.23 -104.30 -23.16 -54.24 -104.30 -23.14), and `[Meta]
+DefaultsRev=3` turns it on for existing inis, setting that pose where the ini has captured none of its own.
+
+## The game's arm re-seat targets the nominal shoulder, not the reach-shifted one (2026-10-07)
+
+Reported (sewer weapons pickup, a short scripted scene in `StatePlayerMasterSoiree` with the game owning both
+arms): the arms sat too far forward, and moving the F10 IK shoulder made no difference. The log explains the
+"no difference": `ik: ACTIVE ... shoulder reach shift uu L=37.438 R=15.419` at the frame the game took the
+arms, and the re-seat (`ik/gamearm`) landed the game's shoulder on `solved[h].joints.shoulder` - the IK
+shoulder AFTER its reach shift. The reach shift slides a shoulder toward a wrist the arm cannot reach; in a
+game animation the wrist is the game's, authored far forward for a flat screen, so the IK shoulder slid 15 to
+37 uu forward and the re-seat put the game's shoulder there. The slider moves the nominal shoulder, which the
+target did not use. In the takedowns of 2026-10-06 the reach shift read 0.0 at full game share, which is why
+they looked right with the same code. The target is now the nominal shoulder (the F10 fit); the `ik/gamearm`
+line reports the gap against it and the reach shift it excluded. Not yet run: the gap against the nominal
+shoulder is larger than the logged one by the reach shift, so the stretch wanted may exceed 1.9 in that scene
+(the line's `wanted` and `left over` say so; the F10 "Game arm stretch limit" is the lever).
+
 What the first run must check, from `cine/hidearms:` (every 2 s in a cutscene): the hand depths
 read POSITIVE while the arms are in front of the view and negative when they point back; if the
 sign is inverted the lever hides the wrong poses and must stay off. `cine/hidearms: cutscene arms

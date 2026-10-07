@@ -4217,8 +4217,9 @@ static bool MsQualify(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVert
 //  - or both hand bones are behind the camera plane (the view test, headset-confirmed on that run: behind
 //    reads negative). A still pose that passes it is CAPTURED: stored in CineHidePoses (up to four) and
 //    matched from then on, from the first frame of every later scene in that pose, whichever way you look.
-// Render lane.
-static const float kCinePoseTol = 2.0f;
+// Render lane. The tolerance is 10 uu per hand: the boat pose drifts about 6 uu over the ride (measured
+// 2026-10-07: four captures 1 to 2 uu apart at 2 uu tolerance), and no two distinct still poses sit that close.
+static const float kCinePoseTol = 10.0f;
 static bool MsCineHideStatic(IDirect3DDevice9* dev)
 {
     static ULONGLONG stillSince = 0;

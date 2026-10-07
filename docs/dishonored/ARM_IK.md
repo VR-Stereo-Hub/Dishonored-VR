@@ -309,7 +309,9 @@ ownership the arm is the game's exactly. Accepted in a headset for the choke.
 
 `[Hands] ArmIKGameArmShoulder` (F10 IK, under it; default 1): the game poses its arm for its own
 camera and body, so its shoulder is not where the IK shoulder is, and it was reported in front
-of it in every takedown but the choke. 1 re-seats the game's arm on the IK shoulder about the
+of it in every takedown but the choke. 1 re-seats the game's arm on your NOMINAL shoulder (the F10
+fit, not the reach-shifted IK shoulder: the reach shift chases the game's far-forward wrist and put
+the target 15 to 37 uu forward in a scripted pickup, 2026-10-07) about the
 game's own wrist (`shoulder_fit`: a stretch along the shoulder-wrist line within
 0.80..`ArmIKGameArmMaxStretch`, then the smallest rotation within 45 degrees), in every game
 animation except the choke; 2

@@ -871,7 +871,7 @@ void configure(const char* ini) {
     mantleHandback=GetPrivateProfileIntA("Anim","MantleHandBack",1,ini)!=0;
     Log("config: [Anim] MantleHandBack=%d",mantleHandback);
     hideTakedownArms=GetPrivateProfileIntA("Anim","HideTakedownArms",1,ini)!=0;   // VR-283
-    cineHideStatic=GetPrivateProfileIntA("Anim","CineHideStaticArms",0,ini)!=0;
+    cineHideStatic=GetPrivateProfileIntA("Anim","CineHideStaticArms",1,ini)!=0;   // default on since the boat was confirmed (2026-10-07)
     Log("config: [Anim] CineHideStaticArms=%d (%s)",cineHideStatic,
         cineHideStatic?"cutscene arms held still behind the camera are hidden":"cutscene arms drawn as posed");
     Log("config: [Anim] HideTakedownArms=%d (%s)",hideTakedownArms,
