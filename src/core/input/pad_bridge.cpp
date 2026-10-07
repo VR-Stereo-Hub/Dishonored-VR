@@ -23,7 +23,7 @@ static bool ZoomTapGet() { return g_zoomTap.load(); }
 // released. Every press cycles the game's own zoom (the Spyglass upgrade adds levels). Live: zoomgesture on|off,
 // zoomgesture radius <cm>, F10 Controls.
 static std::atomic<bool>  g_zoomGesture{true};
-static std::atomic<float> g_zoomGestureRadiusM{0.12f};
+static std::atomic<float> g_zoomGestureRadiusM{0.15f};
 static double g_zoomPulseUntil = 0.0;   // present lane: the pad's right thumb button is held until this time
 static bool ZoomGestureGet() { return g_zoomGesture.load(); }
 static void ZoomGestureSet(bool on, const char* who) {
@@ -40,18 +40,31 @@ static void ZoomPulse(const char* why) {
     g_zoomPulseUntil = MaimNowMs() + 120.0;
     Log("zoom: %s -> right thumb pulse to the pad, the game's zoom toggle; the fov: line says MAGNIFIED if it took", why);
 }
-// The right hand's grip pose against the right eye, metres; negative when either is untracked.
-static float ZoomHandToRightEyeM() {
-    dvr::vr::HeadPose head{}, hand{};
-    if (!dvr::vr::peek_head_pose(head) || !dvr::vr::get_hand_pose(1, false, hand)) return -1.0f;
+// The right hand against the right eye, metres: the nearer of its grip and aim poses (the aim pose sits at the
+// controller's ring, which is what touches the face). Negative when the head or the hand is untracked; the two
+// distances are given back for the log. The first run never fired and logged nothing, so every press measures.
+static double zNowTrig() { return MaimNowMs(); }
+static float ZoomHandToRightEyeM(float* gripM, float* aimM) {
+    dvr::vr::HeadPose head{};
+    *gripM = *aimM = -1.0f;
+    if (!dvr::vr::peek_head_pose(head)) return -1.0f;
     // the head's right axis, R(q) * (1,0,0)
     const float rx = 1.0f - 2.0f * (head.qy * head.qy + head.qz * head.qz);
     const float ry = 2.0f * (head.qx * head.qy + head.qz * head.qw);
     const float rz = 2.0f * (head.qx * head.qz - head.qy * head.qw);
     const float h = g_ipdM * 0.5f;
-    const float dx = hand.px - (head.px + rx * h), dy = hand.py - (head.py + ry * h), dz = hand.pz - (head.pz + rz * h);
-    const float d = sqrtf(dx * dx + dy * dy + dz * dz);
-    return std::isfinite(d) ? d : -1.0f;
+    const float ex = head.px + rx * h, ey = head.py + ry * h, ez = head.pz + rz * h;
+    float best = -1.0f;
+    for (int aim = 0; aim < 2; ++aim) {
+        dvr::vr::HeadPose hand{};
+        if (!dvr::vr::get_hand_pose(1, aim != 0, hand)) continue;
+        const float dx = hand.px - ex, dy = hand.py - ey, dz = hand.pz - ez;
+        const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+        if (!std::isfinite(d)) continue;
+        *(aim ? aimM : gripM) = d;
+        if (best < 0.0f || d < best) best = d;
+    }
+    return best;
 }
 static void ZoomTapSet(bool on, const char* who) {
     if (g_zoomTap.exchange(on) != on)
@@ -200,11 +213,21 @@ static void UpdateVirtualPad()
             const bool trig = in.trigR > (trigWas ? 0.5f : 0.7f);
             if (trig && !trigWas && ZoomGestureGet() && !g_ovlVisible && !g_menuOpen && !g_inMenu &&
                 !UiSurfaceBlocks() && !CineActive() && !g_wheelHeld) {
-                const float d = ZoomHandToRightEyeM();
-                if (d >= 0.0f && d <= g_zoomGestureRadiusM.load()) {
+                float gripM = -1.0f, aimM = -1.0f;
+                const float d = ZoomHandToRightEyeM(&gripM, &aimM), radius = g_zoomGestureRadiusM.load();
+                if (d >= 0.0f && d <= radius) {
                     swallow = true;
-                    char why[96]; _snprintf_s(why, _TRUNCATE, "right trigger with the right hand %.1f cm from the right eye", d * 100.0f);
+                    char why[128]; _snprintf_s(why, _TRUNCATE, "right trigger with the right hand %.1f cm from the right eye (grip %.1f, aim %.1f; radius %.0f)",
+                                               d * 100.0f, gripM * 100.0f, aimM * 100.0f, radius * 100.0f);
                     ZoomPulse(why);
+                } else {   // every press measures, so a gesture that never fires says why (bounded to one line a second)
+                    static double nextSay = 0.0;
+                    if (zNowTrig() >= nextSay) {
+                        nextSay = zNowTrig() + 1000.0;
+                        if (d < 0.0f) Log("zoom: right trigger - the head or the right hand is not tracked, no eye gesture (an attack as usual)");
+                        else Log("zoom: right trigger with the right hand %.1f cm from the right eye (grip %.1f, aim %.1f) - over the %.0f cm radius, "
+                                 "an attack as usual ([Controllers] ZoomGestureRadiusCm)", d * 100.0f, gripM * 100.0f, aimM * 100.0f, radius * 100.0f);
+                    }
                 }
             }
             if (!trig) swallow = false;

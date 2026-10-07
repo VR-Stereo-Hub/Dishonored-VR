@@ -2235,10 +2235,20 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
     for (int j = 0; j < 3; j++)
         for (int i = 0; i < 3; i++) c->col[j][i] = l2w[j][i];
     for (int i = 0; i < 3; i++) c->t[i] = l2w[3][i];
-    for (int j = 0; j < 3; j++) {
-        const float n = sqrtf(c->col[j][0]*c->col[j][0] + c->col[j][1]*c->col[j][1] +
-                              c->col[j][2]*c->col[j][2]);
-        if (fabsf(n - 1.0f) > 0.02f) { c->why = "LocalToWorld column is not unit"; return false; }
+    {
+        float n3[3];
+        for (int j = 0; j < 3; j++)
+            n3[j] = sqrtf(c->col[j][0]*c->col[j][0] + c->col[j][1]*c->col[j][1] + c->col[j][2]*c->col[j][2]);
+        for (int j = 0; j < 3; j++) {
+            if (fabsf(n3[j] - 1.0f) > 0.02f) {
+                // 2026-10-07: the game's arm lens (a lock-arms zoom, m_bUseFOV=1) scales the arm mesh's LocalToWorld;
+                // the norms are logged so the next run says what the scale is and along which local axis.
+                static char why[160];
+                _snprintf_s(why, _TRUNCATE, "LocalToWorld column is not unit (column norms %.3f %.3f %.3f; the arms' lens scaling the mesh during a lock-arms zoom reads here)",
+                            n3[0], n3[1], n3[2]);
+                c->why = why; return false;
+            }
+        }
     }
     for (int j = 0; j < 3; j++)
         for (int kk = j + 1; kk < 3; kk++) {
@@ -4507,7 +4517,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                 dvr::hf::Xform T;
                 T.r = dvr::hf::identity3();
                 T.t[0] = T.t[1] = T.t[2] = 0.0f;
-                bool  useT = false;
+                bool  useT = false, hidden = false;
                 if (g_mpWorld) {
                     // BUILD A2: placement through the measured chain. No
                     // calibration, no neutral - the palm's current position is
@@ -4528,11 +4538,19 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                         g_mpWorldWhy = why;
                         InterlockedIncrement(&g_mpWorldRefused);
                         MfNoteRefused(hIdx);     // VR-76: the flicker history
+                        // 2026-10-07: during the game's lock-arms zoom (the mask lens, m_bUseFOV=1) the lens scales
+                        // the arm mesh's LocalToWorld and the placement refuses it; the fail-soft then drew the
+                        // engine's own hand at its native pose, which in a 3x magnified view sits dead ahead
+                        // (reported: the left hand stuck forward in the zoom). Until the scale is placed through,
+                        // a hand refused for that reason during the lens zoom is not drawn at all.
+                        hidden = ArmsLensUse() == 1 && strstr(why, "not unit") != NULL;
                         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000,
-                            "ms/palette/world: hand %d NOT placed - %s. The "
-                            "engine's own hand is drawn instead.", hIdx, why);
+                            "ms/palette/world: hand %d NOT placed - %s. %s", hIdx, why,
+                            hidden ? "NOT DRAWN: the game's arm lens is on (its zoom), the native pose would sit in the magnified view"
+                                   : "The engine's own hand is drawn instead.");
                     }
                 }
+                if (hidden) { InterlockedIncrement(&g_mpDraws); continue; }
                 if (useT) {
                     static float buf[4 * 256];
                     MpBuild(buf, g_mpCache, g_mpCacheN, &T);

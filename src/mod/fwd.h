@@ -303,6 +303,7 @@ static void ZoomMagnifySet(bool on, const char* who);
 static float AfwFgGainGet();
 static void AfwFgGainSet(float g, const char* who);
 static void ArmsLensResolve();
+static int  ArmsLensUse();
 static bool ArmsLensFind(bool slow);
 static void ArmsLensStatus(char* buf, size_t n);
 static void HandsWorldFovSet(bool on, const char* who);

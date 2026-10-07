@@ -10597,3 +10597,30 @@ Not yet run: a gameplay zoom under this build. What its log must show: `fov: ...
   `eye/probe:` (every 5 s, `fov_lever.cpp`) now logs the camera's position against the pawn's eye
   (`Actor.Location` + `Pawn.EyeHeight`) in the pawn's yaw frame; a negative "ahead" there in play is
   an eye offset to fix, a zero with the hands still short is the scene's staging.
+
+### Third run (v1.0.3-134-g0bca7d804): the zoom works; the lens scales the arm mesh; the gesture never fired
+
+- **The zoom (a tap of the right stick click) is headset-confirmed.** Eleven taps, each `zoom: right stick
+  click tapped` then `fov: ... MAGNIFIED`. `fgproj` in the zoom windows: WORLD hfov **41.2** at 55 to 100%
+  of samples (103 in the untoggled part of each 5 s window) and FOREGROUND 41.2 with it. So the world was
+  drawn at 41.2 and claimed at 103: a 3.3x magnification (tan 51.5 / tan 20.6). Why 41.2 and not the
+  authored 47.4: the camera's `m_fCurFOV` read 30.00 (`fovlever: feedback sensor=30.00 ... write=41.20`),
+  the lever's linear ratio wrote 41.2 into the persistent fields and the render followed that, while the
+  scene scope's gameplay branch read a cache of 75.36 at its sampled moment. Three writers disagree on the
+  magnitude; the player accepted the result, so it is left as measured and named here. The `fov:` line logs
+  only the first magnified frame (100.8): the claim and its reason stay constant through the blend.
+- **The left hand stuck forward in the zoom is the arm lens.** During the lock-arms zoom the game sets the
+  player mesh's `m_bUseFOV=1` (`armslens: ... (was 0 ...)` at every toggle) and the arm mesh's
+  LocalToWorld no longer has unit columns: `ms/palette/world: hand 0 NOT placed - LocalToWorld column is not
+  unit` (refused 14152 of 61508 draws in a window), `ik: hands-only fallback`, and `wa/id: DROPPING an
+  uncorrectable pass of 'crossbow_01'`. The fail-soft drew the engine's own hand at its native pose, which a
+  3.3x magnified view puts dead ahead with the sleeve cut. So the engine implements the viewmodel lens by
+  scaling the mesh's LocalToWorld (its draws share the world's projection: FOREGROUND 41.2 = WORLD 41.2),
+  not by a projection of its own. Interim: a hand refused for that reason while the lens is on is not
+  drawn at all; the refusal now logs the three column norms, which name the scale and its axis for the
+  real fix (placing the hand through the scaled LocalToWorld, so the lens keeps the hands their true size
+  in the magnified view, which is what the game's lens is for).
+- **The eye gesture never fired**, and nothing said why (no line on a press). Every right-trigger press
+  now logs the hand's grip and aim distances from the right eye, or that a pose was untracked; the nearer
+  of the two poses counts (the aim pose sits at the controller's ring, which is what reaches the face);
+  the radius default is 15 cm.

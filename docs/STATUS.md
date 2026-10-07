@@ -33,11 +33,21 @@ so it is not the room; `eye/probe:` (every 5 s) now logs the camera against the 
 pawn's yaw frame, so the next run says whether the eye sits behind the pawn's eye or the scene is
 staged short of the face for a flat frame. Installed with the player's settings kept, NOT run.
 
-**Next.** In the headset: tap the right stick in play (`zoom: right stick click tapped`, then `fov:
-... MAGNIFIED`, `fgproj` WORLD about 47; FOREGROUND 103 or 47 decides the hands question); choose a
-merchant's shop in a conversation (no rectangle: `stereo/state` stays STEREO, standIn open pending);
-read `eye/probe:` during a scene with the game's hands at the face. Then the owner merges #190 and
-#191 (retargeted to staging) so #188 carries them.
+Third run (v1.0.3-134-g0bca7d804): the tap zoom is HEADSET-CONFIRMED (world drawn at 41.2, claimed
+103, 3.3x; the lever's linear 41.2 rather than the authored 47.4, left as measured), the shop choice
+no longer drops to the quad (reported good). Two faults: (a) the left hand stuck forward in the zoom
+with a weapon out is the game's arm lens scaling the arm mesh's LocalToWorld during its lock-arms
+zoom (`m_bUseFOV=1`), which the placement refuses (`column is not unit`) and then drew the engine's
+own hand at its native pose; interim, a hand refused that way while the lens is on is not drawn, and
+the refusal logs the column norms for the real fix (placing through the scale); (b) the eye gesture
+never fired and logged nothing; every trigger press now logs grip and aim distances from the right
+eye, the nearer pose counts, radius 15 cm. Third commit, installed, NOT run.
+
+**Next.** In the headset: the eye gesture (read `zoom: right trigger ... cm from the right eye` on a
+press that did not fire; set `zoomgesture radius <cm>` from it); zoom with the crossbow out (no stuck
+hand; read the column norms in `ms/palette/world: ... NOT placed`); `eye/probe:` in a scene with the
+game's hands at the face. Then the owner merges #190 and #191 (retargeted to staging) so #188
+carries them.
 
 ## 2026-10-07: game-owned arms with full-arm IK - takedowns, the boat, a scripted pickup (#190, not merged)
 
