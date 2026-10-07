@@ -19,7 +19,12 @@ sits on the arm IK's shoulder centre and it faces the arm IK's body yaw (publish
 draw; 25 deg deadzone, so looking around does not turn the body, turning with the hands does);
 `MatchShoulderWidth` sets the IK width to the body's measured spacing. Version 2's first run refused itself at startup
 (`BoneVisibilityStates` is not reflected in this build; the read-back was a hard requirement), so
-that run tested nothing new; 2.1 locates the array by scan or runs unverified. CorvoBody.ini on the dev
+that run tested nothing new. 2.1 ran: the body and a ghost of it circled each other, because CorvoBody's
+per-tick transform write and the chain's second write both reached the engine and the two eye draws
+disagreed. 2.2 (installed, not run): the placement rides CorvoBody's own SetTranslation/SetRotation
+call (its parameters rewritten in the ProcessEvent hook), one update per tick; the anchor is the
+upper-arm joint midpoint (shoulder_X_jnt are the clavicle roots, 21.5 cm apart; the IK width is
+matched to the upper-arm spacing instead). CorvoBody.ini on the dev
 PC: `RigidCamera=0 HideBodyArms=0 TurnStepThreshold=45` (three bytes from the author's). NOT RUN.
 
 **Next steps.** Run it. In `dishonored_vr.log`: `corvobody: offsets resolved and cross-checked`

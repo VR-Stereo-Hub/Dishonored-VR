@@ -253,7 +253,26 @@ after the first hide (the one TArray<BYTE> of bone-count length, values 0..2, wi
 hidden not reading 2); when it cannot be, the hides stay unverified and are re-issued every 2 s.
 An optional instrument never again refuses the module.
 
-*Version 2 (2.1 installed, not run)* answers each:
+*Version 2.1's run (2026-10-07)*: everything resolved and ran (`post-Tick chain installed`, 7,900
+placements, IK delta within a few degrees of the head, -23 deg during a look-aside), and the
+headset showed **the body and a ghost of it circling each other**. Cause, from the log and the
+stereo method: CorvoBody writes the body's transform every tick through the natives, the chain
+wrote it again a moment later, so the engine queued TWO transform updates per tick with different
+values, and the re-entry method's two eye draws picked up different ones. Also measured: the
+body's `shoulder_X_jnt` are the clavicle roots (21.5 cm apart) and `upper_arm_X_jnt` the arm
+roots (the IK's shoulders); matching the IK width to the former pulled the IK arms into the neck.
+`BoneVisibilityStates` was not located (no array of the right shape read the hidden bone as hidden).
+
+*Version 2.2 (installed, not run)*: the placement now rides **CorvoBody's own per-tick
+`SetTranslation` / `SetRotation` call**: our ProcessEvent hook sees the call on the body component
+before the engine runs the native and rewrites its parameters, so the body gets exactly one
+transform update per tick, ours (`corvobody/place #N (their SetTranslation rewritten)`). The
+upper-arm joint midpoint is the anchored point and the IK width is matched to the upper-arm
+spacing. The chain is kept behind `PostTickChain=1` as the retired route. The visibility scan now
+logs every right-shaped byte array with what the hidden bone reads there, so a hide that did not
+take is a line, not a guess.
+
+*Version 2 (as designed)* answers each:
 - The hand drive now hands over a WORLD point in every mode (`skelcontrol.cpp`: the same
   head-relative offset through the same camera basis, trims and crouch drop as its world
   branch), so body mode drives whatever `[Hands] Space` says.

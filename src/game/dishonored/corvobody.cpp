@@ -157,15 +157,22 @@ static void CbLocateBoneVis(uint8_t* body, int hiddenIdx, int otherIdx)
 {
     if (g_cbOffBoneVis || hiddenIdx < 0) return;
     int maxIdx = hiddenIdx > otherIdx ? hiddenIdx : otherIdx;
-    int cands = 0; uint32_t first = 0;
-    for (uint32_t o = 0x100; o + 12 <= 0x400; o += 4) {
+    int cands = 0, shaped = 0; uint32_t first = 0;
+    for (uint32_t o = 0x100; o + 12 <= 0x500; o += 4) {
         if (!RangeReadable(body + o, 12)) break;
         uint8_t* d = *(uint8_t**)(body + o);
         int32_t num = *(int32_t*)(body + o + 4), mx = *(int32_t*)(body + o + 8);
         if (num <= maxIdx || num > 256 || mx < num || mx > 512 || !d || ((uintptr_t)d & 3) || !RangeReadable(d, (size_t)num)) continue;
         bool ok = true; int twos = 0;
         for (int b = 0; b < num; b++) { if (d[b] > 2) { ok = false; break; } if (d[b] == 2) twos++; }
-        if (!ok || twos < num / 2) continue;          // mostly visible bones, a few hidden
+        if (!ok) continue;
+        // A bone-count array of 0..2 values: the shape of BoneVisibilityStates. Say what the
+        // bone we just hid reads there, so "the hide did nothing" is visible even when the
+        // array is found only by shape.
+        shaped++;
+        Log("corvobody: byte array +0x%X num %d max %d: %d of %d read 2 (visible); hidden bone %d reads %d, bone %d reads %d",
+            o, num, mx, twos, num, hiddenIdx, d[hiddenIdx], otherIdx, otherIdx >= 0 ? d[otherIdx] : -1);
+        if (twos < num / 2) continue;                 // mostly visible bones, a few hidden
         if (d[hiddenIdx] == 2) continue;              // the bone we just hid must read hidden here
         cands++; if (!first) first = o;
     }
@@ -173,7 +180,9 @@ static void CbLocateBoneVis(uint8_t* body, int hiddenIdx, int otherIdx)
         g_cbOffBoneVis = first;
         Log("corvobody: BoneVisibilityStates located at +0x%X on %p by scan (bone %d reads hidden there); hides are verified from now on", first, (void*)body, hiddenIdx);
     } else {
-        Log("corvobody: BoneVisibilityStates not located (%d candidate arrays matched); hides stay unverified and are re-issued every 2 s", cands);
+        Log("corvobody: BoneVisibilityStates not located (%d array(s) of the right shape, %d with the hidden bone hidden); hides stay "
+            "unverified and are re-issued every 2 s%s", shaped, cands,
+            shaped && !cands ? ". A right-shaped array whose hidden bone still reads 2 means HideBoneByName did NOT take on this component" : "");
     }
 }
 
@@ -420,25 +429,30 @@ static bool CbResolveBody(uint8_t* pawn, uint8_t* body)
     g_cbBody = body; g_cbPawn = pawn; g_cbBodyName = *(uint32_t*)(body + kNameOff);
     g_cbAppliedMode = CbEffectiveMode();
     CbApplyHides(body, g_cbAppliedMode, true);
-    float sl[3], sr[3]; g_cbShoulderCm = 0.0f;
-    if (CbBoneLocation(body, "shoulder_L_jnt", sl) && CbBoneLocation(body, "shoulder_R_jnt", sr)) {
-        float k = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) / 100.0f;   // uu per cm
-        g_cbShoulderCm = sqrtf((sl[0]-sr[0])*(sl[0]-sr[0]) + (sl[1]-sr[1])*(sl[1]-sr[1]) + (sl[2]-sr[2])*(sl[2]-sr[2])) / k;
-    }
+    // The IK's "shoulder" is the arm's root joint (the deltoid), which on this rig is
+    // upper_arm_X_jnt; shoulder_X_jnt is the clavicle root beside the neck (21.5 cm apart,
+    // measured 2026-10-07: matching the IK width to THAT pulled the IK arms into the neck).
+    float sl[3], sr[3], ul[3], ur[3]; g_cbShoulderCm = 0.0f; float clavCm = 0.0f;
+    const float k = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) / 100.0f;   // uu per cm
+    if (CbBoneLocation(body, "shoulder_L_jnt", sl) && CbBoneLocation(body, "shoulder_R_jnt", sr))
+        clavCm = sqrtf((sl[0]-sr[0])*(sl[0]-sr[0]) + (sl[1]-sr[1])*(sl[1]-sr[1]) + (sl[2]-sr[2])*(sl[2]-sr[2])) / k;
+    if (CbBoneLocation(body, "upper_arm_L_jnt", ul) && CbBoneLocation(body, "upper_arm_R_jnt", ur))
+        g_cbShoulderCm = sqrtf((ul[0]-ur[0])*(ul[0]-ur[0]) + (ul[1]-ur[1])*(ul[1]-ur[1]) + (ul[2]-ur[2])*(ul[2]-ur[2])) / k;
     Log("corvobody: body %p on pawn %p (shadow twins seen: %d): hand_L_jnt %p hand_R_jnt %p, arm length L %.1f R %.1f uu, "
-        "shoulder spacing %.1f cm (the IK's ArmShoulderWidthCm is %.1f%s). Mode %s; head anchor %s, torso yaw %s.",
+        "upper-arm joint spacing %.1f cm, clavicle root spacing %.1f cm (the IK's ArmShoulderWidthCm is %.1f%s). Mode %s; head anchor %s, torso yaw %s.",
         (void*)body, (void*)pawn, g_cbShadowSeen, (void*)g_cbCtl[0], (void*)g_cbCtl[1], g_cbArmLen[0], g_cbArmLen[1],
-        g_cbShoulderCm, g_ikWidth.load(), g_cbMatchWidth ? ", matched below" : "",
+        g_cbShoulderCm, clavCm, g_ikWidth.load(), g_cbMatchWidth ? ", matched to the upper-arm spacing below" : "",
         g_cbAppliedMode == 1 ? "vr" : "body", g_cbHeadAnchor ? "on" : "off", g_cbTorsoYaw ? "IK body yaw" : "head yaw");
-    if (g_cbMatchWidth && !g_cbWidthDone && g_cbShoulderCm > 20.0f && g_cbShoulderCm < 70.0f) {
+    if (g_cbMatchWidth && !g_cbWidthDone && g_cbShoulderCm > 25.0f && g_cbShoulderCm < 60.0f) {
         float was = g_ikWidth.load();
         if (fabsf(was - g_cbShoulderCm) > 0.3f) {
             g_ikWidth.store(g_cbShoulderCm);
-            Log("corvobody: [Hands] ArmShoulderWidthCm %.1f -> %.1f (the body's own shoulder spacing) for this session; "
+            Log("corvobody: [Hands] ArmShoulderWidthCm %.1f -> %.1f (the body's upper-arm joint spacing) for this session; "
                 "[CorvoBody] MatchShoulderWidth=0 keeps your fit", was, g_cbShoulderCm);
         }
         g_cbWidthDone = true;
     }
+    g_cbShoulderOffOk = false; g_cbShoulderOffMs = 0.0;
     CbWhy("driving");
     return true;
 }
@@ -553,12 +567,12 @@ static void __cdecl CorvoPostTickC()
         float C[3];
         for (int i = 0; i < 3; i++) C[i] = head[i] + k * (fwdCm * F[i] + rightCm * R[i]) + (i == 2 ? k * upCm : 0.0f);
         float sl[3], sr[3];
-        if (!CbBoneLocation(g_cbBody, "shoulder_L_jnt", sl) || !CbBoneLocation(g_cbBody, "shoulder_R_jnt", sr)) break;
+        if (!CbBoneLocation(g_cbBody, "upper_arm_L_jnt", sl) || !CbBoneLocation(g_cbBody, "upper_arm_R_jnt", sr)) break;
         float S0[3] = { (sl[0]+sr[0])*0.5f, (sl[1]+sr[1])*0.5f, (sl[2]+sr[2])*0.5f };
         const float* pawnLoc = (const float*)(g_cbPawn + g_cbOffLoc);
         const int32_t* pawnRot = (const int32_t*)(g_cbPawn + g_cbOffRot);
         float pawnYaw = (float)pawnRot[1] / kUEPerRad;
-        const float* T0 = (const float*)(g_cbBody + kMeshTrans);
+        float T0[3]; memcpy(T0, g_cbBody + kMeshTrans, 12);   // a copy: the write below lands in the same field
         const int32_t* R0 = (const int32_t*)(g_cbBody + kMeshRot);
         float yaw0 = pawnYaw + (float)R0[1] / kUEPerRad;
         float P0[3], tmp[3];
@@ -591,6 +605,96 @@ static void __cdecl CorvoPostTickC()
         }
     } while (0);
     inside = false;
+}
+
+// ---- the placement, carried by CorvoBody's own SetTranslation / SetRotation call ----
+// CorvoBody re-places the body every tick through the natives (ProcessEvent). Our hook sees
+// that call before the engine does and REWRITES ITS PARAMETERS, so the body gets exactly one
+// transform update per tick, ours. (Version 2 chained a second jump after their Tick detour
+// and wrote again: two updates per tick, and the two eye draws of the re-entry method picked
+// up different ones - the body and a ghost of it circling each other, 2026-10-07.)
+//
+// The target: the midpoint of the body's upper-arm joints on the arm IK's shoulder centre
+// (head minus the crouch drop, plus the IK fit in the body-yaw frame), the body facing the
+// IK's body yaw. The joint midpoint's offset from the component origin, in the body's own
+// yaw frame, is read on the script lane every 100 ms (two GetBoneLocation reads); it moves
+// only with the spine's pose.
+static void CbRefreshShoulderOffset(double now)
+{
+    if (!g_cbBody || now - g_cbShoulderOffMs < 100.0) return;
+    g_cbShoulderOffMs = now;
+    if (!RangeReadable(g_cbPawn + g_cbOffRot, 12) || !RangeReadable(g_cbPawn + g_cbOffLoc, 12) ||
+        !RangeReadable(g_cbBody + kMeshRot, 12) || !RangeReadable(g_cbBody + kMeshTrans, 12)) { g_cbShoulderOffOk = false; return; }
+    float ul[3], ur[3];
+    if (!CbBoneLocation(g_cbBody, "upper_arm_L_jnt", ul) || !CbBoneLocation(g_cbBody, "upper_arm_R_jnt", ur)) { g_cbShoulderOffOk = false; return; }
+    float S0[3] = { (ul[0]+ur[0])*0.5f, (ul[1]+ur[1])*0.5f, (ul[2]+ur[2])*0.5f };
+    const float* pawnLoc = (const float*)(g_cbPawn + g_cbOffLoc);
+    const int32_t* pawnRot = (const int32_t*)(g_cbPawn + g_cbOffRot);
+    const float* T0 = (const float*)(g_cbBody + kMeshTrans);
+    const int32_t* R0 = (const int32_t*)(g_cbBody + kMeshRot);
+    float pawnYaw = (float)pawnRot[1] / kUEPerRad, yaw0 = pawnYaw + (float)R0[1] / kUEPerRad;
+    float tmp[3]; CbRotYaw(pawnYaw, T0, tmp);
+    float P0[3] = { pawnLoc[0] + tmp[0], pawnLoc[1] + tmp[1], pawnLoc[2] + tmp[2] };
+    float d[3] = { S0[0]-P0[0], S0[1]-P0[1], S0[2]-P0[2] };
+    CbRotYaw(-yaw0, d, g_cbShoulderOff);
+    g_cbShoulderOffOk = fabsf(g_cbShoulderOff[0]) < 200.0f && fabsf(g_cbShoulderOff[1]) < 200.0f && fabsf(g_cbShoulderOff[2]) < 300.0f;
+    for (int i = 0; i < 3; i++) g_cbLastS[i] = S0[i];
+}
+
+static void CorvoRewriteParms(void* fn, void* parms)
+{
+    if (!g_cbHeadAnchor || !g_cbShoulderOffOk || !parms || !g_cbBody || !g_cbPawn) return;
+    if (fn != g_cbFnSetTrans && fn != g_cbFnSetRot) return;
+    if (!CamStillValid() || !RangeReadable(g_camObj + 0x50, 0x40)) return;
+    if (!RangeReadable(g_cbPawn + g_cbOffRot, 12) || !RangeReadable(g_cbPawn + g_cbOffLoc, 12)) return;
+    const float* cf = (const float*)(g_camObj + 0x50);
+    const float* cu = (const float*)(g_camObj + 0x70);
+    const float* cp = (const float*)(g_camObj + 0x80);
+    if (!(cf[0] == cf[0] && cf[1] == cf[1]) || (fabsf(cf[0]) + fabsf(cf[1])) < 1e-4f) return;
+    float head[3] = { cp[0] - cu[0]*g_crouchDropUU, cp[1] - cu[1]*g_crouchDropUU, cp[2] - cu[2]*g_crouchDropUU };
+    float viewYaw = atan2f(cf[1], cf[0]), delta = 0.0f;
+    if (g_cbTorsoYaw) {
+        unsigned long long ms = g_cbIkYawMs.load();
+        if (ms && (GetTickCount64() - ms) < 500) delta = (float)g_flipYaw * g_cbIkYawDelta.load();
+    }
+    float bodyYaw = viewYaw + delta;
+    const float* pawnLoc = (const float*)(g_cbPawn + g_cbOffLoc);
+    const int32_t* pawnRot = (const int32_t*)(g_cbPawn + g_cbOffRot);
+    float pawnYaw = (float)pawnRot[1] / kUEPerRad;
+    float relYaw = bodyYaw - pawnYaw;
+    while (relYaw > 3.14159265f) relYaw -= 6.2831853f;
+    while (relYaw < -3.14159265f) relYaw += 6.2831853f;
+    if (fn == g_cbFnSetRot) {
+        int32_t* r = (int32_t*)parms;
+        r[1] = (int32_t)(relYaw * kUEPerRad);
+        return;
+    }
+    float* t = (float*)parms;
+    float theirs[3] = { t[0], t[1], t[2] };
+    float k = (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) / 100.0f;
+    float F[3] = { cosf(bodyYaw), sinf(bodyYaw), 0.0f }, R[3] = { -sinf(bodyYaw), cosf(bodyYaw), 0.0f };
+    float fwdCm = g_ikForward.load() + g_cbBodyFwdCm, rightCm = g_ikRight.load() + g_cbBodyRightCm, upCm = g_ikUp.load() + g_cbBodyUpCm;
+    float C[3];
+    for (int i = 0; i < 3; i++) C[i] = head[i] + k * (fwdCm * F[i] + rightCm * R[i]) + (i == 2 ? k * upCm : 0.0f);
+    float ro[3]; CbRotYaw(bodyYaw, g_cbShoulderOff, ro);
+    float P1[3] = { C[0]-ro[0], C[1]-ro[1], C[2]-ro[2] };
+    float rel[3] = { P1[0]-pawnLoc[0], P1[1]-pawnLoc[1], P1[2]-pawnLoc[2] }, T1[3];
+    CbRotYaw(-pawnYaw, rel, T1);
+    if (!g_cbAnchorZ) T1[2] = theirs[2];
+    for (int i = 0; i < 3; i++) if (!(T1[i] == T1[i]) || fabsf(T1[i]) > 400.0f) return;   // leave theirs
+    t[0] = T1[0]; t[1] = T1[1]; t[2] = T1[2];
+    g_cbRewrites++;
+    for (int i = 0; i < 3; i++) g_cbLastC[i] = C[i];
+    g_cbLastYawDeg = bodyYaw * 57.2958f; g_cbLastDeltaDeg = delta * 57.2958f;
+    double now = MaimNowMs();
+    if (g_cbRewrites == 1 || now - g_cbRewriteLogMs > 5000.0) {
+        g_cbRewriteLogMs = now;
+        Log("corvobody/place #%ld (their SetTranslation rewritten): head (%.0f %.0f %.0f) view yaw %.0f body yaw %.0f (IK delta %+.1f, %s) -> "
+            "shoulder centre C (%.0f %.0f %.0f); joint mid was (%.0f %.0f %.0f); rel T theirs (%.1f %.1f %.1f) -> ours (%.1f %.1f %.1f), rel yaw %.0f deg",
+            g_cbRewrites, head[0], head[1], head[2], viewYaw * 57.2958f, bodyYaw * 57.2958f, delta * 57.2958f,
+            g_cbIkYawMs.load() ? "fresh" : "no IK publication, head yaw", C[0], C[1], C[2], g_cbLastS[0], g_cbLastS[1], g_cbLastS[2],
+            theirs[0], theirs[1], theirs[2], T1[0], T1[1], T1[2], relYaw * 57.2958f);
+    }
 }
 
 // Called by skelcontrol.cpp at the hand drive's write: the hand point as a WORLD point.
@@ -626,7 +730,8 @@ static void CorvoTick()
         if (!body) { CbWhy(g_cbShadowSeen ? "only their hidden shadow body found" : "their body component not found yet"); return; }
         if (!CbResolveBody(pawn, body)) return;
     }
-    if (g_cbHeadAnchor) CbInstallPostTick();
+    if (g_cbHeadAnchor) CbRefreshShoulderOffset(now);
+    if (g_cbHeadAnchor && g_cbChain) CbInstallPostTick();   // the retired route, [CorvoBody] PostTickChain=1 only
     // Mode: vr (shoulders hidden, the IK arms are ours) or body (their arm IK reaches our hands).
     int mode = CbEffectiveMode();
     if (mode != g_cbAppliedMode) {
@@ -750,6 +855,8 @@ static void CorvoConfigure(const char* ini)
     g_cbBodyUpCm   = IniFloat(ini, "CorvoBody", "BodyUpCm", 0.0f);
     for (float* p : { &g_cbBodyFwdCm, &g_cbBodyRightCm, &g_cbBodyUpCm }) { if (*p < -60.0f) *p = -60.0f; if (*p > 60.0f) *p = 60.0f; }
     g_cbMatchWidth = IniFloat(ini, "CorvoBody", "MatchShoulderWidth", 1) != 0.0f;
+    g_cbChain      = IniFloat(ini, "CorvoBody", "PostTickChain", 0) != 0.0f;
+    if (g_cbChain) Log("config: [CorvoBody] PostTickChain=1 - the retired placement route (a second transform write per tick; the eyes disagreed on 2026-10-07). On by request only.");
     char key[32] = ""; GetPrivateProfileStringA("Overlay", "Key", "", key, sizeof(key), ini);
     g_cbOverlayVk = CbParseKey(key);
     if (key[0] && !g_cbOverlayVk) DVR_WARN("config: [Overlay] Key='%s' is not a key name this build knows (F1..F24, Insert, Delete, Home, End, Pause, ScrollLock, PageUp, PageDown, Backspace, Tab) - default used", key);
@@ -772,6 +879,8 @@ static void CorvoStatus(dvr::status::Writer& w)
     w.kv("body", g_cbBody != NULL);
     w.kv("postTick", g_cbTickState);
     w.kv("placements", (unsigned long)g_cbPlacements);
+    w.kv("rewrites", (unsigned long)g_cbRewrites);
+    w.kv("jointOffOk", g_cbShoulderOffOk);
     w.kv("bodyYawDeg", (double)g_cbLastYawDeg);
     w.kv("ikDeltaDeg", (double)g_cbLastDeltaDeg);
     w.kv("shoulderCm", (double)g_cbShoulderCm);

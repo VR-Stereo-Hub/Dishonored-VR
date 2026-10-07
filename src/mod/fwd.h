@@ -873,3 +873,4 @@ static void CorvoStatus(dvr::status::Writer& w);
 static bool CorvoCommand(const char* args);
 static void CorvoArmModeSet(int mode, const char* who);
 static int  CbEffectiveMode();                             // 1 vr, 2 body (overlay)
+static void CorvoRewriteParms(void* fn, void* parms);      // ProcessEvent hook: their SetTranslation/SetRotation on the body carries our placement
