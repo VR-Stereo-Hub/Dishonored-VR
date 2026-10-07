@@ -1185,6 +1185,13 @@ static void OvlTabDisplay()
         if (ImGui::SmallButton("Reset FOV to 103")) { ProjectionFovSet(103.0f); ConfigWriteKey("Screen", "ProjectionFov", "103.00", "F10 Display"); }
         ImGui::EndDisabled();
         OvlHandsFovControls("F10 Display");
+        bool magnify = ZoomMagnifyGet();
+        if (dvr::ovl::checkbox("Zoom magnifies (mask lens, spyglass)", &magnify)) {
+            ZoomMagnifySet(magnify, "F10 Display");
+            ConfigWriteKey("Screen", "ZoomMagnify", magnify ? "1" : "0", "F10 Display");
+        }
+        OvlTip("On: the mask's zoom magnifies the view like a scope. Off: the zoomed view is shown at its true size, "
+               "which in VR is a smaller picture, not a closer one.");
     }
     const int resizeState = ResLiveState();
     const bool busy = resizeState == 1 || resizeState == 2 || resizeState == 4;

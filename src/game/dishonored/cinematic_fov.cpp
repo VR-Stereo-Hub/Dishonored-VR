@@ -82,7 +82,13 @@ static void CineFovBegin(bool scene) {
     const auto state=dvr::anim::snapshot();
     const bool menu=UiSurfaceBlocks() || g_menuOpen || g_inMenu || g_mainMenu || g_gameExiting ||
         (g_uiNoteOpen && MaimNowMs()-g_uiPollMs<500);
-    const bool menuFovAllowed=UiSurfaceHeadLook() && !g_mainMenu && !g_gameExiting;
+    // 2026-10-07: a store opens FROM a conversation, and its screen flags the menu for about 1.5 s before the
+    // store state arrives (standIn "open pending", rides=0, so head-look does not vouch for it). That gap
+    // released this scope mid-dialogue, the claim fell to the camera sensor (50 deg: the dialogue's look-at
+    // intent, which the render ignores) over a scene still drawn at 103, and the view shrank into a box. The
+    // dialogue and store states keep the FOV through the menu gate; the exit side was already bridged below.
+    const bool dialogOrStore=!strcmp(state.state[0],"StatePlayerMasterInDialog") || !strcmp(state.state[0],"StatePlayerMasterInStore");
+    const bool menuFovAllowed=(UiSurfaceHeadLook() || dialogOrStore) && !g_mainMenu && !g_gameExiting;
     const bool projection=dvr::stereo::wants_projection() && dvr::vr::session_live() &&
         !dvr::vr::cinematic_active() && !dvr::camera::eyetest_active() && !dvr::camera::postest_active();
     const float target=dvr::camera::fov_deg();

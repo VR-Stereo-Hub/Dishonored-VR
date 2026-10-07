@@ -341,6 +341,11 @@ static bool WriteDefaultIni(const char* ini)
         "[Screen]\n"
         "; Gameplay horizontal FOV; 0 restores headset-derived. Live: projectionfov 60..120|off.\n"
         "ProjectionFov=103.00\n"
+        "; ZoomMagnify=1: when the game narrows its FOV (the mask's zoom, the spyglass upgrade), the view\n"
+        "; magnifies like a scope: the scene is drawn narrower and the headset keeps showing it across\n"
+        "; ProjectionFov. 0 = the narrower view at its true size, a small box. Live: zoommagnify on|off,\n"
+        "; F10 Display > Field of view.\n"
+        "ZoomMagnify=1\n"
         "AnchorCinematic=1\n"
         "AnchorMissionStats=1\n"
         "AnchorStore=1\n"
@@ -3147,6 +3152,7 @@ static void LoadConfig()
     PowerAimConfigure(ini);    // VR-44: [Aim] PowersFromHand
     CineFovConfigure(ini);
     HandsWorldFovSet(GetPrivateProfileIntA("Screen", "HandsAtWorldFov", 1, ini) != 0, "ini");   // VR-39
+    ZoomMagnifySet(GetPrivateProfileIntA("Screen", "ZoomMagnify", 1, ini) != 0, "ini");   // 2026-10-07: the spyglass as a scope
     AfwFgGainSet(IniFloat(ini, "Stereo", "AfwForegroundGain", 0.911f), "ini");   // VR-39 run 14
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
@@ -4132,6 +4138,7 @@ static void OverlaySaveDefaults()
     _snprintf(v,64,"%.2f",ProjectionFovGet());
     WritePrivateProfileStringA("Screen","ProjectionFov",v,ini);
     WritePrivateProfileStringA("Screen","HandsAtWorldFov",HandsWorldFovGet()?"1":"0",ini);   // VR-39
+    WritePrivateProfileStringA("Screen","ZoomMagnify",ZoomMagnifyGet()?"1":"0",ini);
     _snprintf(v,64,"%.3f",AfwFgGainGet());
     WritePrivateProfileStringA("Stereo","AfwForegroundGain",v,ini);   // VR-39
     // 30.70: the hand drive's live-tuned values, so a good calibration sticks

@@ -1,3 +1,24 @@
+## 2026-10-07: the layer's claim and the spyglass zoom (claude/fov-claim-zoom, stacked on #190, not merged)
+
+**Current state.** Two reports from the same run, one cause. (1) A conversation turning into Piero's
+store shrank the view into a box for 1.5 s: the store's screen flagged the menu before the store state
+arrived, `cine/fov` released, and the layer's claim fell to the camera FOV sensor (50 deg, the dialogue's
+look-at intent) while `fgproj` measured every world draw at 103. (2) The mask-on scene's "zoom" was not
+an FOV change (drawn 103, claimed 103, zoom-lens post-process off): authored camera motion, nothing the
+spyglass can borrow. The spyglass (the mask's zoom, `GBA_Zoom`, 30 on 75) was already drawn
+proportionally (47.4 on 103) and then claimed honestly, which in VR is a smaller picture, not a zoom.
+Shipped: the claim is the frame's own measured world projection (`fgproj_frame_world_hfov_deg`),
+`[Screen] ZoomMagnify` (default 1, F10 Display, `zoommagnify`) holds the claim at `ProjectionFov` when
+the scene is drawn narrower so the zoom magnifies like a scope, the lever keeps the arms' FOV field at
+the target during such a zoom, and `cine/fov` keeps its scope through the dialogue/store menu gate.
+ENGINE_NOTES, ARCHITECTURE and TRAPS have the measurements and the decision. Built, installed with the
+player's settings kept, NOT run.
+
+**Next.** In the headset: hold the zoom (right stick click) in play. The `fov:` line must say
+`MAGNIFIED` with `fgproj` WORLD about 47 deg; whether FOREGROUND reads 103 (hands true size) or 47
+(hands magnified) decides the next step. Then enter Piero's store from a conversation: no box. Then
+the owner merges #190 and this PR (retargeted to staging) so #188 carries them.
+
 ## 2026-10-07: game-owned arms with full-arm IK - takedowns, the boat, a scripted pickup (#190, not merged)
 
 **Current state.** Branch claude/ik-takedown-shoulder, three commits. (1) Takedown shoulders in front

@@ -111,10 +111,16 @@ static inline void FovLeverApply()
         if (t > 160.0f) t = 160.0f;
         if (IsLiveObject(g_peCtrl))
             for (int i = 0; i < 3; i++) LevWrite(g_peCtrl + kLevCtrl[i], t);
+        // 2026-10-07: a magnified zoom ([Screen] ZoomMagnify) draws the world narrower under a claim held at the
+        // target; the game's lock-arms zoom copies m_fCurFOV_Arms into the arms' lens, so that field keeps the
+        // target and the hands stay their true size while the world magnifies. Only while the scene scope has
+        // published a narrower draw; otherwise the field gets the lever's value as it always has.
+        const float published = CineFovClaim();
+        const bool zooming = ZoomMagnifyGet() && published > 0.0f && published < deg - 0.5f;
         if (IsLiveObject(g_camObj))
             for (int i = 0; i < 7; i++) {
                 if (kLevCam[i] == kFovSensor) continue;             // never directly write readback
-                LevWrite(g_camObj + kLevCam[i], t);
+                LevWrite(g_camObj + kLevCam[i], zooming && kLevCam[i] == kFovArms ? deg : t);
             }
         lastWrite = t;
         InterlockedIncrement(&g_fovLeverWrites);
@@ -122,8 +128,9 @@ static inline void FovLeverApply()
         const double now = MaimNowMs();
         if (now >= nextLog) {
             nextLog = now + 1000;
-            Log("fovlever: feedback sensor=%.2f natural=%.2f target=%.2f write=%.2f scoped=%d cinematicRecovery=%d master=%s",
-                sensor, g_fovNatural, deg, t, scoped > 0, cinematicTarget > 0, state.state[0]);
+            Log("fovlever: feedback sensor=%.2f natural=%.2f target=%.2f write=%.2f arms=%.2f%s scoped=%d cinematicRecovery=%d master=%s",
+                sensor, g_fovNatural, deg, t, zooming ? deg : t, zooming ? " (zoom: the arms hold the target)" : "",
+                scoped > 0, cinematicTarget > 0, state.state[0]);
         }
     }
 

@@ -257,6 +257,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         Log("fov: lever -> %.0f (seam)", f);
         return true;
     }
+    if (!strcmp(cmd, "zoommagnify") && DvrOnOff(args, &b)) { ZoomMagnifySet(b, "the seam"); ConfigWriteKey("Screen", "ZoomMagnify", b ? "1" : "0", "the seam"); return true; }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
     if (!strcmp(cmd, "arms")) return ArmsCommand(args);   // VR-31: the per-bone visibility lever
     if (!strcmp(cmd, "res") && !strncmp(args, "live ", 5)) {

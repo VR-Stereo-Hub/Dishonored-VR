@@ -47,6 +47,8 @@
 - **Objective marker text flickering** and HUD pieces splitting apart.
 - **The Heart's glow and the Possession and Blink effects sliding off your hand** while walking.
 - **The still arms pointing behind you on the opening boat ride** are hidden, whichever way you look.
+- **The view shrinking into a small box for a moment when a conversation turns into a shop.**
+- **The mask's zoom (the spyglass upgrade) now zooms in VR** instead of shrinking the picture. Off in F10 > Display > Field of view if you prefer the old behaviour.
 - **Shoulders in front of you during takedowns and scripted scenes** with full-arm IK: the game's arm now reaches back to your own shoulder (F10 > IK > Game arm stretch limit if it still shows, or looks too long).
 
 ## Known issues

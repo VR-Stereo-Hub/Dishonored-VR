@@ -23,6 +23,9 @@ namespace dvr::depthprobe {
 void note_texture(IDirect3DTexture9* tex, UINT w, UINT h, DWORD usage, D3DFORMAT fmt);
 // Once per game Present (render thread), before any of our own writers.
 void tick(IDirect3DDevice9* dev, UINT backW, UINT backH);
+// VR-39 fgproj: the horizontal FOV the world draws of the frame being presented used (their own c0..c3 projection),
+// 0 when none was sampled. The layer claims THIS (present_tick.cpp), never the camera sensor.
+float fgproj_frame_world_hfov_deg();
 // Release every reference the probe holds (Reset, exit): they are DEFAULT-pool objects.
 void on_reset();
 void set_enabled(bool on, const char* who);

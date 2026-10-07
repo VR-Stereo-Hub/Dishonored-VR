@@ -585,6 +585,13 @@ namespace {
 constexpr int kFpBins = 1400;                 // 20.0 .. 160.0 deg in 0.1
 uint32_t g_fpHist[2][kFpBins];
 uint64_t g_fpSeen[2], g_fpRefused[2];
+// 2026-10-07: THIS frame's world projection, for the layer's claim (present_tick.cpp DvrFovHandoff). The claim used
+// to follow the camera's FOV sensor (0x53c), which in dialogues and stores holds an intent the render ignores: a
+// conversation turning into a store claimed 50 deg over a scene drawn at 103 and the view shrank into a box. What the
+// draws themselves projected is the only honest claim; the dominant bin of the frame's world samples is it.
+uint32_t g_fpFrameHist[kFpBins];
+uint32_t g_fpFrameSeen = 0;
+std::atomic<float> g_fpFrameWorld{0.0f};      // the last completed frame's dominant world hfov, deg (0 = none drawn)
 bool     g_fpCrushed = false;
 DWORD    g_fpVpW = 0;
 uint32_t g_fpTick = 0;
@@ -606,6 +613,18 @@ void fp_sample() {
     const int b = (int)((deg - 20.0f) * 10.0f + 0.5f);
     if (b < 0 || b >= kFpBins) { ++g_fpRefused[cls]; return; }
     ++g_fpHist[cls][b]; ++g_fpSeen[cls];
+    if (!cls) { ++g_fpFrameHist[b]; ++g_fpFrameSeen; }
+}
+// The frame's dominant world projection so far (0 if no world draw was sampled). Render lane.
+float fp_frame_world() {
+    if (!g_fpFrameSeen) return 0.0f;
+    int best = -1;
+    for (int b = 0; b < kFpBins; ++b) if (g_fpFrameHist[b] && (best < 0 || g_fpFrameHist[b] > g_fpFrameHist[best])) best = b;
+    return best < 0 ? 0.0f : 20.0f + best * 0.1f;
+}
+void fp_frame_end() {
+    g_fpFrameWorld.store(fp_frame_world());
+    if (g_fpFrameSeen) { memset(g_fpFrameHist, 0, sizeof(g_fpFrameHist)); g_fpFrameSeen = 0; }
 }
 // The three busiest bins, "103.0 x812 (61%)".
 void fp_peaks(int cls, char* out, size_t n, int* top) {
@@ -710,7 +729,10 @@ void set_enabled(bool on, const char* who) {
 }
 bool enabled() { return g_on.load(); }
 void request(const char* who) { g_now.store(true); DVR_INFO("depthprobe: one read asked (%s)", who ? who : "?"); }
-void fgproj_tick_fwd() { fp_tick(); }
+void fgproj_tick_fwd() { fp_tick(); fp_frame_end(); }
+// The world projection of the frame being presented: this frame's draws if any were sampled, else the last
+// completed frame's. 0 = nothing drawn in perspective (menus, loads). Render lane, read at the present.
+float fgproj_frame_world_hfov_deg() { const float live = fp_frame_world(); return live > 0.0f ? live : g_fpFrameWorld.load(); }
 bool command(const char* args) {
     if (args && !_stricmp(args, "fgmask on"))  { fgmask_set(true, "the seam"); return true; }
     if (args && !_stricmp(args, "fgmask off")) { fgmask_set(false, "the seam"); return true; }

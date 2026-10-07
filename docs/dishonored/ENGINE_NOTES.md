@@ -10508,3 +10508,60 @@ First headset session 2026-10-05: targets were found from both hands, the game f
   when it is each hand's nearest" exception still hid the crossbow in the left hand during a
   right-hand grab (headset, 2026-10-05: both hands READY in the same millisecond), so it went too. Pointing is unchanged: with no hand
   near anything, the engine's own cursor trace runs as before.
+
+## 2026-10-07: the layer's claim followed a camera FOV the render ignores (the store box, the mask-on "zoom")
+
+Reported: a conversation that turns into Piero's store shrinks the headset view into a small box for a
+moment (long-standing; entering the store any other way is fine), and the scene where Piero fits the mask
+magnifies the view, which reads like the spyglass zoom and was taken as the mechanism the spyglass should use.
+
+**Measured (build v1.0.3-132-g74b01a910, one run, `xr: fovaudit submit` and `fgproj:`).**
+
+- The store box is a CLAIM error, not a render change. At 60142578 the store's screen flagged the menu
+  (`stereo/state ... menu=1 ... standIn=open pending`) 1.5 s before the store state arrived, still in
+  `StatePlayerMasterInDialog`. `cine/fov` released its scope on that menu flag, and the layer's claim
+  (`DvrFovHandoff`: the scene scope's write, else the camera sensor 0x53c) fell to the sensor, which the
+  dialogue was blending 103 -> 50.14 over 300 ms (29 `fovaudit submit` lines, 99.15 down to 50.14, all
+  `src=readback`). `fgproj` read WORLD hfov **103.0 for 100% of samples** through the whole window: the
+  scene was never drawn narrower. A 103 deg image submitted as a 50 deg layer is the box. The scope
+  re-armed at 60144109 (menu=0) and the claim returned to 103 (60144125). A second one-frame instance at
+  the InDialog -> InStore state change (60160203, 15 ms).
+- The mask-on scene (`StatePlayerMasterInStore`, 60160 to 60190) was drawn at 103 throughout
+  (`fgproj` WORLD 103.0 x32940, 100%), claimed at 103 (one `fovaudit` line), with the zoom-lens
+  post-process (`Epp_ZoomLens`, index 13) NOT active (`pp/watch` listed only effect 19, the UI blur).
+  The camera sensor read 50.14 and the game held the arms' lens at 103 (`armslens: ... lock-arms zoom`),
+  but neither reached the render. Whatever magnification was seen there was the authored camera's
+  motion, not a lens change: nothing in that scene is a mechanism the spyglass can borrow.
+- So the sensor (`camera+0x53c`, `m_fCurFOV` by declaration order) is NOT the rendered FOV in a dialogue
+  or a store: it carries the look-at / lock-arms intent that `cine/fov`'s POV.FOV write overrides. In plain
+  gameplay it reads back the lever's own write, which is why it looked like a render readback.
+
+**The spyglass.** The game's zoom is the "Spyglass" power (`AddPower Spyglass`, the mask's lens, upgraded
+through `m_SpyglassDistance`): `GBA_Zoom` (`Dis_Zoom`, left Alt / right stick), every item `m_bItemCanZoom`
+with `m_fZoomFOV=30` on the 75 base and `m_fZoomBlendSpeed=5`, the `Epp_ZoomLens` post-process for the
+vignette (`m_fZoomLensEffectMinRadius/MaxRadius` 0.38/0.55), and a `DisCamFOVTarget` with `m_bLockArms`
+holding the arms' FOV (the lock-arms zoom the `armslens:` line names). In VR the gameplay scope already
+draws the zoom proportionally (`cine_fov::gameplay_target`: 30 on 75 becomes 47.4 on 103, the authored
+2.86x in tangent space), then claimed that 47.4 honestly, so the headset showed the narrower image at its
+true angular size: a smaller picture, not a closer one. An FOV narrowing under a claim held at the
+projection FOV IS a magnification about the view centre; that is the only way a zoom can exist in VR.
+
+**Shipped.**
+
+- The claim is what the frame's world draws projected: `fgproj` now keeps a per-frame histogram and
+  `dvr::depthprobe::fgproj_frame_world_hfov_deg()` returns the frame's dominant world bin (this frame's
+  samples at the present, else the last completed frame's). `DvrFovHandoff` claims that, falling back to
+  the scene scope's write and then the sensor only when no world draw was sampled (menus, loads). The
+  `fov:` line says which, with all three numbers.
+- `[Screen] ZoomMagnify` (default 1, `zoommagnify on|off`, F10 Display > Field of view): a scene drawn
+  narrower than `ProjectionFov` keeps the claim at `ProjectionFov`. Ships ON as a stated exception: the
+  owner asked for the zoom and 0 is the box. During such a zoom the lever writes the target, not the scaled
+  value, into `m_fCurFOV_Arms` (`kFovArms` 0x540, in `kLevCam`), so a lock-arms zoom that copies it into
+  the arms' lens keeps the hands at their true size (whether the arms' lens is honoured under
+  `HandsAtWorldFov` is still the open question of VR-39 run 14; `fgproj`'s FOREGROUND bin during a zoom
+  answers it).
+- `cine/fov` keeps its scope through the menu gate in `StatePlayerMasterInDialog` and `InStore`, so the
+  dialogue -> store handover no longer releases it (the exit side was already bridged).
+
+Not yet run: a gameplay zoom under this build. What its log must show: `fov: ... MAGNIFIED` while
+`fgproj` WORLD reads about 47 and FOREGROUND reads 103 (hands true size) or 47 (hands magnified too).

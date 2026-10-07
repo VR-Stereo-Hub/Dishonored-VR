@@ -298,6 +298,8 @@ static void CinePitchEnd();
 static bool ProjectionFovScopeActive();
 static float ProjectionFovGet();
 static bool HandsWorldFovGet();
+static bool ZoomMagnifyGet();                                   // 2026-10-07: [Screen] ZoomMagnify (present_tick.cpp)
+static void ZoomMagnifySet(bool on, const char* who);
 static float AfwFgGainGet();
 static void AfwFgGainSet(float g, const char* who);
 static void ArmsLensResolve();
