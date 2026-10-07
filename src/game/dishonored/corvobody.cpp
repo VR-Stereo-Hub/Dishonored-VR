@@ -148,10 +148,39 @@ static int CbBoneVis(uint8_t* body, int idx)
     return data[idx];
 }
 
+// BoneVisibilityStates is NOT a reflected property in this engine build (the generated SDK
+// has no such member on USkeletalMeshComponent; version 2 refused the whole module on it,
+// 2026-10-07). It is found by scanning the component after a hide: the one TArray<BYTE> of
+// bone-count length whose values are all 0..2 and whose entry for a bone we just hid is not 2
+// (RequiredBones, SkelControlIndex and the other byte arrays hold indices, 0xFF or both).
+static void CbLocateBoneVis(uint8_t* body, int hiddenIdx, int otherIdx)
+{
+    if (g_cbOffBoneVis || hiddenIdx < 0) return;
+    int maxIdx = hiddenIdx > otherIdx ? hiddenIdx : otherIdx;
+    int cands = 0; uint32_t first = 0;
+    for (uint32_t o = 0x100; o + 12 <= 0x400; o += 4) {
+        if (!RangeReadable(body + o, 12)) break;
+        uint8_t* d = *(uint8_t**)(body + o);
+        int32_t num = *(int32_t*)(body + o + 4), mx = *(int32_t*)(body + o + 8);
+        if (num <= maxIdx || num > 256 || mx < num || mx > 512 || !d || ((uintptr_t)d & 3) || !RangeReadable(d, (size_t)num)) continue;
+        bool ok = true; int twos = 0;
+        for (int b = 0; b < num; b++) { if (d[b] > 2) { ok = false; break; } if (d[b] == 2) twos++; }
+        if (!ok || twos < num / 2) continue;          // mostly visible bones, a few hidden
+        if (d[hiddenIdx] == 2) continue;              // the bone we just hid must read hidden here
+        cands++; if (!first) first = o;
+    }
+    if (cands == 1) {
+        g_cbOffBoneVis = first;
+        Log("corvobody: BoneVisibilityStates located at +0x%X on %p by scan (bone %d reads hidden there); hides are verified from now on", first, (void*)body, hiddenIdx);
+    } else {
+        Log("corvobody: BoneVisibilityStates not located (%d candidate arrays matched); hides stay unverified and are re-issued every 2 s", cands);
+    }
+}
+
 static bool CbResolveOffsets()
 {
     if (g_cbRefused) return false;
-    if (g_cbOffEff && g_cbOffLoc && g_cbOffRot && g_cbOffBoneVis && g_cbFnSetTrans) return true;
+    if (g_cbOffEff && g_cbOffLoc && g_cbOffRot && g_cbFnSetTrans) return true;
     struct { const char* cls; const char* prop; uint32_t expect; uint32_t* out; } want[] = {
         { "SkelControlLimb",       "EffectorLocation",      0xB8,  &g_cbOffEff },
         { "SkelControlLimb",       "EffectorLocationSpace", 0xC4,  &g_cbOffEffSpace },
@@ -187,7 +216,7 @@ static bool CbResolveOffsets()
         g_cbRefused = true; CbWhy("refused: HiddenGame bit disagrees with the SDK");
         return false;
     }
-    g_cbOffBoneVis = FindPropOffset("SkeletalMeshComponent", "BoneVisibilityStates");
+    g_cbOffBoneVis = FindPropOffset("SkeletalMeshComponent", "BoneVisibilityStates");   // 0 on this build: native only, located by scan later
     g_cbFnFind      = CbFindFunctionIn("SkeletalMeshComponent", "FindSkelControl");
     g_cbFnHide      = CbFindFunctionIn("SkeletalMeshComponent", "HideBoneByName");
     g_cbFnUnhide    = CbFindFunctionIn("SkeletalMeshComponent", "UnHideBoneByName");
@@ -195,17 +224,18 @@ static bool CbResolveOffsets()
     g_cbFnMatchBone = CbFindFunctionIn("SkeletalMeshComponent", "MatchRefBone");
     g_cbFnSetTrans  = CbFindFunctionIn("PrimitiveComponent", "SetTranslation");
     g_cbFnSetRot    = CbFindFunctionIn("PrimitiveComponent", "SetRotation");
-    if (!g_cbFnFind || !g_cbFnBoneLoc || !g_cbFnSetTrans || !g_cbFnSetRot || !g_cbFnMatchBone || !g_cbOffBoneVis) {
+    if (!g_cbFnFind || !g_cbFnBoneLoc || !g_cbFnSetTrans || !g_cbFnSetRot || !g_cbFnMatchBone) {
         DVR_WARN("corvobody: FindSkelControl=%p GetBoneLocation=%p SetTranslation=%p SetRotation=%p MatchRefBone=%p "
-                 "BoneVisibilityStates=0x%X - something did not resolve, REFUSING",
-                 (void*)g_cbFnFind, (void*)g_cbFnBoneLoc, (void*)g_cbFnSetTrans, (void*)g_cbFnSetRot, (void*)g_cbFnMatchBone, g_cbOffBoneVis);
-        g_cbRefused = true; CbWhy("refused: a UFunction or BoneVisibilityStates did not resolve");
+                 "- a UFunction did not resolve, REFUSING",
+                 (void*)g_cbFnFind, (void*)g_cbFnBoneLoc, (void*)g_cbFnSetTrans, (void*)g_cbFnSetRot, (void*)g_cbFnMatchBone);
+        g_cbRefused = true; CbWhy("refused: a UFunction did not resolve");
         return false;
     }
     Log("corvobody: offsets resolved and cross-checked: EffectorLocation 0x%X space 0x%X StrengthTarget 0x%X SkeletalMesh 0x%X "
-        "HiddenGame 0x%X/0x%X BoneVisibilityStates 0x%X Actor.Location 0x%X Rotation 0x%X; UFunctions FindSkelControl %p "
+        "HiddenGame 0x%X/0x%X Actor.Location 0x%X Rotation 0x%X; BoneVisibilityStates %s; UFunctions FindSkelControl %p "
         "HideBoneByName %p UnHideBoneByName %p GetBoneLocation %p MatchRefBone %p SetTranslation %p SetRotation %p",
-        g_cbOffEff, g_cbOffEffSpace, g_cbOffStrT, g_cbOffSkelMesh, g_cbOffHidden, g_cbMaskHidden, g_cbOffBoneVis, g_cbOffLoc, g_cbOffRot,
+        g_cbOffEff, g_cbOffEffSpace, g_cbOffStrT, g_cbOffSkelMesh, g_cbOffHidden, g_cbMaskHidden, g_cbOffLoc, g_cbOffRot,
+        g_cbOffBoneVis ? "reflected" : "not reflected in this build (will be located by scan after the first hide)",
         (void*)g_cbFnFind, (void*)g_cbFnHide, (void*)g_cbFnUnhide, (void*)g_cbFnBoneLoc, (void*)g_cbFnMatchBone,
         (void*)g_cbFnSetTrans, (void*)g_cbFnSetRot);
     return true;
@@ -330,19 +360,33 @@ static void CbApplyHides(uint8_t* body, int mode, bool force)
 {
     static const char* names[4] = { "hand_L_jnt", "hand_R_jnt", "shoulder_L_jnt", "shoulder_R_jnt" };
     bool want[4] = { mode == 2 && g_cbHideHands, mode == 2 && g_cbHideHands, mode == 1, mode == 1 };
+    if (!g_cbOffBoneVis && !force) {
+        // Unverifiable on this build until the scan finds the array: re-issue the wanted hides
+        // every 2 s, since CorvoBody's weapon-change UnHide would otherwise win silently.
+        static double blindMs = 0.0; double now = MaimNowMs();
+        if (now - blindMs < 2000.0) return;
+        blindMs = now;
+        for (int i = 0; i < 4; i++) if (want[i]) CbHideBone(body, names[i], true);
+        return;
+    }
     int issued = 0, re = 0;
     for (int i = 0; i < 4; i++) {
         int vis = CbBoneVis(body, g_cbBoneIdx[i]);
-        bool hiddenNow = vis >= 0 && vis != 2;
-        if (vis < 0 && !force) continue;              // unreadable: only act on a mode change
+        if (vis < 0) {                                 // unreadable: act blind, only on a mode change
+            if (!force) continue;
+            CbHideBone(body, names[i], want[i]); issued++;
+            continue;
+        }
+        bool hiddenNow = vis != 2;
         if (want[i] && !hiddenNow) { CbHideBone(body, names[i], true); issued++; if (!force) re++; }
         else if (!want[i] && hiddenNow) { CbHideBone(body, names[i], false); issued++; }
     }
     if (re) { g_cbRehides += re; if (g_cbRehides <= 5 || (g_cbRehides % 50) == 0) Log("corvobody: re-issued %d hide(s) (total %ld): their UnHide undid ours", re, g_cbRehides); }
     if (force) {
+        if (!g_cbOffBoneVis) CbLocateBoneVis(body, mode == 1 ? g_cbBoneIdx[2] : g_cbBoneIdx[0], mode == 1 ? g_cbBoneIdx[3] : g_cbBoneIdx[1]);
         int v[4]; for (int i = 0; i < 4; i++) v[i] = CbBoneVis(body, g_cbBoneIdx[i]);
         Log("corvobody: mode %s applied on %p: %d hide calls; BoneVisibilityStates after (2 = visible): hand_L %d hand_R %d shoulder_L %d "
-            "shoulder_R %d (bone idx %d %d %d %d). A hand/shoulder still at 2 means HideBoneByName did nothing on this component.",
+            "shoulder_R %d (bone idx %d %d %d %d; -1 = the array was not located, unverified). A hidden bone still at 2 means HideBoneByName did nothing on this component.",
             mode == 1 ? "vr (body arms hidden at the shoulder; the full-arm IK draws ours)" : "body (the body's own arms reach the VR hands)",
             (void*)body, issued, v[0], v[1], v[2], v[3], g_cbBoneIdx[0], g_cbBoneIdx[1], g_cbBoneIdx[2], g_cbBoneIdx[3]);
     }

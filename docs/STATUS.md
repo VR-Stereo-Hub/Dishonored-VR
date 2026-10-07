@@ -17,7 +17,9 @@ and re-issued when their weapon-change UnHide undoes it; a second jump chained o
 own MinHook jump at `UGameEngine::Tick` places the body AFTER theirs so its shoulder midpoint
 sits on the arm IK's shoulder centre and it faces the arm IK's body yaw (published from the IK
 draw; 25 deg deadzone, so looking around does not turn the body, turning with the hands does);
-`MatchShoulderWidth` sets the IK width to the body's measured spacing. CorvoBody.ini on the dev
+`MatchShoulderWidth` sets the IK width to the body's measured spacing. Version 2's first run refused itself at startup
+(`BoneVisibilityStates` is not reflected in this build; the read-back was a hard requirement), so
+that run tested nothing new; 2.1 locates the array by scan or runs unverified. CorvoBody.ini on the dev
 PC: `RigidCamera=0 HideBodyArms=0 TurnStepThreshold=45` (three bytes from the author's). NOT RUN.
 
 **Next steps.** Run it. In `dishonored_vr.log`: `corvobody: offsets resolved and cross-checked`

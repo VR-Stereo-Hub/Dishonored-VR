@@ -243,7 +243,17 @@ same for the 1P arms) or CorvoBody's own UnHide undid it; (c) the camera sat ins
 and every head movement moved the body and feet: CorvoBody places the body under the PAWN,
 whose yaw follows the head in VR, and its turn-step threshold is 1 deg/s.
 
-*Version 2 (installed, not run)* answers each:
+*Version 2's first run (2026-10-07) never ran it*: the module refused itself at startup because
+`BoneVisibilityStates` is not a reflected property in this engine build (the SDK's
+`USkeletalMeshComponent` has no such member; it is native only) and the read-back had been made a
+hard requirement. The headset report from that run (CorvoBody's arms animating at the sides,
+the chest moving with the pawn and not with the head, a slight clip when running) therefore
+describes CorvoBody's own placement, unchanged. Version 2.1: the array is located by a scan
+after the first hide (the one TArray<BYTE> of bone-count length, values 0..2, with the bone just
+hidden not reading 2); when it cannot be, the hides stay unverified and are re-issued every 2 s.
+An optional instrument never again refuses the module.
+
+*Version 2 (2.1 installed, not run)* answers each:
 - The hand drive now hands over a WORLD point in every mode (`skelcontrol.cpp`: the same
   head-relative offset through the same camera basis, trims and crouch drop as its world
   branch), so body mode drives whatever `[Hands] Space` says.
