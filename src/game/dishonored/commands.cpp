@@ -260,7 +260,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "zoomgesture")) {
         if (!strncmp(args, "radius ", 7)) { const float cm = (float)atof(args + 7); ZoomGestureRadiusSet(cm, "the seam"); char v[16]; _snprintf(v, sizeof(v), "%.0f", cm); ConfigWriteKey("Controllers", "ZoomGestureRadiusCm", v, "the seam"); return true; }
         if (DvrOnOff(args, &b)) { ZoomGestureSet(b, "the seam"); ConfigWriteKey("Controllers", "ZoomGesture", b ? "1" : "0", "the seam"); return true; }
-        Log("zoomgesture: usage - zoomgesture on|off | zoomgesture radius <4..30 cm>"); return true;
+        Log("zoomgesture: usage - zoomgesture on|off | zoomgesture radius <4..40 cm>"); return true;
     }
     if (!strcmp(cmd, "zoomtap") && DvrOnOff(args, &b)) { ZoomTapSet(b, "the seam"); ConfigWriteKey("Controllers", "ZoomTap", b ? "1" : "0", "the seam"); return true; }
     if (!strcmp(cmd, "zoommagnify") && DvrOnOff(args, &b)) { ZoomMagnifySet(b, "the seam"); ConfigWriteKey("Screen", "ZoomMagnify", b ? "1" : "0", "the seam"); return true; }

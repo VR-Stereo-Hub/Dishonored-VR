@@ -56,7 +56,7 @@ follow it because they read the logical sticks.
   physical right stick click (released before `[Input] HealthElixirHoldMs`, no D-pad pick, not the
   both-sticks chord) pulses the pad's right thumb button for 120 ms, the game's own toggle
   (`[Controllers] ZoomTap`, `zoomtap on|off`). So does the right trigger with the right controller
-  held at the right eye, within `[Controllers] ZoomGestureRadiusCm` (12) of the head pose moved half
+  held at the right eye, within `[Controllers] ZoomGestureRadiusCm` (25) of the head pose moved half
   the IPD along its right axis; that press is swallowed as an attack (`[Controllers] ZoomGesture`,
   `zoomgesture on|off`, `zoomgesture radius <cm>`). Both log `zoom:` with the reason. F10 Controls.
 - **The F10 pointer** reads the physical snapshot: the pointing hand's trigger clicks, its stick

@@ -149,6 +149,8 @@ int main() {
         check(near(rearm_natural(75.2f, 75.0f, req, req, &why), 75.2f) && why == Rearm::Accepted,
               "the same base read again is accepted");
         check(rearm_natural(20.0f, 75.0f, req, req, &why) == 0 && why == Rearm::Invalid, "out of range refuses");
+        check(rearm_natural(32.12f, 0, 0, req, &why) == 0 && why == Rearm::Invalid, "a first capture under 50 is a zoom (a save loaded zoomed), not the base");
+        check(near(rearm_natural(50.0f, 0, 0, req, &why), 50.0f) && why == Rearm::Fresh, "a first capture at the floor is taken");
         check(rearm_natural(std::numeric_limits<float>::quiet_NaN(), 75.0f, req, req, &why) == 0, "NaN refuses");
         // Landscape target (a 110.9 claim): our 110.9 echo is kept out the same way.
         check(near(rearm_natural(110.9f, 75.0f, 110.9f, 110.9f, &why), 75.0f) && why == Rearm::KeptEcho,

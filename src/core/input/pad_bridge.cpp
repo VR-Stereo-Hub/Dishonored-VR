@@ -23,7 +23,7 @@ static bool ZoomTapGet() { return g_zoomTap.load(); }
 // released. Every press cycles the game's own zoom (the Spyglass upgrade adds levels). Live: zoomgesture on|off,
 // zoomgesture radius <cm>, F10 Controls.
 static std::atomic<bool>  g_zoomGesture{true};
-static std::atomic<float> g_zoomGestureRadiusM{0.15f};
+static std::atomic<float> g_zoomGestureRadiusM{0.25f};   // 25 cm: the owner found 15 too tight (2026-10-07)
 static double g_zoomPulseUntil = 0.0;   // present lane: the pad's right thumb button is held until this time
 static bool ZoomGestureGet() { return g_zoomGesture.load(); }
 static void ZoomGestureSet(bool on, const char* who) {
@@ -32,7 +32,7 @@ static void ZoomGestureSet(bool on, const char* who) {
             on ? "ZOOMS (that press is swallowed as an attack)" : "is an attack as usual", who ? who : "?");
 }
 static void ZoomGestureRadiusSet(float cm, const char* who) {
-    if (!(cm >= 4.0f && cm <= 30.0f)) { Log("zoom: gesture radius %.1f cm refused (4..30) (%s)", cm, who ? who : "?"); return; }
+    if (!(cm >= 4.0f && cm <= 40.0f)) { Log("zoom: gesture radius %.1f cm refused (4..40) (%s)", cm, who ? who : "?"); return; }
     g_zoomGestureRadiusM.store(cm * 0.01f);
     Log("zoom: gesture radius %.1f cm from the right eye (%s)", cm, who ? who : "?");
 }

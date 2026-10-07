@@ -43,6 +43,14 @@ the refusal logs the column norms for the real fix (placing through the scale); 
 never fired and logged nothing; every trigger press now logs grip and aim distances from the right
 eye, the nearer pose counts, radius 15 cm. Third commit, installed, NOT run.
 
+Fourth run (v1.0.3-135-g62bfd3c1d): the gesture FIRED (three pulses at 11 to 13 cm, logged) but the
+zoom was barely visible, so it read as not triggering. Cause: the save had been made while zoomed,
+the game loaded zoomed, and the lever's first base capture after the load read the zoom's 32.12 deg
+(`fovlever: natural base 32.1 deg ... first capture`); every zoom after it was scaled against 32 and
+drew at 96 (`fgproj` 96.2 at 81%). `rearm_natural` now refuses a FIRST capture under 50 deg
+(`kNaturalFloorDeg`; a kept base still treats a narrow reading as KeptNarrower) and the lever says so
+once; host test added. Fourth commit, installed, NOT run.
+
 **Next.** In the headset: the eye gesture (read `zoom: right trigger ... cm from the right eye` on a
 press that did not fire; set `zoomgesture radius <cm>` from it); zoom with the crossbow out (no stuck
 hand; read the column norms in `ms/palette/world: ... NOT placed`); `eye/probe:` in a scene with the

@@ -49,11 +49,17 @@ inline const char* rearm_name(Rearm r) {
 }
 // reading: the sensor now; kept: the base this session already trusted (0 = none);
 // lastWrite: the last value the lever wrote (0 = none); requested: the target.
+// 2026-10-07: a FIRST capture under 50 deg is refused. A save made while zoomed loads the game zoomed, and the
+// first reading after that load was the zoom's 32.12, which became the base: every zoom after it was scaled
+// against 32 and drew at 96 deg (barely a zoom), and a gesture's pulse looked like nothing. The game's own base
+// is 75 (DisTweaks); nothing legitimate reads under 50 at rest. With a kept base a narrow reading is still
+// KeptNarrower, as before. Refused, the lever keeps waiting for a plausible reading (the zoom's end).
+constexpr float kNaturalFloorDeg = 50.0f;
 inline float rearm_natural(float reading, float kept, float lastWrite, float requested, Rearm* why) {
     Rearm r = Rearm::Invalid;
     float out = 0;
     if (std::isfinite(reading) && reading > 30 && reading < 140) {
-        if (!(kept > 30 && kept < 140)) { r = Rearm::Fresh; out = reading; }
+        if (!(kept > 30 && kept < 140)) { if (reading >= kNaturalFloorDeg) { r = Rearm::Fresh; out = reading; } }
         else if (lastWrite > 0 && std::fabs(reading - lastWrite) <= 0.5f) { r = Rearm::KeptEcho; out = kept; }
         else if (reading >= requested - 0.5f) { r = Rearm::KeptAtTarget; out = kept; }
         else if (reading < kept - 0.5f) { r = Rearm::KeptNarrower; out = kept; }

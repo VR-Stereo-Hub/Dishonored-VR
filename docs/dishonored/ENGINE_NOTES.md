@@ -10624,3 +10624,15 @@ Not yet run: a gameplay zoom under this build. What its log must show: `fov: ...
   now logs the hand's grip and aim distances from the right eye, or that a pose was untracked; the nearer
   of the two poses counts (the aim pose sits at the controller's ring, which is what reaches the face);
   the radius default is 15 cm.
+
+### Fourth run (v1.0.3-135-g62bfd3c1d): a save loaded zoomed captured the zoom as the natural base
+
+The eye gesture fired (three `zoom: right trigger with the right hand 11.9 / 12.0 / 11.2 cm from the right
+eye` pulses) and the taps fired, but the world drew at 96.2 (`fgproj` 96.2 at 81% of a zoom window), a
+1.07x zoom. `fovlever: natural base 32.1 deg (read 32.12, last write 0.00: first capture)` at 64666109,
+right after a load (`owners revalidated load=1 UI epoch=5 baseline=recapture`): the save had been made
+while zoomed and the game came up zoomed, so the first reading the lever trusted as the game's resting FOV
+was the zoom's. `target()` then scaled every zoom against 32 (30 x 103/32 = 96). The policy now refuses a
+first capture under 50 deg (`kNaturalFloorDeg`): the game's base is 75 and nothing at rest reads under 50;
+with a kept base a narrow reading stays KeptNarrower. The lever logs the refusal once and writes nothing
+until a plausible reading arrives (the zoom's end). Host test: a 32.12 first capture refuses, 50 is taken.

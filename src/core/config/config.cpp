@@ -450,7 +450,7 @@ static bool WriteDefaultIni(const char* ini)
         "; (within ZoomGestureRadiusCm) is the zoom too - click your mask's lens. That press is not an\n"
         "; attack. Live: zoomgesture on|off, zoomgesture radius <cm>, F10 Controls.\n"
         "ZoomGesture=1\n"
-        "ZoomGestureRadiusCm=15\n"
+        "ZoomGestureRadiusCm=25\n"
         "Enabled=1\n"
         "Deadzone=0.12\n"
         "Haptics=1\n"
@@ -2301,7 +2301,7 @@ static void LoadConfig()
         GetPrivateProfileIntA("Controllers","PauseChord",1,ini)!=0});
     ZoomTapSet(GetPrivateProfileIntA("Controllers","ZoomTap",1,ini)!=0,"ini");   // 2026-10-07: the mask lens zoom
     ZoomGestureSet(GetPrivateProfileIntA("Controllers","ZoomGesture",1,ini)!=0,"ini");
-    ZoomGestureRadiusSet(IniFloat(ini,"Controllers","ZoomGestureRadiusCm",15.0f),"ini");
+    ZoomGestureRadiusSet(IniFloat(ini,"Controllers","ZoomGestureRadiusCm",25.0f),"ini");
     const auto controller=dvr::controller::config();
     Log("controls: modifier=%d dpad=%s X+Y=%d; Y=native, menu tap=START, modifier/hold+menu=BACK",
         controller.modifier,controller.flip ? "right" : "left",int(controller.pauseChord));

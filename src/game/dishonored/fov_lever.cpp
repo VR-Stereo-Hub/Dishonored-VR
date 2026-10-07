@@ -62,7 +62,16 @@ static inline void FovLeverApply()
             const float reading = *(float*)(g_camObj + kFovSensor);
             dvr::fov_lever::Rearm why;
             const float nat = dvr::fov_lever::rearm_natural(reading, keptNatural, lastWrite, deg, &why);
-            if (!(nat > 30.0f && nat < 140.0f)) return;
+            if (!(nat > 30.0f && nat < 140.0f)) {
+                // Said once per refused reading, so a lever that writes nothing after a load explains itself.
+                static float saidRefused = 0.0f;
+                if (why == dvr::fov_lever::Rearm::Invalid && fabsf(reading - saidRefused) > 0.5f) {
+                    saidRefused = reading;
+                    Log("fovlever: natural base NOT captured from a reading of %.2f deg (under the %.0f floor: a zoom, or a save loaded "
+                        "zoomed) - the lever writes nothing until a plausible reading arrives", reading, dvr::fov_lever::kNaturalFloorDeg);
+                }
+                return;
+            }
             g_fovNatural = nat;
             keptNatural = nat;
             Log("fovlever: natural base %.1f deg (read %.2f, last write %.2f: %s), target %.2f, effective base %.2f "
