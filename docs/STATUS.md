@@ -1,4 +1,23 @@
-## 2026-10-06: the headset-tuned IK fit is the 1.0.4 default (claude/ik-fit-default, not merged)
+## 2026-10-07: game-owned arms with full-arm IK - takedowns, the boat, a scripted pickup (#190, not merged)
+
+**Current state.** Branch claude/ik-takedown-shoulder, three commits. (1) Takedown shoulders in front
+of the view: the game-arm re-seat's stretch cap (1.25) bound in 47 of 62 logged samples; it is now
+`[Hands] ArmIKGameArmMaxStretch`, default 1.9, F10 IK slider. HEADSET-CONFIRMED on takedowns.
+(2) The still boat-ride arms: `CineHideStaticArms` was dead code (the draw hook's native exit ran
+before it), then view-relative (released on head turns, the arms being fixed to the authored camera).
+It now runs at that exit and fingerprints the pose in the arm mesh's own space (`[Anim] CineHidePoses`,
+10 uu tolerance); HEADSET-CONFIRMED on the boat, so it ships ON with the boat's pose baked in and
+`DefaultsRev=3` turns it on for existing inis. (3) Found in the same session, built, NOT run: in a
+scripted pickup (sewer weapons) the arms sat too far forward whatever the IK shoulder slider said,
+because the re-seat targeted the IK shoulder AFTER its reach shift (15 to 37 uu forward, chasing the
+game's wrist); it now targets the nominal shoulder and logs the shift it excluded. ANIM-HANDOFF-PLAN.md
+and ARM_IK.md carry the measurements. Installed on the dev PC with the player's settings kept.
+
+**Next.** The sewer pickup (or any scripted scene with the game's arms) in the headset: shoulders on
+your own, the `ik/gamearm` line's `wanted` under 1.9 (above it the stretch slider is the lever). Then
+the owner merges #190 so #188 carries it, and the 1.0.4 package is rebuilt on the VR-Main tip.
+
+## 2026-10-06: the headset-tuned IK fit is the 1.0.4 default (#189, merged)
 
 **Current state.** #187 is merged into staging (`c07aa0c9b`); release PR #188 (staging -> VR-Main) is
 open. This branch makes the IK fit tuned in a headset the default: forward -16, up -25, width 38.1,

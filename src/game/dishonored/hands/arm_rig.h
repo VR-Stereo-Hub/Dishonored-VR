@@ -157,15 +157,16 @@ inline bool pose_arm(const Rig& rig,const Chain& chain,Vec nominal,Vec pole,Vec 
 // about the wrist: a stretch along the shoulder-wrist line (so the cross-section at the wrist
 // keeps meeting the hand), then the smallest rotation that points that line at the IK shoulder.
 // The elbow's bend and side are the game's. Stretch and angle are bounded; `residual` is what
-// the bounds left between the two shoulders.
-struct ShoulderFit {Xform move{};float angle=0,stretch=1,offset=0,residual=0;bool ok=false;};
+// the bounds left between the two shoulders; `wanted` is the stretch it would have taken unbounded.
+struct ShoulderFit {Xform move{};float angle=0,stretch=1,wanted=1,offset=0,residual=0;bool ok=false;};
 inline ShoulderFit shoulder_fit(Vec nativeShoulder,Vec wrist,Vec target,float minStretch,float maxStretch,float maxAngle){
     ShoulderFit out;out.move.r=hf::identity3();
     Vec from=nativeShoulder-wrist,to=target-wrist;
     const float a=length(from),b=length(to);
     if(!finite(nativeShoulder)||!finite(wrist)||!finite(target)||!(a>1)||!(b>1))return out;
     out.offset=length(target-nativeShoulder);
-    out.stretch=std::clamp(b/a,minStretch,maxStretch);
+    out.wanted=b/a;
+    out.stretch=std::clamp(out.wanted,minStretch,maxStretch);
     Vec d=from*(1/a),e=to*(1/b);
     Vec axis=cross(d,e);const float sine=length(axis),cosine=std::clamp(dot(d,e),-1.f,1.f);
     out.angle=std::min(atan2f(sine,cosine),maxAngle);

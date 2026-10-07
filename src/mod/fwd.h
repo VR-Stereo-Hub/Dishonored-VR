@@ -568,6 +568,8 @@ static void MfMarker(void);
 static void MpOnReset(void);
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);
+static bool MsCineHideNative(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                             UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);
 static const char* MsModeName(int m);
 static void MsTick(void);
 static bool MsCommand(const char* args);

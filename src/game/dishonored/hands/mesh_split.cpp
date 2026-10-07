@@ -4207,11 +4207,19 @@ static bool MsQualify(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVert
 #include "arm_ik_draw.inc"
 
 // [Anim] CineHideStaticArms (2026-10-05): in a cutscene the game draws its own full arms, and some leave
-// them in a fixed pose pointing back past the head (the opening cutscene). Hidden while (a) the arms hold
-// still - the between-bone speed MsSampleArmSpeed measures stays under 8 uu/s for 500 ms - and (b) BOTH
-// hand bones are behind the camera plane: the palette point of each hand bone, through the draw's own
-// LocalToWorld (rebased on the view), against the camera's forward from the same draw. Render lane.
-// Logs the measured depths so the sign convention is checked by the first run (in front reads positive).
+// them in a fixed pose pointing back past the head (the opening boat scene). Hidden while the arms hold still
+// (the between-bone speed MsSampleArmSpeed measures stays under 8 uu/s for 500 ms) AND either:
+//  - the pose is a CAPTURED one ([Anim] CineHidePoses): both hand bones within kCinePoseTol uu of a stored
+//    pair, in the arm mesh's OWN space (palette only), so the test does not move when the player looks
+//    around. The boat run of 2026-10-06 showed why it must not: the arms are fixed to the scene's authored
+//    camera while the view turns with the headset, so a view-relative test hid them facing forward (hand
+//    depths about -30 uu) and drew them again on a head turn (one hand +65 uu), exactly when they were seen.
+//  - or both hand bones are behind the camera plane (the view test, headset-confirmed on that run: behind
+//    reads negative). A still pose that passes it is CAPTURED: stored in CineHidePoses (up to four) and
+//    matched from then on, from the first frame of every later scene in that pose, whichever way you look.
+// Render lane. The tolerance is 10 uu per hand: the boat pose drifts about 6 uu over the ride (measured
+// 2026-10-07: four captures 1 to 2 uu apart at 2 uu tolerance), and no two distinct still poses sit that close.
+static const float kCinePoseTol = 10.0f;
 static bool MsCineHideStatic(IDirect3DDevice9* dev)
 {
     static ULONGLONG stillSince = 0;
@@ -4221,35 +4229,98 @@ static bool MsCineHideStatic(IDirect3DDevice9* dev)
     const bool fresh = speed >= 0 && now - g_msArmSpeedMs <= 200;
     if (fresh && speed < 8.0f) { if (!stillSince) stillSince = now; } else stillSince = 0;
     const bool still = stillSince && now - stillSince >= 500;
-    float depth[2] = { 0, 0 };
-    bool measured = false;
+    float depth[2] = { 0, 0 }, local[2][3] = {};
+    bool measured = false, posed = false;
     MpDrawCtx c;
     const int hands[2] = { g_msHandBone[1], g_msHandBone[2] };
-    if (g_mpCacheN > 0 && g_mpCacheN == g_mpPalN && hands[0] >= 0 && hands[1] >= 0 && MpAcquireCtx(dev, &c) && c.ok) {
+    const char* unmeasured = g_mpCacheN <= 0 || g_mpCacheN != g_mpPalN ? "no complete bone palette"
+                           : hands[0] < 0 || hands[1] < 0 ? "hand bones unknown"
+                           : (UINT)(hands[0] * 3 + 3) > (UINT)g_mpCacheN || (UINT)(hands[1] * 3 + 3) > (UINT)g_mpCacheN
+                           ? "hand bone outside the palette" : NULL;
+    if (!unmeasured) {   // the pose: each hand bone through its own palette matrix, in the mesh's space
+        posed = true;
+        for (int k = 0; k < 2; ++k) {
+            const float* M = g_mpCache + hands[k] * 12;
+            const float* q = g_msBoneCen[hands[k]];
+            for (int i = 0; i < 3; ++i) local[k][i] = M[i * 4 + 0] * q[0] + M[i * 4 + 1] * q[1] + M[i * 4 + 2] * q[2] + M[i * 4 + 3];
+        }
+        if (!(MpAcquireCtx(dev, &c) && c.ok)) unmeasured = c.why ? c.why : "draw context refused";
+    }
+    if (posed && !unmeasured) {
         measured = true;
         for (int k = 0; k < 2; ++k) {
-            const int b = hands[k];
-            if ((UINT)(b * 3 + 3) > (UINT)g_mpCacheN) { measured = false; break; }
-            const float* M = g_mpCache + b * 12;
-            const float* q = g_msBoneCen[b];
-            float p[3], w[3];
-            for (int i = 0; i < 3; ++i) p[i] = M[i * 4 + 0] * q[0] + M[i * 4 + 1] * q[1] + M[i * 4 + 2] * q[2] + M[i * 4 + 3];
+            const float* p = local[k]; float w[3];
             for (int i = 0; i < 3; ++i) w[i] = c.col[0][i] * p[0] + c.col[1][i] * p[1] + c.col[2][i] * p[2] + c.t[i];
             depth[k] = w[0] * c.f[0] + w[1] * c.f[1] + w[2] * c.f[2];
         }
     }
+    int match = -1; float nearest = -1.0f;
+    for (int i = 0; posed && i < g_msCinePoseN; ++i) {
+        float d = 0;
+        for (int k = 0; k < 2; ++k) {
+            const float dx = local[k][0] - g_msCinePose[i][k * 3], dy = local[k][1] - g_msCinePose[i][k * 3 + 1],
+                        dz = local[k][2] - g_msCinePose[i][k * 3 + 2];
+            d = (std::max)(d, sqrtf(dx * dx + dy * dy + dz * dz));
+        }
+        if (nearest < 0 || d < nearest) nearest = d;
+        if (d <= kCinePoseTol && match < 0) match = i;
+    }
     const bool behind = measured && depth[0] < -2.0f && depth[1] < -2.0f;
-    const bool hide = still && behind;
+    const bool hide = still && (match >= 0 || behind);
+    if (hide && match < 0 && posed && g_msCinePoseN < MS_CINE_POSES_MAX) {   // capture this pose
+        float* dst = g_msCinePose[g_msCinePoseN++];
+        for (int k = 0; k < 2; ++k) for (int i = 0; i < 3; ++i) dst[k * 3 + i] = local[k][i];
+        match = g_msCinePoseN - 1; nearest = 0;
+        char buf[512] = "", one[96];
+        for (int i = 0; i < g_msCinePoseN; ++i) {
+            _snprintf_s(one, _TRUNCATE, "%s%.2f %.2f %.2f %.2f %.2f %.2f", i ? "; " : "", g_msCinePose[i][0], g_msCinePose[i][1],
+                        g_msCinePose[i][2], g_msCinePose[i][3], g_msCinePose[i][4], g_msCinePose[i][5]);
+            strncat_s(buf, one, _TRUNCATE);
+        }
+        ConfigWriteKey("Anim", "CineHidePoses", buf, "cine/hidearms capture");
+        Log("cine/hidearms: pose CAPTURED as #%d - still, both hands behind the camera (depth L %+.1f R %+.1f uu); hands in the "
+            "arm mesh's space L (%.2f %.2f %.2f) R (%.2f %.2f %.2f). From now on this pose is hidden whichever way you look "
+            "([Anim] CineHidePoses, %d stored)", match, depth[0], depth[1], local[0][0], local[0][1], local[0][2],
+            local[1][0], local[1][1], local[1][2], g_msCinePoseN);
+    }
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
-        "cine/hidearms: hand depth along the view L %+.1f R %+.1f uu (%s; in front reads positive), arm speed %.1f uu/s "
-        "%s -> %s", depth[0], depth[1], measured ? "measured" : "NOT measurable this draw", fresh ? speed : -1.0f,
-        still ? "still" : "moving or unknown", hide ? "HIDDEN" : "drawn");
+        "cine/hidearms: hands in the mesh's space L (%.1f %.1f %.1f) R (%.1f %.1f %.1f)%s, nearest captured pose %.1f uu "
+        "(%d stored, match within %.1f) | hand depth along the view L %+.1f R %+.1f uu (%s%s; in front reads positive) | "
+        "arm speed %.1f uu/s %s -> %s", local[0][0], local[0][1], local[0][2], local[1][0], local[1][1], local[1][2],
+        posed ? "" : " (no pose)", nearest, g_msCinePoseN, kCinePoseTol, depth[0], depth[1], measured ? "measured" : "NOT measurable: ",
+        measured ? "" : (unmeasured ? unmeasured : "?"), fresh ? speed : -1.0f, still ? "still" : "moving or unknown",
+        hide ? (match >= 0 ? "HIDDEN (captured pose)" : "HIDDEN (behind the camera)") : "drawn");
     if (hide != was) {
         was = hide;
-        Log("cine/hidearms: cutscene arms %s (hand depth L %+.1f R %+.1f uu, arm speed %.1f uu/s)",
-            hide ? "HIDDEN - still, both hands behind the camera" : "drawn again", depth[0], depth[1], fresh ? speed : -1.0f);
+        Log("cine/hidearms: cutscene arms %s (pose #%d at %.1f uu, hand depth L %+.1f R %+.1f uu, arm speed %.1f uu/s)",
+            hide ? "HIDDEN - still, in a captured pose or both hands behind the camera" : "drawn again", match, nearest,
+            depth[0], depth[1], fresh ? speed : -1.0f);
     }
     return hide;
+}
+
+// CineHideStaticArms at the draw hook's whole-draw native exit (draw_census.cpp). While the game owns BOTH
+// arms (native_full_arms) the hook hands every draw straight to the game, ahead of the mesh lock and MsDraw,
+// so the hide used to sit in MsDraw behind a condition that exit had already made false: it never ran, which
+// is why the opening boat scene (StatePlayerMasterSoiree, the game owning the arms) logged no cine/hidearms
+// line in any run (2026-10-06). Called from that exit for a draw of the locked arm buffers; true = drop it.
+// Only THIS geometry (the arm mesh the split was built from), never another draw; every gate is reported (2 s).
+static bool MsCineHideNative(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                             UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount)
+{
+    dvr::anim::note_hide_draw();
+    MsContract hc; const char* hwhy = NULL;
+    const bool qual = MsQualify(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount, &hc, &hwhy);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+        "cine/hidearms: arm-mesh draw seen at the native exit - game owns both arms, IK %d, this draw is the split's arm "
+        "mesh %d (%s), anim reason '%s'", (int)g_ikOn.load(), (int)qual, qual ? "yes" : (hwhy ? hwhy : "not this geometry"),
+        dvr::anim::snapshot().reason);
+    if (!qual) return false;
+    // The register layout (ViewProjection, LocalToWorld) is refreshed only by the paths this exit skips (MsDraw,
+    // the IK draw), so it was stale or empty here and every boat draw read "NOT measurable" (2026-10-06 run).
+    PcRefreshLayout(dev);
+    MsSampleArmSpeed();
+    return MsCineHideStatic(dev);   // drawing nothing IS the answer
 }
 
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
@@ -4259,27 +4330,6 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     const bool ik=g_ikOn.load();
     if(!ik)IkResetPose();
     g_msPassThrough = !ik && dvr::anim::native_full_arms();
-    // CineHideStaticArms: the game owns the arms in a cutscene, with or without full-arm IK (IK draws the
-    // game's arm on its shoulder then), so the test runs before either path draws them.
-    // 2026-10-05: not only a flagged cutscene - the opening scene runs in StatePlayerMasterSoiree with the game
-    // owning the arms and bCinematicMode off, and the hide never armed. Still + both hands behind the camera is the
-    // test; any game-owned arm pose qualifies.
-    if (dvr::anim::cine_hide_static()) {
-        // CineHideStaticArms: only THIS geometry (the arm mesh the split was built from), never another draw.
-        // 2026-10-05: the boat ride logged nothing at all, so every gate is reported (2 s) while the option is on.
-        const bool owned = dvr::anim::native_full_arms();
-        dvr::anim::note_hide_draw();
-        MsContract hc; const char* hwhy = NULL;
-        const bool qual = MsQualify(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount, &hc, &hwhy);
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
-            "cine/hidearms: arm-mesh draw seen - game owns the arms %d, IK %d, this draw is the split's arm mesh %d (%s), "
-            "anim reason '%s'", (int)owned, (int)ik, (int)qual, qual ? "yes" : (hwhy ? hwhy : "not this geometry"),
-            dvr::anim::snapshot().reason);
-        if (owned && qual) {
-            MsSampleArmSpeed();
-            if (MsCineHideStatic(dev)) { g_msDraws++; return true; }   // drawing nothing IS the answer
-        }
-    }
     if (g_msPassThrough) return false;
     const bool nativeHands=nativePose && !g_msPassThrough;
     if (g_msMode == MS_MODE_OFF && !nativeHands && !ik) return false;

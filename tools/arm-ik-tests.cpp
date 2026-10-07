@@ -30,6 +30,13 @@ int main(int argc,char** argv){
         ShoulderFit far=shoulder_fit(ns,w,{-200,90,0},.8f,1.25f,.6f);
         check(far.ok&&far.stretch<=1.2501f&&far.angle<=.6001f&&far.residual>1&&near(point(far.move,w),w),"shoulder fit is bounded and says what is left");
         check(!shoulder_fit(w,w,tg,.8f,1.25f,1.0f).ok&&!shoulder_fit(ns,w,{NAN,0,0},.8f,1.25f,1.0f).ok,"shoulder fit refuses a degenerate arm");
+        // ArmIKGameArmMaxStretch: a takedown whose IK shoulder sits 1.6 arm lengths from the wrist,
+        // straight back along the arm. The old 1.25 bound leaves it short; the 1.9 default lands.
+        Vec back=w+(ns-w)*1.6f;
+        ShoulderFit tight=shoulder_fit(ns,w,back,.8f,1.25f,1.0f),loose=shoulder_fit(ns,w,back,.8f,1.9f,1.0f);
+        check(tight.ok&&fabsf(tight.wanted-1.6f)<.001f&&fabsf(tight.stretch-1.25f)<1e-5f&&fabsf(tight.residual-.35f*length(ns-w))<.01f,
+              "shoulder fit reports the stretch it wanted and the residual the bound left");
+        check(loose.ok&&fabsf(loose.stretch-1.6f)<.001f&&loose.residual<.01f&&near(point(loose.move,w),w),"a 1.9 stretch bound reaches a 1.6 takedown, wrist kept");
     }
     check(solve({0,0,0},{30,0,0},pole,outward,{},25,26,.5f,sol),"reachable solve");
     check(near(sol.shoulder,{}),"reachable shoulder stays nominal");

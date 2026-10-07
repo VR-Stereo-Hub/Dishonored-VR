@@ -12,7 +12,7 @@ struct IkGeometry {
     int wristSlot[2]={-1,-1};
 } ikMesh;
 dvr::ik::PoseHistory ikTime;
-struct IkSeat {bool measured,applied;float fwd,right,up,apart,turnDeg,stretch,left;} g_ikSeat[2]={};
+struct IkSeat {bool measured,applied;float fwd,right,up,apart,turnDeg,stretch,wanted,left,reach;} g_ikSeat[2]={};
 }
 
 static void IkResetPose(){ikTime=dvr::ik::PoseHistory{};}
@@ -176,10 +176,17 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
                 nativeShoulder=native(upperSlot,ikMesh.rig.bones[ikMesh.chain[h].upper].head);
                 nativeWrist=native(ikMesh.wristSlot[h],ikMesh.rig.bones[ikMesh.chain[h].wrist].head);
                 // Measured whatever the lever says, so a log of the lever OFF still carries the numbers.
-                fit=shoulder_fit(nativeShoulder,nativeWrist,solved[h].joints.shoulder,.8f,1.25f,45*3.14159265359f/180);
+                // The target is the NOMINAL shoulder (the F10 fit), not the solved one. The solved shoulder carries
+                // the reach shift, which slides toward the wrist when the wrist is beyond the arm - and in a game
+                // animation the wrist is the game's, authored far in front for a flat screen, so the IK shoulder
+                // had slid 15 to 37 uu forward before the re-seat used it as the target (the sewer weapons pickup,
+                // 2026-10-07): the game's shoulders sat forward whatever the slider said. The game's arm is being
+                // stretched to reach anyway; the reach shift is for the IK arm chasing a controller.
+                fit=shoulder_fit(nativeShoulder,nativeWrist,nominal,.8f,g_ikGameArmMaxStretch.load(),45*3.14159265359f/180);
                 seated=fit.ok&&(seatMode==2||(seatMode==1&&!dvr::anim::choke_owns_arms()));
-                const Vec off=solved[h].joints.shoulder-nativeShoulder;
-                g_ikSeat[h]={fit.ok,seated,dot(off,body.forward),dot(off,body.right),dot(off,body.up),fit.offset,fit.angle*180/3.14159265359f,fit.stretch,seated?fit.residual:fit.offset};
+                const Vec off=nominal-nativeShoulder;
+                g_ikSeat[h]={fit.ok,seated,dot(off,body.forward),dot(off,body.right),dot(off,body.up),fit.offset,fit.angle*180/3.14159265359f,fit.stretch,fit.wanted,seated?fit.residual:fit.offset,
+                             length(solved[h].joints.shoulder-nominal)};
             }
         }
         for(int slot=0;slot<g_msBones;++slot){
@@ -211,13 +218,17 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
     // The derived numbers, while the game has an arm: where the game's shoulder is against the IK
     // shoulder (in body axes, so "too far forward" is arithmetic) and what the re-seat did with it.
     if(g_ikGameShare[0]>.5f||g_ikGameShare[1]>.5f)DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,500,
-        "ik/gamearm: ArmIKGameArmShoulder=%d choke=%d share L=%.2f R=%.2f | IK shoulder minus the game's shoulder, uu forward/right/up: "
-        "L %+.1f %+.1f %+.1f (%.1f apart) R %+.1f %+.1f %+.1f (%.1f apart); negative forward = the game's shoulder is in front | re-seat about the game's wrist: "
-        "L %s turn %.1f deg stretch %.3f left over %.1f uu | R %s turn %.1f deg stretch %.3f left over %.1f uu (bounds: stretch 0.80..1.25, turn 45 deg)",
+        "ik/gamearm: ArmIKGameArmShoulder=%d choke=%d share L=%.2f R=%.2f | YOUR nominal shoulder (the F10 fit) minus the game's shoulder, uu forward/right/up: "
+        "L %+.1f %+.1f %+.1f (%.1f apart) R %+.1f %+.1f %+.1f (%.1f apart); negative forward = the game's shoulder is in front; "
+        "the IK reach shift (excluded from the target) L %.1f R %.1f uu | re-seat about the game's wrist: "
+        "L %s turn %.1f deg stretch %.3f (wanted %.3f) left over %.1f uu | R %s turn %.1f deg stretch %.3f (wanted %.3f) left over %.1f uu "
+        "(bounds: stretch 0.80..%.2f [Hands] ArmIKGameArmMaxStretch, turn 45 deg; wanted above the bound = the shoulder stays in front by the left over)",
         g_ikGameArmShoulder.load(),(int)dvr::anim::choke_owns_arms(),g_ikGameShare[0],g_ikGameShare[1],
         g_ikSeat[0].fwd,g_ikSeat[0].right,g_ikSeat[0].up,g_ikSeat[0].apart,g_ikSeat[1].fwd,g_ikSeat[1].right,g_ikSeat[1].up,g_ikSeat[1].apart,
-        !g_ikSeat[0].measured?"not measured":g_ikSeat[0].applied?"APPLIED":"not applied",g_ikSeat[0].turnDeg,g_ikSeat[0].stretch,g_ikSeat[0].left,
-        !g_ikSeat[1].measured?"not measured":g_ikSeat[1].applied?"APPLIED":"not applied",g_ikSeat[1].turnDeg,g_ikSeat[1].stretch,g_ikSeat[1].left);
+        g_ikSeat[0].reach,g_ikSeat[1].reach,
+        !g_ikSeat[0].measured?"not measured":g_ikSeat[0].applied?"APPLIED":"not applied",g_ikSeat[0].turnDeg,g_ikSeat[0].stretch,g_ikSeat[0].wanted,g_ikSeat[0].left,
+        !g_ikSeat[1].measured?"not measured":g_ikSeat[1].applied?"APPLIED":"not applied",g_ikSeat[1].turnDeg,g_ikSeat[1].stretch,g_ikSeat[1].wanted,g_ikSeat[1].left,
+        g_ikGameArmMaxStretch.load());
     // Preserve all device state even when a bind or draw fails. No engine-owned
     // COM reference survives this scope; only our copied mesh buffers persist.
     struct Saved {

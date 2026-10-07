@@ -307,13 +307,27 @@ cover native hand animation, tab persistence, rapid head turns and menu/load.
 blend from the IK solution to the game's own skin matrices by the hand-back weight. At full
 ownership the arm is the game's exactly. Accepted in a headset for the choke.
 
-`[Hands] ArmIKGameArmShoulder` (F10 IK, under it; default 0): the game poses its arm for its own
+`[Hands] ArmIKGameArmShoulder` (F10 IK, under it; default 1): the game poses its arm for its own
 camera and body, so its shoulder is not where the IK shoulder is, and it was reported in front
-of it in every takedown but the choke. 1 re-seats the game's arm on the IK shoulder about the
-game's own wrist (`shoulder_fit`: a stretch along the shoulder-wrist line within 0.80..1.25,
-then the smallest rotation within 45 degrees), in every game animation except the choke; 2
+of it in every takedown but the choke. 1 re-seats the game's arm on your NOMINAL shoulder (the F10
+fit, not the reach-shifted IK shoulder: the reach shift chases the game's far-forward wrist and put
+the target 15 to 37 uu forward in a scripted pickup, 2026-10-07) about the
+game's own wrist (`shoulder_fit`: a stretch along the shoulder-wrist line within
+0.80..`ArmIKGameArmMaxStretch`, then the smallest rotation within 45 degrees), in every game
+animation except the choke; 2
 includes the choke. The hand stays where the clip put it. `ik/gamearm:` logs the offset between
 the two shoulders in body axes and what the re-seat did, with the lever on or off.
 Headset-confirmed at 1 on 2026-10-04 (two front fatalities re-seated, two chokes left alone;
 the shoulders measured 8 to 27 uu apart, the IK shoulder 5 to 14 uu higher). Detail:
 ANIM-HANDOFF-PLAN.md, "Third headset run" and "Fourth headset run".
+
+`[Hands] ArmIKGameArmMaxStretch` (F10 IK, "Game arm stretch limit" under the shoulder choice;
+default 1.9, range 1.0..2.5): the stretch bound above. It was a fixed 1.25 until 2026-10-06,
+when the shoulders were reported visible in front of the view in takedowns with the fit
+forward -16, up -25. The two headset runs with that fit (builds `b9f66efb8` and `e840151a4`)
+logged 62 takedown samples at full game share; the stretch sat on the 1.25 bound in 47 of
+them, leaving the shoulder 0 to 19 uu in front (mean about 6). Solving each logged gap, turn and
+residual for the arm length (34 to 49 uu) gives the stretch each one needed: 1.25 to 1.84,
+mantles up to 1.77. 1.9 reaches the shoulder in every one of them. The arm reads longer during
+the move; that is the trade the slider tunes. The `ik/gamearm` line now also logs the stretch
+each re-seat wanted, so a run says directly whether the bound held it back.

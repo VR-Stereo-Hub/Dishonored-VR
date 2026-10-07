@@ -18,7 +18,7 @@ static bool WriteDefaultIni(const char* ini)
         "; (auto-refreshed when the mod's defaults change)\n"
         "[Meta]\n"
         "Version=%d\n"
-        "DefaultsRev=2\n"
+        "DefaultsRev=3\n"
         "[Tracking]\n"
         "; head tracking drives the game camera via mouse emulation.\n"
         "; Calibrate: pick a landmark, turn your head 90 degrees; if the\n"
@@ -1003,6 +1003,10 @@ static bool WriteDefaultIni(const char* ini)
         "; its wrist staying where the animation put it. 0 = off (the arm as the game draws it for\n"
         "; its own camera), 1 = every game animation except the choke, 2 = the choke as well.\n"
         "ArmIKGameArmShoulder=1\n"
+        "; ArmIKGameArmMaxStretch: how far that re-seat may lengthen the game's arm to reach your\n"
+        "; shoulder (1.0..2.5). Below what a takedown needs, its shoulder stays in front where you can\n"
+        "; see it (the ik/gamearm line's left over). Takedowns measured needing up to 1.84.\n"
+        "ArmIKGameArmMaxStretch=1.9\n"
         "; OpenEmptyRightHand=1: with nothing in the right hand (the sword holstered) its fingers\n"
         "; take the left hand's open pose, mirrored, instead of the game's loose fist. 0 = the fist.\n"
         "OpenEmptyRightHand=1\n"
@@ -1382,8 +1386,14 @@ static bool WriteDefaultIni(const char* ini)
         "HideTakedownArms=1\n"
         "; CineHideStaticArms=1: in a cutscene that shows the game's arms, hide them while they hold\n"
         "; still with both hands behind the camera (the opening cutscene leaves them pointing back past\n"
-        "; your head). Live: cinehidearms on|off, F10 Advanced > Hands.\n"
-        "CineHideStaticArms=0\n"
+        "; your head). On by default since the boat was confirmed in a headset (2026-10-07). Live:\n"
+        "; cinehidearms on|off, F10 Advanced > Hands.\n"
+        "CineHideStaticArms=1\n"
+        "; CineHidePoses: the still poses the hide knows (each hand's position in the arm mesh's own\n"
+        "; space, L xyz R xyz, up to four, ';' between), hidden whenever they recur whichever way you\n"
+        "; look. Ships with the opening boat ride's pose; the mod adds a pose when still arms hold both\n"
+        "; hands behind the camera. `cinehidearms forget` clears them.\n"
+        "CineHidePoses=54.23 -104.30 -23.16 -54.24 -104.30 -23.14\n"
         "; HandAnimMelee: a TRIGGER sword attack plays the game's swing on the tracked hand\n"
         "; and returns it to the controller. A physical swing (the motion sword) never does:\n"
         "; your arm is the animation. HandAnimMeleeSwing=1 hands physical swings back too.\n"
@@ -1937,6 +1947,18 @@ static void LoadConfig()
         WritePrivateProfileStringA("Meta", "DefaultsRev", "2", ini);
         Log("config: defaults revision 2 applied once to this ini - IK fit moved to the new default:%s; kept as "
             "tuned:%s", moved[0] ? moved : " none", kept[0] ? kept : " none");
+    }
+    // 2026-10-07: the still-cutscene-arm hide, confirmed on the boat, becomes the default, with the boat's pose
+    // baked in where the ini has none of its own.
+    if (!missing && GetPrivateProfileIntA("Meta", "DefaultsRev", 0, ini) < 3) {
+        WritePrivateProfileStringA("Anim", "CineHideStaticArms", "1", ini);
+        char poses[512] = "";
+        GetPrivateProfileStringA("Anim", "CineHidePoses", "", poses, sizeof(poses), ini);
+        const bool hadPoses = strspn(poses, " \t") != strlen(poses);
+        if (!hadPoses) WritePrivateProfileStringA("Anim", "CineHidePoses", "54.23 -104.30 -23.16 -54.24 -104.30 -23.14", ini);
+        WritePrivateProfileStringA("Meta", "DefaultsRev", "3", ini);
+        Log("config: defaults revision 3 applied once to this ini - CineHideStaticArms on; CineHidePoses %s. Every other key is unchanged",
+            hadPoses ? "kept (this ini had captured its own)" : "set to the opening boat ride's pose");
     }
     {   // [Paths] DataDir: where the harness files go. Applied before any of
         // them is written (the command seam and status.json start after the
@@ -2974,6 +2996,31 @@ static void LoadConfig()
     Log("config: [Hands] ArmIKGameArmShoulder=%d (%s)", g_ikGameArmShoulder.load(), g_ikGameArmShoulder.load() == 0
         ? "off: the game's arm as it is drawn for the game's own camera" : g_ikGameArmShoulder.load() == 1
         ? "the game's arm is re-seated on the IK shoulder, wrist kept; not in the choke" : "the game's arm is re-seated on the IK shoulder, wrist kept; the choke too");
+    {
+        const float v = IniFloat(ini, "Hands", "ArmIKGameArmMaxStretch", 1.9f);
+        g_ikGameArmMaxStretch = std::isfinite(v) ? std::clamp(v, 1.0f, 2.5f) : 1.9f;
+        Log("config: [Hands] ArmIKGameArmMaxStretch=%.2f (the re-seat lengthens the game's arm at most this much to reach the "
+            "IK shoulder; a takedown that needs more keeps its shoulder in front by the ik/gamearm left over)",
+            g_ikGameArmMaxStretch.load());
+    }
+    {   // [Anim] CineHidePoses: the still cutscene arm poses CineHideStaticArms captured (mesh_split.cpp)
+        char buf[512] = "";
+        GetPrivateProfileStringA("Anim", "CineHidePoses", "", buf, sizeof(buf), ini);
+        g_msCinePoseN = 0;
+        int refused = 0;
+        for (char* tok = buf; tok && *tok && g_msCinePoseN < MS_CINE_POSES_MAX;) {
+            char* next = strchr(tok, ';');
+            if (next) *next++ = 0;
+            float* v = g_msCinePose[g_msCinePoseN];
+            bool ok = sscanf_s(tok, "%f %f %f %f %f %f", v, v + 1, v + 2, v + 3, v + 4, v + 5) == 6;
+            for (int i = 0; ok && i < 6; ++i) ok = std::isfinite(v[i]);
+            if (ok) ++g_msCinePoseN; else if (strspn(tok, " \t") != strlen(tok)) ++refused;
+            tok = next;
+        }
+        Log("config: [Anim] CineHidePoses: %d captured pose(s) loaded%s (still cutscene arms in one of them are hidden "
+            "whichever way you look; the hide captures a pose when its hands are both behind the camera)",
+            g_msCinePoseN, refused ? " - SOME ENTRIES REFUSED, not six numbers" : "");
+    }
     Log("ik: configured %s; nominal shoulder center cm=(%.2f %.2f %.2f), width=%.2f, length=%.2f, elbow-out=%.2f; independent reach, native hands / IK arms",
         g_ikOn.load()?"ON":"OFF",g_ikForward.load(),g_ikRight.load(),g_ikUp.load(),g_ikWidth.load(),g_ikLength.load(),g_ikElbowOut.load());
     g_ohOn = IniFloat(ini, "Hands", "OpenEmptyRightHand", 1) != 0.0f;       // the empty right hand opens like the left

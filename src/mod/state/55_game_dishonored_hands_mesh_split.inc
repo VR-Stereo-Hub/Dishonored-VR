@@ -942,6 +942,11 @@ static volatile unsigned long long g_msArmSpeedMs = 0;
 static bool     g_msAuto = true;               // [Hands] ArmSplitAuto
 static uint32_t g_msWantPrims = 4448;          // [Hands] ArmMeshPrims (measured)
 static uint32_t g_msWantVerts = 2771;          // [Hands] ArmMeshVerts (measured)
+// [Anim] CineHidePoses: still cutscene arm poses to hide, each hand bone's position in the arm mesh's own
+// space (L xyz, R xyz), captured by the hide itself (MsCineHideStatic). Read at config load, render lane after.
+#define MS_CINE_POSES_MAX 4
+static float g_msCinePose[MS_CINE_POSES_MAX][6];
+static int   g_msCinePoseN = 0;
 static volatile uint32_t g_msLockFrame = 0;    // last frame the lock matched a draw
 static volatile int      g_msAutoArmed = 0;    // this lock came from the signature
 static double   g_msNextReport = 0.0;
