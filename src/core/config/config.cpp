@@ -1388,6 +1388,10 @@ static bool WriteDefaultIni(const char* ini)
         "; still with both hands behind the camera (the opening cutscene leaves them pointing back past\n"
         "; your head). Live: cinehidearms on|off, F10 Advanced > Hands.\n"
         "CineHideStaticArms=0\n"
+        "; CineHidePoses: the still poses that hide captured (each hand's position in the arm mesh's own\n"
+        "; space, L xyz R xyz, up to four, ';' between), hidden from then on whichever way you look.\n"
+        "; Written by the mod; empty = none yet. `cinehidearms forget` clears them.\n"
+        "CineHidePoses=\n"
         "; HandAnimMelee: a TRIGGER sword attack plays the game's swing on the tracked hand\n"
         "; and returns it to the controller. A physical swing (the motion sword) never does:\n"
         "; your arm is the animation. HandAnimMeleeSwing=1 hands physical swings back too.\n"
@@ -2984,6 +2988,24 @@ static void LoadConfig()
         Log("config: [Hands] ArmIKGameArmMaxStretch=%.2f (the re-seat lengthens the game's arm at most this much to reach the "
             "IK shoulder; a takedown that needs more keeps its shoulder in front by the ik/gamearm left over)",
             g_ikGameArmMaxStretch.load());
+    }
+    {   // [Anim] CineHidePoses: the still cutscene arm poses CineHideStaticArms captured (mesh_split.cpp)
+        char buf[512] = "";
+        GetPrivateProfileStringA("Anim", "CineHidePoses", "", buf, sizeof(buf), ini);
+        g_msCinePoseN = 0;
+        int refused = 0;
+        for (char* tok = buf; tok && *tok && g_msCinePoseN < MS_CINE_POSES_MAX;) {
+            char* next = strchr(tok, ';');
+            if (next) *next++ = 0;
+            float* v = g_msCinePose[g_msCinePoseN];
+            bool ok = sscanf_s(tok, "%f %f %f %f %f %f", v, v + 1, v + 2, v + 3, v + 4, v + 5) == 6;
+            for (int i = 0; ok && i < 6; ++i) ok = std::isfinite(v[i]);
+            if (ok) ++g_msCinePoseN; else if (strspn(tok, " \t") != strlen(tok)) ++refused;
+            tok = next;
+        }
+        Log("config: [Anim] CineHidePoses: %d captured pose(s) loaded%s (still cutscene arms in one of them are hidden "
+            "whichever way you look; the hide captures a pose when its hands are both behind the camera)",
+            g_msCinePoseN, refused ? " - SOME ENTRIES REFUSED, not six numbers" : "");
     }
     Log("ik: configured %s; nominal shoulder center cm=(%.2f %.2f %.2f), width=%.2f, length=%.2f, elbow-out=%.2f; independent reach, native hands / IK arms",
         g_ikOn.load()?"ON":"OFF",g_ikForward.load(),g_ikRight.load(),g_ikUp.load(),g_ikWidth.load(),g_ikLength.load(),g_ikElbowOut.load());

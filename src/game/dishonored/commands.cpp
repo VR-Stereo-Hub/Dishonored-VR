@@ -79,6 +79,11 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "mantlehands") && DvrOnOff(args, &b)) { dvr::anim::set_mantle(b); return true; }
     if (!strcmp(cmd, "takedownarms") && DvrOnOff(args, &b)) { dvr::anim::set_takedown_arms_hidden(b); return true; }   // VR-283: on = arms hidden
     if (!strcmp(cmd, "cinehidearms") && DvrOnOff(args, &b)) { dvr::anim::set_cine_hide_static(b); return true; }    // [Anim] CineHideStaticArms
+    if (!strcmp(cmd, "cinehidearms") && !strcmp(args, "forget")) {   // [Anim] CineHidePoses: drop every captured pose
+        Log("cine/hidearms: %d captured pose(s) forgotten (the seam)", g_msCinePoseN);
+        g_msCinePoseN = 0; ConfigWriteKey("Anim", "CineHidePoses", "", "the seam");
+        return true;
+    }
     if (!strcmp(cmd, "cinehands") && DvrOnOff(args, &b)) { dvr::anim::set_cinematic(b); return true; }
     if (!strcmp(cmd, "cinefov") && DvrOnOff(args, &b)) { CineFovSet(b); return true; }
     if (!strcmp(cmd, "cinestereo") && DvrOnOff(args, &b)) { StereoStateSet(b); return true; }

@@ -15,6 +15,37 @@ owning the arms and `bCinematicMode` off, which the cutscene test did not count,
 check sat on the non-IK path. It now arms whenever the game owns the arms, IK or not; still + both hands
 behind the camera remains the whole test.
 
+Second look (2026-10-06, from the logs, no new run): it could never have armed. While the game owns BOTH
+arms (`native_full_arms`) the draw hook (`DcDrawIndexed`) hands every draw straight to the game at its first
+line, ahead of the mesh lock and `MsDraw`; the hide sat in `MsDraw` and required `native_full_arms()`, which
+that exit had already made false there. The boat logs show the consequence: `StatePlayerMasterSoiree`, the
+game owning the arms (body=1), no `ik:` or `cine/hidearms` line, and 2.5 s in `dc/auto: the locked mesh has not
+been drawn for 301 frames` - the lock's bookkeeping also sits after that exit, so the arm mesh was drawn and the
+lock released anyway (an instrument whose population excluded the case). The hide now runs AT that exit
+(`MsCineHideNative`, for draws of the locked arm buffers only) and keeps the lock alive there while the option
+is on. Reported in the same session: the still arms were more visible than before; the run had the option off
+(the shipped default) where the earlier ini had it on, though with the dead path that changed nothing drawn.
+
+Boat run on that build (v1.0.3-131-ge1698b20b, 2026-10-06, option on): the hide now reached the arm mesh
+(`arm-mesh draw seen at the native exit ... split's arm mesh 1`), read the arms still (`arm speed 0.0`), and
+drew them anyway: every line read `hand depth ... NOT measurable this draw`, so the behind-the-camera half
+never passed. The arm speed reads the same palette and hand bones, so those were present; the draw context
+was not - the shader register layout it reads ViewProjection and LocalToWorld through is refreshed only in
+`MsDraw` and the IK draw, both skipped at this exit. The exit now refreshes it, and the line names the failed
+input (no palette, hand bones unknown, or the context's own refusal) instead of only "NOT measurable".
+
+Boat run on v1.0.3-131-g9a1690245 (2026-10-06/07, option on): MEASURED, and the view test is the wrong test.
+Facing forward both hands read behind the camera (L -36 R -30 uu), the arms were still (0.0 uu/s) and the hide
+fired (`cutscene arms HIDDEN`), so the depth sign is right. Turning the head, one hand read in front (L +65 R -31)
+and the arms were drawn again: they are fixed to the scene's authored camera while the view turns with the
+headset, so a view-relative test releases them exactly when the player looks round at them. Reported: still
+visible on the boat. The pose itself never changes, so the hide now FINGERPRINTS it: each hand bone's position
+in the arm mesh's own space (the palette alone, no view). A still pose that passes the view test once is
+captured into `[Anim] CineHidePoses` (up to four, persisted) and hidden from then on whenever it recurs and
+holds still, whichever way the player looks; `cinehidearms forget` clears them. Tolerance 2 uu per hand.
+`cine/hidearms:` logs the mesh-space hand positions, the nearest captured pose and which rule hid the arms;
+`pose CAPTURED` marks a capture with its numbers, so a later build can ship the boat's pose baked in.
+
 What the first run must check, from `cine/hidearms:` (every 2 s in a cutscene): the hand depths
 read POSITIVE while the arms are in front of the view and negative when they point back; if the
 sign is inverted the lever hides the wrong poses and must stay off. `cine/hidearms: cutscene arms
