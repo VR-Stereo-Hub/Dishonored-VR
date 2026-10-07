@@ -871,3 +871,5 @@ static int  CorvoOverlayVk();                              // the overlay's key 
 static bool CorvoParksDebugKeys();                         // F6-F9 debug toggles park while CorvoBody owns those keys
 static void CorvoStatus(dvr::status::Writer& w);
 static bool CorvoCommand(const char* args);
+static void CorvoArmModeSet(int mode, const char* who);
+static int  CbEffectiveMode();                             // 1 vr, 2 body (overlay)

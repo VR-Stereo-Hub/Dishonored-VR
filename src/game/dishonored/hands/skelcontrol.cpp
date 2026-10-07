@@ -651,6 +651,7 @@ static void ApplyHandToMeshInner()
             }
             if (dvr::anim::hand_owned(hand)) continue;   // VR-220: the game's clip owns this hand's bones for now
             float v[3] = { g_skcTrans[0], g_skcTrans[1], g_skcTrans[2] };
+            float cbDp[3] = { 0.0f, 0.0f, 0.0f }; bool cbHaveDp = false;   // CorvoBody: the head-relative offset (m), whatever space is written
             if (g_skcLive) {
                 // hand offset from the head, in head axes - the same quantity
                 // the render drive used, but handed to the ENGINE this time
@@ -708,6 +709,7 @@ static void ApplyHandToMeshInner()
                 float dp[3] = { ph[0]-g_skcNeutral[hand][0],
                                 ph[1]-g_skcNeutral[hand][1],
                                 ph[2]-g_skcNeutral[hand][2] };
+                cbDp[0] = dp[0]; cbDp[1] = dp[1]; cbDp[2] = dp[2]; cbHaveDp = true;
                 // UE3 bone space: X forward, Y right, Z up
                 float sc = g_skcWorld ? g_skcWorldScale : g_skcScaleUU;
                 v[0] = dp[2] * sc;
@@ -1021,7 +1023,30 @@ static void ApplyHandToMeshInner()
             *(uint8_t*)(o + kSkcTSpace) = useSpace;
             uint32_t* b = (uint32_t*)(o + kSkcBools);
             *b = (*b & ~(kSkcApplyTrans|kSkcAddTrans)) | useMask;
-            CorvoHandSample(hand, v, useSpace);   // CorvoBody: the same point, the same space
+            // CorvoBody: hand over this hand's point as a WORLD point. In world mode it is v
+            // itself; in the bone-space modes it is the same head-relative offset through the
+            // same camera basis, trims and crouch drop as the world branch above (kept in
+            // step with it by hand: one point, one formula).
+            if (g_skcLive && g_skcWorld && useSpace == 0) {
+                CorvoHandSample(hand, v, 0);
+            } else if (g_skcLive && cbHaveDp && CamStillValid() && RangeReadable(g_camObj + 0x50, 0x40)) {
+                const float* cf = (const float*)(g_camObj + 0x50);
+                const float* cr = (const float*)(g_camObj + 0x60);
+                const float* cu = (const float*)(g_camObj + 0x70);
+                const float* cp = (const float*)(g_camObj + 0x80);
+                const float ws = g_skcWorldScale;
+                const float fwd = cbDp[2] * ws, rgt = cbDp[0] * ws, upv = cbDp[1] * ws;
+                const bool useC = g_skcCrouchTrimOn && g_pawnCrouched;
+                const bool useB = g_skcBlockTrimOn && g_blockHeld && !g_pawnCrouched;
+                float tr[3], w[3];
+                for (int k2 = 0; k2 < 3; k2++)
+                    tr[k2] = g_skcTrim[hand][k2] + (useC ? g_skcTrimCrouch[hand][k2] : 0.0f) + (useB ? g_skcTrimBlock[hand][k2] : 0.0f);
+                for (int k = 0; k < 3; k++)
+                    w[k] = cp[k] + cf[k]*fwd + cr[k]*rgt + cu[k]*upv + cf[k]*tr[0] + cr[k]*tr[1] + cu[k]*tr[2] - cu[k]*g_crouchDropUU;
+                if (w[0] == w[0] && w[1] == w[1] && w[2] == w[2]) CorvoHandSample(hand, w, 0);
+            } else {
+                CorvoHandSample(hand, v, useSpace);   // not a world point; the body module refuses it and says so
+            }
             InterlockedIncrement(&g_skcHits);
         }
     }

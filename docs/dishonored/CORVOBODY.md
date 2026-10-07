@@ -66,7 +66,7 @@ SDK and against `patterns.h` (all agree):
 | `APawn::CylinderComponent` | `0x3E0` | collision height -> posture (crouch 65, slide 33, standing) |
 | `APawn::Controller` | `0x26C` | controller `Rotation.Pitch` at `+0xD0` for lean / hide-upper-body |
 | `APawn::EyeHeight` | `0x32C` | the eye point: `Location + (0,0,EyeHeight)` |
-| `AActor::Location/Rotation/Velocity` | `0xCC` / `0xD4` / `0x1B4` | pawn yaw frame, speed, fall speed |
+| `AActor::Location/Rotation/Velocity` | `0xC4` / `0xD0` (yaw at `0xD4`) / `0x1B4` | pawn yaw frame, speed, fall speed (as `throw_aim.cpp` derived them; the first version of this table had `0xCC/0xD4`, wrong) |
 | `AActor::Physics` | `0x104` | `ClimbPhysics=9`, `SlidePhysics=14`, swimming |
 | `ADishonoredPlayerPawn::m_pInventory` | `0x59C` | per-hand held item: an object name containing `Empty`, `Sword`, `Pistol`, `Crossbow` ("hands: right %s (%s), left %s (%s)") |
 | `ADishonoredPlayerPawn::m_pPlayerMasterFSM` | `0xA2C` | state name -> "player state: %s" (mantle / takedown detection) |
@@ -229,20 +229,66 @@ want. Try `CameraFollow=0.5, CameraFollowMax=10` first.
 
 ## 7. The plan: attach the body to the VR hands at the shoulder
 
-**Built 2026-10-07** (`src/game/dishonored/corvobody.cpp`, state in
-`src/mod/state/64_game_dishonored_corvobody.inc`), installed on the dev PC, NOT RUN. What of
-the plan below is in the build: steps 1 to 6 (detect and warn, find the visible body, resolve
-the two controls by name with the SDK cross-check and a refusal on mismatch, drive the effector
-from the hand drive's own point, hide the body's hand bones, the reach clamp at 98 % of the
-measured upper-arm + forearm length). Step 7 (fade when their upper-body hide removes the
-shoulder) and the `Offset_hand_*` rotation drive are not in it. Keys: `[CorvoBody]
-Enabled=1 HideBodyHands=1 ArmStrength=1.00 ReachClamp=0.98`, `[Overlay] Key=`; seam
-`corvobody on|off|status|rescan|hands on|hands off`; F10 Hands, first section; `status.json
-corvobody`. While the mod is present our F6-F9 debug toggles park and the overlay opens on
-Insert. Lanes: everything runs on the script lane, in the ProcessEvent hook right after
-`ApplyHandToMesh`; the hand drive hands over its point and space through `CorvoHandSample`
-at its own write (`skelcontrol.cpp`), so the body's arm and the 1P hand bone are driven by one
-point in one dispatch. Log lines to expect are in STATUS.md's 2026-10-07 entry.
+**Built 2026-10-07, two versions** (`src/game/dishonored/corvobody.cpp`, state in
+`src/mod/state/64_game_dishonored_corvobody.inc`).
+
+*First run (version 1), headset, 2026-10-07.* Detection, offsets, body and both controls
+resolved (`body 90B37300 ... hand_L_jnt 908FAB20 hand_R_jnt 908FAC20, arm length L 51.5 R 51.5
+uu`). Three faults: (a) the body's arms never moved: every effector write was refused because
+the hand drive writes in bone space on this machine (`[Hands] Space=3`, the shipped default;
+the log line claiming World=1 was shipped was wrong), and version 1 only accepted a world
+point; (b) the body's hands stayed visible although `HideBoneByName(hand_*_jnt)` had been
+issued, so either the call did nothing on this component (`arms_hide.cpp` 30.17 recorded the
+same for the 1P arms) or CorvoBody's own UnHide undid it; (c) the camera sat inside the chest
+and every head movement moved the body and feet: CorvoBody places the body under the PAWN,
+whose yaw follows the head in VR, and its turn-step threshold is 1 deg/s.
+
+*Version 2 (installed, not run)* answers each:
+- The hand drive now hands over a WORLD point in every mode (`skelcontrol.cpp`: the same
+  head-relative offset through the same camera basis, trims and crouch drop as its world
+  branch), so body mode drives whatever `[Hands] Space` says.
+- **Two arm modes.** `ArmMode=vr` (auto while `[Hands] ArmIK` is on): the body's arms are hidden
+  at the shoulder and the full-arm IK arms are the player's. `ArmMode=body`: the body's own arm
+  IK reaches the hands as in version 1. Every hide is **read back from `BoneVisibilityStates`**
+  (resolved by name; `MatchRefBone` gives the indices) and logged after the mode is applied, so
+  "HideBoneByName did nothing" is now a measured line, not a guess; a hide that CorvoBody's
+  weapon-change `UnHide` undoes is re-issued (`rehides` counter).
+- **The body is anchored to the head, after CorvoBody's own placement.** A second 5-byte jump is
+  chained over CorvoBody's MinHook jump at `UGameEngine::Tick` (installed only when the first
+  bytes are a jump into their module; the engine's own prologue means "wait", anything else
+  refuses), so a stub calls their detour as the original and then our placement: the body is
+  moved so its shoulder midpoint sits on the **arm IK's shoulder centre** (head position minus
+  the crouch drop, plus `ArmShoulderForward/Right/UpCm` in the body-yaw frame) and faces the
+  **arm IK's body yaw** (published from the IK draw as body-minus-head yaw; 25 deg deadzone,
+  1.5 s relaxation, so glancing does not turn the body and turning with the hands does). X/Y
+  from the head, Z left to CorvoBody (`AnchorZ=1` takes it from the head too). The shoulders of
+  our IK arms and of the body are therefore the same points; `MatchShoulderWidth=1` sets the
+  IK's width to the body's measured shoulder spacing once per body.
+- CorvoBody's `TurnStepThreshold` is read and 45 is advised (set in the installed ini).
+
+What is still not in it: the `Offset_hand_*` rotation drive (body mode), a fade when their
+upper-body hide removes the shoulder, and the mesh-level seam at the shoulder (section 7b).
+
+Keys: `[CorvoBody] Enabled ArmMode HeadAnchor AnchorZ TorsoYaw BodyForwardCm BodyRightCm BodyUpCm
+MatchShoulderWidth HideBodyHands ArmStrength ReachClamp`, `[Overlay] Key=`; seam `corvobody
+on|off|status|rescan|mode auto|vr|body|anchor on|off|torso on|off|body <f> <r> <u>|hands on|off`;
+F10 Hands, first section; `status.json corvobody`. While the mod is present our F6-F9 debug
+toggles park and the overlay opens on Insert. Lanes: detection, lookup and body-mode effectors
+in the ProcessEvent hook right after `ApplyHandToMesh`; the placement on the game thread in the
+Tick chain after CorvoBody; the IK publication on the render lane through two atomics.
+
+### 7b. The seam: the body's shoulder and our arm, at mesh level (not built)
+
+`HideBoneByName(shoulder_X_jnt)` collapses the arm's vertices onto the shoulder joint: a
+pinched stump under the sleeve, acceptable at a glance and what CorvoBody itself ships for
+`HideBodyArms`. A clean seam needs the body's arm geometry removed at the sleeve and capped,
+and our full-arm mesh's upper arm to meet that cap. The tools are in place: UModel extracts
+`DLC07_skm_Corvo_Body` and the player arm mesh (PSK, `tools/model-export.ps1`), headless
+Blender inspects and plans the cut (`docs/MODEL_WORKFLOW.md`), and `hands/mesh_split.cpp`
+already cuts and caps a skeletal mesh's buffers at runtime for the 1P arms (ARM_HAND_SPLIT),
+which is the route for the body too, since the DLC package itself is never modified or
+shipped. Order: first run version 2 to see where the IK shoulder actually sits against the
+body's shoulder bone; then measure the body's sleeve loop in Blender; then the runtime cut.
 
 The body's arms already have a named two-bone IK (`hand_L_jnt`, `hand_R_jnt`,
 `SkelControlLimb`) and a hand-rotation control (`Offset_hand_L/R_jnt`) on the **visible**

@@ -124,6 +124,10 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
     ++g_mpDrawsSampled;
     MpDrawCompare(&ctx);
     auto& temporal=IkFrame(ctx);
+    // CorvoBody: the body is placed in this body frame on the script lane; publish the
+    // body-yaw-minus-head-yaw of this draw (tracking frame, clockwise positive like UE yaw).
+    { const float headYawT=atan2f(-ctx.pose.head[0][2],ctx.pose.head[2][2]);
+      g_cbIkYawDelta.store(wrap(temporal.yaw-headYawT)); g_cbIkYawMs.store((unsigned long long)GetTickCount64()); }
     Settings settings;
     settings.forwardCm=g_ikForward.load();settings.rightCm=g_ikRight.load();settings.upCm=g_ikUp.load();settings.widthCm=g_ikWidth.load();
     settings.lengthScale=g_ikLength.load();settings.elbowOut=g_ikElbowOut.load();
