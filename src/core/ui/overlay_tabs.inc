@@ -1737,6 +1737,13 @@ static void OvlTabIK()
         }
         OvlTip("The game draws its arm for its own camera, so its shoulder can sit in front of yours. On your shoulder moves it there "
                "and keeps the hand where the animation put it.");
+        if(seat){
+            float stretch=g_ikGameArmMaxStretch.load();
+            if(dvr::ovl::slider_float("Game arm stretch limit",&stretch,1.0f,2.5f,"%.2f"))g_ikGameArmMaxStretch=stretch;
+            OvlSaveOnRelease("Hands","ArmIKGameArmMaxStretch",stretch,"%.2f");
+            OvlTip("How far the game's arm may lengthen to reach your shoulder in a takedown. Raise it if you still see the "
+                   "shoulders in front of you; lower it if the arm looks too long.");
+        }
         ImGui::Unindent();
     }
     if(OvlSec("IK shoulder position and arm length",kOvlB,"Moves the resting shoulder pair together. Reach can move either shoulder from this position.")){

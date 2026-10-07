@@ -1,4 +1,17 @@
-## 2026-10-06: the headset-tuned IK fit is the 1.0.4 default (claude/ik-fit-default, not merged)
+## 2026-10-06: takedown shoulders in front of the view - the game arm's stretch bound (not merged)
+
+**Current state.** Branch claude/ik-takedown-shoulder. With IK on, a takedown draws the game's own
+arm re-seated on the IK shoulder about the game's wrist; the re-seat's stretch was capped at 1.25 and
+in 47 of 62 logged takedown samples it sat on the cap, leaving the shoulder 0 to 19 uu in front of
+the IK shoulder (reported as shoulders visible in front of the view). Solved from the logged gap, turn
+and residual, the takedowns needed 1.25 to 1.84. The cap is now `[Hands] ArmIKGameArmMaxStretch`,
+default 1.9, live in F10 IK ("Game arm stretch limit"); `ik/gamearm` logs the stretch each re-seat
+wanted. ARM_IK.md has the numbers. Installed with the player's settings kept, not yet run.
+
+**Next.** A takedown in the headset: shoulders out of view, and whether the longer arm reads well
+(the slider trades one for the other). Then the owner merges it so #188 carries it.
+
+## 2026-10-06: the headset-tuned IK fit is the 1.0.4 default (#189, merged)
 
 **Current state.** #187 is merged into staging (`c07aa0c9b`); release PR #188 (staging -> VR-Main) is
 open. This branch makes the IK fit tuned in a headset the default: forward -16, up -25, width 38.1,
