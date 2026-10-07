@@ -143,6 +143,7 @@ static const uint32_t kFovSensor = 0x53c; // Rendered FOV readback, never zoom i
 static const uint32_t kFovCands[4] = {0x53c, 0x540, 0x564, 0x254};
 static const uint32_t kLevCtrl[3] = {0x3ac, 0x3b0, 0x3b4};   // FOVAngle/Desired/Default
 static const uint32_t kLevCam[7]  = {0x254, 0x348, 0x368, 0x38c, 0x53c, 0x540, 0x564};
+static const uint32_t kFovArms = 0x540;   // DishonoredPlayerCamera.m_fCurFOV_Arms by declaration order (ENGINE_NOTES, VR-39); in kLevCam
 
 // ---- Engine code hooks (byte-verified before patching) ----
 // UDishonoredPlayerPawn::FaceRotation - the operation that faces the body.

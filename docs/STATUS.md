@@ -1,3 +1,70 @@
+## 2026-10-07: the layer's claim and the spyglass zoom (claude/fov-claim-zoom, stacked on #190, not merged)
+
+**Current state.** Two reports from the same run, one cause. (1) A conversation turning into Piero's
+store shrank the view into a box for 1.5 s: the store's screen flagged the menu before the store state
+arrived, `cine/fov` released, and the layer's claim fell to the camera FOV sensor (50 deg, the dialogue's
+look-at intent) while `fgproj` measured every world draw at 103. (2) The mask-on scene's "zoom" was not
+an FOV change (drawn 103, claimed 103, zoom-lens post-process off): authored camera motion, nothing the
+spyglass can borrow. The spyglass (the mask's zoom, `GBA_Zoom`, 30 on 75) was already drawn
+proportionally (47.4 on 103) and then claimed honestly, which in VR is a smaller picture, not a zoom.
+Shipped: the claim is the frame's own measured world projection (`fgproj_frame_world_hfov_deg`),
+`[Screen] ZoomMagnify` (default 1, F10 Display, `zoommagnify`) holds the claim at `ProjectionFov` when
+the scene is drawn narrower so the zoom magnifies like a scope, the lever keeps the arms' FOV field at
+the target during such a zoom, and `cine/fov` keeps its scope through the dialogue/store menu gate.
+ENGINE_NOTES, ARCHITECTURE and TRAPS have the measurements and the decision.
+
+Second run (v1.0.3-133-g04b8df581), three findings, all built into the second commit. (a) The claim
+held at 103 all run, yet the shop choice still showed a small picture, rectangular: it is the
+PRESENTATION falling back to the flat quad. Choosing the shop in the dialogue raises the menu flag
+for 1.2 s with no owner ever published (context Other, nothing rides), the 300 ms "open pending"
+stand-in expires, the ordinary terms refuse on the menu flag, and the mono quad shows until the flag
+drops (measured twice, gateAge 1187 / 1203 ms). The open gap is now 2.5 s in a cinematic state, still
+demanding the scene draw. (b) The zoom narrowed nothing (every world draw at 103): the right stick
+click never reaches the pad, the R3 D-pad modifier consumes it and the elixir takes the hold.
+`[Controllers] ZoomTap` (default 1): a tap under the elixir hold with no D-pad pick pulses the pad's
+right thumb button, the game's own zoom toggle. Asked for in the same session and built:
+`[Controllers] ZoomGesture` (default 1, radius 12 cm): the right trigger with the right controller
+held at the right eye (grip pose against the head pose moved half the IPD right) is the same pulse,
+and that press is swallowed as an attack, so clicking the mask's lens steps the zoom. (c) `ZoomMagnify` had magnified the second after
+each load (the world drawn at the game's 75 or 90 before the lever arms, no scope up); it now acts
+only on a draw the scene scope itself narrowed. Also reported: the eye a foot behind Piero's hands in
+the mask-on scene. The run's positional offset there was under 1 cm (heartbeat `lean=(-0.9,+5.6,0)uu`),
+so it is not the room; `eye/probe:` (every 5 s) now logs the camera against the pawn's eye in the
+pawn's yaw frame, so the next run says whether the eye sits behind the pawn's eye or the scene is
+staged short of the face for a flat frame. Installed with the player's settings kept, NOT run.
+
+Third run (v1.0.3-134-g0bca7d804): the tap zoom is HEADSET-CONFIRMED (world drawn at 41.2, claimed
+103, 3.3x; the lever's linear 41.2 rather than the authored 47.4, left as measured), the shop choice
+no longer drops to the quad (reported good). Two faults: (a) the left hand stuck forward in the zoom
+with a weapon out is the game's arm lens scaling the arm mesh's LocalToWorld during its lock-arms
+zoom (`m_bUseFOV=1`), which the placement refuses (`column is not unit`) and then drew the engine's
+own hand at its native pose; interim, a hand refused that way while the lens is on is not drawn, and
+the refusal logs the column norms for the real fix (placing through the scale); (b) the eye gesture
+never fired and logged nothing; every trigger press now logs grip and aim distances from the right
+eye, the nearer pose counts, radius 15 cm. Third commit, installed, NOT run.
+
+Fourth run (v1.0.3-135-g62bfd3c1d): the gesture FIRED (three pulses at 11 to 13 cm, logged) but the
+zoom was barely visible, so it read as not triggering. Cause: the save had been made while zoomed,
+the game loaded zoomed, and the lever's first base capture after the load read the zoom's 32.12 deg
+(`fovlever: natural base 32.1 deg ... first capture`); every zoom after it was scaled against 32 and
+drew at 96 (`fgproj` 96.2 at 81%). `rearm_natural` now refuses a FIRST capture under 50 deg
+(`kNaturalFloorDeg`; a kept base still treats a narrow reading as KeptNarrower) and the lever says so
+once; host test added. Fourth commit, installed, NOT run.
+
+Fifth run (v1.0.3-136-g5de0d92fd): the base floor held and the zoom worked from the same zoomed save.
+The gesture only worked with an empty hand and drew the weapons: the game acts on the trigger's first
+few percent before the 0.7 threshold decided it was the gesture. It is now decided at the trigger's
+first movement and swallowed from there; the anchor sits `ZoomGestureRightCm` (8) to the right of
+the right eye. Also audited for added overhead (reported 60 fps at Hound Pits, 100% reentry, no DLSS):
+none found, the mod's time inside the tick is under 1.2 ms and fell on the native side; the 60 is the
+GPU floor of two 7.84 MP draws (PERFORMANCE.md, 2026-10-07). Fifth commit, installed, NOT run.
+
+**Next.** In the headset: the eye gesture (read `zoom: right trigger ... cm from the right eye` on a
+press that did not fire; set `zoomgesture radius <cm>` from it); zoom with the crossbow out (no stuck
+hand; read the column norms in `ms/palette/world: ... NOT placed`); `eye/probe:` in a scene with the
+game's hands at the face. Then the owner merges #190 and #191 (retargeted to staging) so #188
+carries them.
+
 ## 2026-10-07: game-owned arms with full-arm IK - takedowns, the boat, a scripted pickup (#190, not merged)
 
 **Current state.** Branch claude/ik-takedown-shoulder, three commits. (1) Takedown shoulders in front

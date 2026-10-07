@@ -62,7 +62,16 @@ static inline void FovLeverApply()
             const float reading = *(float*)(g_camObj + kFovSensor);
             dvr::fov_lever::Rearm why;
             const float nat = dvr::fov_lever::rearm_natural(reading, keptNatural, lastWrite, deg, &why);
-            if (!(nat > 30.0f && nat < 140.0f)) return;
+            if (!(nat > 30.0f && nat < 140.0f)) {
+                // Said once per refused reading, so a lever that writes nothing after a load explains itself.
+                static float saidRefused = 0.0f;
+                if (why == dvr::fov_lever::Rearm::Invalid && fabsf(reading - saidRefused) > 0.5f) {
+                    saidRefused = reading;
+                    Log("fovlever: natural base NOT captured from a reading of %.2f deg (under the %.0f floor: a zoom, or a save loaded "
+                        "zoomed) - the lever writes nothing until a plausible reading arrives", reading, dvr::fov_lever::kNaturalFloorDeg);
+                }
+                return;
+            }
             g_fovNatural = nat;
             keptNatural = nat;
             Log("fovlever: natural base %.1f deg (read %.2f, last write %.2f: %s), target %.2f, effective base %.2f "
@@ -111,10 +120,16 @@ static inline void FovLeverApply()
         if (t > 160.0f) t = 160.0f;
         if (IsLiveObject(g_peCtrl))
             for (int i = 0; i < 3; i++) LevWrite(g_peCtrl + kLevCtrl[i], t);
+        // 2026-10-07: a magnified zoom ([Screen] ZoomMagnify) draws the world narrower under a claim held at the
+        // target; the game's lock-arms zoom copies m_fCurFOV_Arms into the arms' lens, so that field keeps the
+        // target and the hands stay their true size while the world magnifies. Only while the scene scope has
+        // published a narrower draw; otherwise the field gets the lever's value as it always has.
+        const float published = CineFovClaim();
+        const bool zooming = ZoomMagnifyGet() && published > 0.0f && published < deg - 0.5f;
         if (IsLiveObject(g_camObj))
             for (int i = 0; i < 7; i++) {
                 if (kLevCam[i] == kFovSensor) continue;             // never directly write readback
-                LevWrite(g_camObj + kLevCam[i], t);
+                LevWrite(g_camObj + kLevCam[i], zooming && kLevCam[i] == kFovArms ? deg : t);
             }
         lastWrite = t;
         InterlockedIncrement(&g_fovLeverWrites);
@@ -122,8 +137,9 @@ static inline void FovLeverApply()
         const double now = MaimNowMs();
         if (now >= nextLog) {
             nextLog = now + 1000;
-            Log("fovlever: feedback sensor=%.2f natural=%.2f target=%.2f write=%.2f scoped=%d cinematicRecovery=%d master=%s",
-                sensor, g_fovNatural, deg, t, scoped > 0, cinematicTarget > 0, state.state[0]);
+            Log("fovlever: feedback sensor=%.2f natural=%.2f target=%.2f write=%.2f arms=%.2f%s scoped=%d cinematicRecovery=%d master=%s",
+                sensor, g_fovNatural, deg, t, zooming ? deg : t, zooming ? " (zoom: the arms hold the target)" : "",
+                scoped > 0, cinematicTarget > 0, state.state[0]);
         }
     }
 
@@ -160,6 +176,29 @@ static inline void FovLeverApply()
         RangeReadable(clampPawn + g_actorLocOff, 12)) {
         float pz = ((const float*)(clampPawn + g_actorLocOff))[2];
         float zmax = pz + g_cylLast - g_eyeClampMargin;
+        {   // 2026-10-07 eye/probe: where the camera sits against the pawn's eye, in the pawn's yaw frame (UE3: X forward,
+            // Y right, Z up; yaw in 65536ths). A report of "too far back" in an authored scene is arithmetic with this
+            // line: ahead/behind is the number to read, with the positional-tracking offset included.
+            static double nextProbe = 0.0; const double pn = MaimNowMs();
+            if (pn >= nextProbe) {
+                nextProbe = pn + 5000.0;
+                const uint32_t rotOff = RflOffsetOf("Actor", "Rotation"), eyeOff = RflOffsetOf("Pawn", "EyeHeight");
+                const float* pl = (const float*)(clampPawn + g_actorLocOff);
+                const float* cl = RangeReadable(g_camObj + kPovOffs[0], 12) ? (const float*)(g_camObj + kPovOffs[0]) : NULL;
+                float eyeH = NAN; if (eyeOff && RangeReadable(clampPawn + eyeOff, 4)) memcpy(&eyeH, clampPawn + eyeOff, 4);
+                int32_t rot[3] = { 0, 0, 0 }; const bool rotOk = rotOff && RangeReadable(clampPawn + rotOff, 12);
+                if (rotOk) memcpy(rot, clampPawn + rotOff, 12);
+                if (cl && std::isfinite(eyeH) && rotOk) {
+                    const float yaw = (float)rot[1] * (6.2831853f / 65536.0f), fx = cosf(yaw), fy = sinf(yaw);
+                    const float dx = cl[0] - pl[0], dy = cl[1] - pl[1], dz = cl[2] - (pl[2] + eyeH);
+                    Log("eye/probe: the camera sits %+.1f uu ahead(+)/behind(-) the pawn's eye, %+.1f right, %+.1f up (pawn EyeHeight %.1f, "
+                        "positional offset included) master=%s", dx * fx + dy * fy, -dx * fy + dy * fx, dz, eyeH,
+                        dvr::anim::snapshot().state[0]);
+                } else {
+                    Log("eye/probe: unavailable (camera location %d, EyeHeight %d, rotation %d)", cl != NULL, (int)std::isfinite(eyeH), (int)rotOk);
+                }
+            }
+        }
         if (za) {
             memcpy(zc.pawn, (const float*)(clampPawn + g_actorLocOff), sizeof(zc.pawn));
             zc.ceilRaw = zmax;

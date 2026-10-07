@@ -341,6 +341,11 @@ static bool WriteDefaultIni(const char* ini)
         "[Screen]\n"
         "; Gameplay horizontal FOV; 0 restores headset-derived. Live: projectionfov 60..120|off.\n"
         "ProjectionFov=103.00\n"
+        "; ZoomMagnify=1: when the game narrows its FOV (the mask's zoom, the spyglass upgrade), the view\n"
+        "; magnifies like a scope: the scene is drawn narrower and the headset keeps showing it across\n"
+        "; ProjectionFov. 0 = the narrower view at its true size, a small box. Live: zoommagnify on|off,\n"
+        "; F10 Display > Field of view.\n"
+        "ZoomMagnify=1\n"
         "AnchorCinematic=1\n"
         "AnchorMissionStats=1\n"
         "AnchorStore=1\n"
@@ -437,6 +442,18 @@ static bool WriteDefaultIni(const char* ini)
         "DpadModifier=1\n"
         "DpadFlip=0\n"
         "PauseChord=1\n"
+        "; ZoomTap=1: a tap of the right stick click (released before the health elixir's hold, no\n"
+        "; D-pad pick) is the game's own zoom, the mask lens. 0 = a tap does nothing. Live: zoomtap\n"
+        "; on|off, F10 Controls.\n"
+        "ZoomTap=1\n"
+        "; ZoomGesture=1: the right trigger pressed with the right controller held at your right eye\n"
+        "; (within ZoomGestureRadiusCm) is the zoom too - click your mask's lens. That press is not an\n"
+        "; attack. Live: zoomgesture on|off, zoomgesture radius <cm>, F10 Controls.\n"
+        "ZoomGesture=1\n"
+        "ZoomGestureRadiusCm=25\n"
+        "; ZoomGestureRightCm: the gesture's anchor sits this far to the right of the right eye (the temple),\n"
+        "; so the hand need not come fully in front of the face.\n"
+        "ZoomGestureRightCm=8\n"
         "Enabled=1\n"
         "Deadzone=0.12\n"
         "Haptics=1\n"
@@ -2285,6 +2302,10 @@ static void LoadConfig()
     dvr::controller::configure({int(GetPrivateProfileIntA("Controllers","DpadModifier",1,ini)),
         GetPrivateProfileIntA("Controllers","DpadFlip",0,ini)!=0,
         GetPrivateProfileIntA("Controllers","PauseChord",1,ini)!=0});
+    ZoomTapSet(GetPrivateProfileIntA("Controllers","ZoomTap",1,ini)!=0,"ini");   // 2026-10-07: the mask lens zoom
+    ZoomGestureSet(GetPrivateProfileIntA("Controllers","ZoomGesture",1,ini)!=0,"ini");
+    ZoomGestureRadiusSet(IniFloat(ini,"Controllers","ZoomGestureRadiusCm",25.0f),"ini");
+    ZoomGestureRightSet(IniFloat(ini,"Controllers","ZoomGestureRightCm",8.0f),"ini");
     const auto controller=dvr::controller::config();
     Log("controls: modifier=%d dpad=%s X+Y=%d; Y=native, menu tap=START, modifier/hold+menu=BACK",
         controller.modifier,controller.flip ? "right" : "left",int(controller.pauseChord));
@@ -3147,6 +3168,7 @@ static void LoadConfig()
     PowerAimConfigure(ini);    // VR-44: [Aim] PowersFromHand
     CineFovConfigure(ini);
     HandsWorldFovSet(GetPrivateProfileIntA("Screen", "HandsAtWorldFov", 1, ini) != 0, "ini");   // VR-39
+    ZoomMagnifySet(GetPrivateProfileIntA("Screen", "ZoomMagnify", 1, ini) != 0, "ini");   // 2026-10-07: the spyglass as a scope
     AfwFgGainSet(IniFloat(ini, "Stereo", "AfwForegroundGain", 0.911f), "ini");   // VR-39 run 14
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
@@ -4120,6 +4142,8 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Controllers","DpadModifier",v,ini);
     WritePrivateProfileStringA("Controllers","DpadFlip",controller.flip ? "1" : "0",ini);
     WritePrivateProfileStringA("Controllers","PauseChord",controller.pauseChord ? "1" : "0",ini);
+    WritePrivateProfileStringA("Controllers","ZoomTap",ZoomTapGet() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Controllers","ZoomGesture",ZoomGestureGet() ? "1" : "0",ini);
 
     _snprintf(v, 64, "%.1f", g_posScaleUU);
     WritePrivateProfileStringA("PosTrack", "Scale", v, ini);
@@ -4132,6 +4156,7 @@ static void OverlaySaveDefaults()
     _snprintf(v,64,"%.2f",ProjectionFovGet());
     WritePrivateProfileStringA("Screen","ProjectionFov",v,ini);
     WritePrivateProfileStringA("Screen","HandsAtWorldFov",HandsWorldFovGet()?"1":"0",ini);   // VR-39
+    WritePrivateProfileStringA("Screen","ZoomMagnify",ZoomMagnifyGet()?"1":"0",ini);
     _snprintf(v,64,"%.3f",AfwFgGainGet());
     WritePrivateProfileStringA("Stereo","AfwForegroundGain",v,ini);   // VR-39
     // 30.70: the hand drive's live-tuned values, so a good calibration sticks

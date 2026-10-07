@@ -298,9 +298,12 @@ static void CinePitchEnd();
 static bool ProjectionFovScopeActive();
 static float ProjectionFovGet();
 static bool HandsWorldFovGet();
+static bool ZoomMagnifyGet();                                   // 2026-10-07: [Screen] ZoomMagnify (present_tick.cpp)
+static void ZoomMagnifySet(bool on, const char* who);
 static float AfwFgGainGet();
 static void AfwFgGainSet(float g, const char* who);
 static void ArmsLensResolve();
+static int  ArmsLensUse();
 static bool ArmsLensFind(bool slow);
 static void ArmsLensStatus(char* buf, size_t n);
 static void HandsWorldFovSet(bool on, const char* who);
@@ -789,6 +792,12 @@ static void TrackHead(const float (*m)[4]);   // 3x4 device-to-tracking
 static inline SHORT PadStick(float v);
 static void MaimHaptic(int hand, float amp, float durSec);
 static void HealthElixirTick(bool held);
+static bool ZoomTapGet();                                      // 2026-10-07: [Controllers] ZoomTap (pad_bridge.cpp)
+static void ZoomTapSet(bool on, const char* who);
+static bool ZoomGestureGet();                                  // 2026-10-07: [Controllers] ZoomGesture (pad_bridge.cpp)
+static void ZoomGestureSet(bool on, const char* who);
+static void ZoomGestureRadiusSet(float cm, const char* who);
+static void ZoomGestureRightSet(float cm, const char* who);
 static void MeleeTick();
 static bool MeleeActive();
 static void UpdateVirtualPad();

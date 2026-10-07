@@ -353,10 +353,25 @@ static void HandsWorldFovSet(bool on, const char* who) {
                                                   : "at the headset-derived camera FOV (the pre-VR-39 behaviour)", who ? who : "?");
 }
 
+// 2026-10-07: [Screen] ZoomMagnify. The game narrows its FOV for the mask's zoom (the "spyglass" upgrade, GBA_Zoom:
+// 30 deg on a 75 base, blend 5) and the gameplay scope draws it proportionally (47.4 deg on 103, the same 2.86x). A
+// claim that honestly says 47.4 shows that narrower image at its true angular size: a small box, no zoom at all -
+// which is why the spyglass looked unusable in VR. Holding the claim at ProjectionFov while the scene is drawn
+// narrower is a magnification about the view centre (tangent-space scaling): a scope. Ships ON because the owner
+// asked for the zoom and the alternative is the box; 0 restores the honest claim. Live: zoommagnify on|off, F10.
+static std::atomic<bool> g_zoomMagnify{true};
+static bool ZoomMagnifyGet() { return g_zoomMagnify.load(); }
+static void ZoomMagnifySet(bool on, const char* who) {
+    if (g_zoomMagnify.exchange(on) != on)
+        Log("fov: zoom %s (%s)", on ? "MAGNIFIES: a scene drawn narrower than [Screen] ProjectionFov keeps the layer's claim, so the view zooms like a scope"
+                                       : "shown at its true size: the layer claims what was drawn, a narrower scene is a smaller box", who ? who : "?");
+}
+
 static void DvrFovHandoff()
 {
     static bool  wasProj = false;
-    static float saidTarget = -1.0f, saidSensor = -1.0f;
+    static float saidTarget = -1.0f, saidClaim = -1.0f;
+    static const char* saidWhy = NULL;
     static uint32_t saidW = 0, saidH = 0;
     const bool proj = dvr::stereo::wants_projection();
     if (proj) {
@@ -364,28 +379,44 @@ static void DvrFovHandoff()
         const float world = ProjectionFovGet();
         const float target = (HandsWorldFovGet() && world > 0.0f && headset > 0.0f) ? world : headset;
         dvr::camera::set_fov_deg(target);
+        // THE CLAIM. What the frame's world draws projected (fgproj, their own c0..c3) is the honest claim; the
+        // scene scope's write and the camera sensor are fallbacks for a frame with no world draw sampled. The sensor
+        // (0x53c) was the claim until 2026-10-07 and is NOT the rendered FOV in a dialogue or a store: a conversation
+        // turning into a store read 50 deg on it while every world draw was 103, and the view shrank into a box.
         const float scoped=CineFovClaim();
-        const float sensor = scoped>0 ? scoped : dvr::camera::rendered_fov_deg();
-        dvr::vr::set_rendered_hfov(sensor);
+        const float sensor=dvr::camera::rendered_fov_deg();
+        const float measured=dvr::depthprobe::fgproj_frame_world_hfov_deg();
+        float claim = measured > 1.0f ? measured : scoped > 0 ? scoped : sensor;
+        const char* why = measured > 1.0f ? "measured from the frame's world draws"
+                        : scoped > 0 ? "the scene scope's write (no world draw sampled)" : "the camera sensor (no scope, no world draw sampled)";
+        // Only a zoom the scene scope itself drew narrower (it publishes the tangent-scaled draw) is magnified.
+        // The first run magnified the second after a load, when the world is drawn at the game's own 75 or 90
+        // before the lever arms and no scope is up: a 1.4x pop on every load. Those frames claim what was drawn.
+        if (ZoomMagnifyGet() && world > 0.0f && scoped > 0.0f && scoped < world - 0.5f && claim > 1.0f && claim < world - 0.5f) {
+            claim = world; why = "MAGNIFIED: the scene scope drew narrower than ProjectionFov, claimed at it (a zoom)";
+        }
+        dvr::vr::set_rendered_hfov(claim);
         const uint32_t w = dvr::capture::width(), h = dvr::capture::height();
-        if (fabsf(target - saidTarget) > 0.05f || fabsf(sensor - saidSensor) > 0.5f || w != saidW || h != saidH) {
-            saidTarget = target; saidSensor = sensor; saidW = w; saidH = h;
+        if (fabsf(target - saidTarget) > 0.05f || fabsf(claim - saidClaim) > 0.5f || why != saidWhy || w != saidW || h != saidH) {
+            saidTarget = target; saidClaim = claim; saidWhy = why; saidW = w; saidH = h;
             const float aspect = h ? (float)w / (float)h : 0.0f;
             const float vfov = (target > 0.0f && aspect > 0.0f)
                                    ? 2.0f * atanf(tanf(target * 0.5f * 0.0174533f) / aspect) * 57.29578f : 0.0f;
             uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh);
             float hh = 0.0f, hv = 0.0f; dvr::vr::headset_half_fov_deg(&hh, &hv);
             Log("fov: aspect %.3f (%ux%u) -> lever target %.1f deg (vfov %.1f; headset half-angles %.1f/%.1f; headset-derived "
-                "%.1f, %s); FOV %.1f deg = the layer's claim%s; eye %ux%u",
+                "%.1f, %s); the layer's claim %.1f deg: %s (world draws measured %.1f, scene scope %.1f, camera sensor %.1f; "
+                "0 = none)%s; eye %ux%u",
                 aspect, w, h, target, vfov, hh, hv, headset,
-                target != headset ? "the hands and weapon at the world's FOV" : "the camera at the headset-derived FOV", sensor,
-                scoped>0 ? " (scoped draw override)" : sensor <= 0.0f ? " (NOT YET READ: the runtime claims the target meanwhile, fovaudit src=fallback)" : " (sensor)",
+                target != headset ? "the hands and weapon at the world's FOV" : "the camera at the headset-derived FOV",
+                claim, why, measured, scoped, sensor,
+                claim <= 0.0f ? " (NOT YET READ: the runtime claims the target meanwhile, fovaudit src=fallback)" : "",
                 ew, eh);
         }
         wasProj = true;
     } else if (wasProj) {
         wasProj = false;
-        saidTarget = saidSensor = -1.0f;
+        saidTarget = saidClaim = -1.0f; saidWhy = NULL;
         dvr::camera::set_fov_deg(g_fovLever);   // back to the manual lever (0 = off)
         dvr::vr::set_rendered_hfov(0.0f);
         Log("fov: projection released - lever back to [Screen] FovLever=%.0f, no claim", g_fovLever);

@@ -755,6 +755,20 @@ static void OvlTabControls()
             ConfigWriteKey("Controllers", "DpadFlip", c.flip ? "1" : "0", "F10 Controls");
             ConfigWriteKey("Controllers", "PauseChord", c.pauseChord ? "1" : "0", "F10 Controls");
         }
+        bool zoomTap = ZoomTapGet();
+        if (dvr::ovl::checkbox("Tap R3 to zoom (the mask lens)", &zoomTap)) {
+            ZoomTapSet(zoomTap, "F10 Controls");
+            ConfigWriteKey("Controllers", "ZoomTap", zoomTap ? "1" : "0", "F10 Controls");
+        }
+        OvlTip("A quick click of the right stick toggles the game's zoom. Holding it is still the health elixir, "
+               "and holding it with a stick is still the D-pad.");
+        bool zoomGesture = ZoomGestureGet();
+        if (dvr::ovl::checkbox("Right trigger at your right eye zooms", &zoomGesture)) {
+            ZoomGestureSet(zoomGesture, "F10 Controls");
+            ConfigWriteKey("Controllers", "ZoomGesture", zoomGesture ? "1" : "0", "F10 Controls");
+        }
+        OvlTip("Hold the right controller at your right eye, as if clicking the mask's lens, and pull the trigger: "
+               "the zoom toggles and that press is not an attack. Each press steps the zoom (the Spyglass upgrade adds levels).");
         ImGui::TextDisabled("Menu: tap to pause, hold (or modifier + menu) for the journal.");
         OvlTip("Hold Y and use the right stick to lean. Both grips keep their normal actions. "
                "Clicking both sticks recenters.");
@@ -1185,6 +1199,13 @@ static void OvlTabDisplay()
         if (ImGui::SmallButton("Reset FOV to 103")) { ProjectionFovSet(103.0f); ConfigWriteKey("Screen", "ProjectionFov", "103.00", "F10 Display"); }
         ImGui::EndDisabled();
         OvlHandsFovControls("F10 Display");
+        bool magnify = ZoomMagnifyGet();
+        if (dvr::ovl::checkbox("Zoom magnifies (mask lens, spyglass)", &magnify)) {
+            ZoomMagnifySet(magnify, "F10 Display");
+            ConfigWriteKey("Screen", "ZoomMagnify", magnify ? "1" : "0", "F10 Display");
+        }
+        OvlTip("On: the mask's zoom magnifies the view like a scope. Off: the zoomed view is shown at its true size, "
+               "which in VR is a smaller picture, not a closer one.");
     }
     const int resizeState = ResLiveState();
     const bool busy = resizeState == 1 || resizeState == 2 || resizeState == 4;

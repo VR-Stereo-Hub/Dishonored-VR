@@ -1,3 +1,14 @@
+## 2026-10-07: a "rendered FOV" sensor that only echoes the render in gameplay
+
+`camera+0x53c` (`m_fCurFOV`) was the projection layer's claim because in plain gameplay it reads
+back the lever's own write and so tracks the render. In a dialogue or a store it carries the
+look-at / lock-arms intent (50 deg) that the `cine/fov` scope's POV.FOV write overrides, and the
+render stays at 103 (`fgproj` WORLD 103.0, 100% of samples, measured 2026-10-07). Claiming it
+there squeezed a 103 deg image into a 50 deg layer: the small box when a conversation turns into a
+store, reported as long-standing. The claim now comes from the draws' own projection
+(`fgproj_frame_world_hfov_deg`). The rule: a value that agrees with the render in the common case
+is not a render readback; only something read from the draws is. ENGINE_NOTES, 2026-10-07.
+
 ## 2026-10-05: TickCount64 is not there in Windows PowerShell 5.1
 
 `tools\net-ping-watch.ps1` stamped each sample with `[Environment]::TickCount64`, which exists on

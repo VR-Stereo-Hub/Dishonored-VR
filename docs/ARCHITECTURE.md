@@ -1611,3 +1611,17 @@ failed since the thing it proves was built is not worth a two-device sync every 
 afw compose decodes for a typed sRGB target view so the rebuilt eye's bytes equal the fresh
 eye's copy on any runtime's swapchain format. Record: dishonored/FLICKER_REFERENCE.md, the
 2026-10-05 entries and appendix 9.
+
+### 2026-10-07: the projection layer claims what the draws projected; a zoom is a magnification
+
+The layer's claim came from the camera's FOV sensor (0x53c), which in a dialogue or a store holds a
+look-at intent the render ignores; a conversation turning into a store claimed 50 deg over a scene
+drawn at 103 and the view shrank into a box. The claim is now the frame's own world projection,
+measured per frame by the `fgproj` sampler from the draws' c0..c3, with the scene scope's write and
+then the sensor as fallbacks only when no world draw was sampled. A measurement carries the identity
+of what it measured; the sensor did not. Second decision: a scene drawn narrower than
+`[Screen] ProjectionFov` keeps the claim at `ProjectionFov` (`[Screen] ZoomMagnify`, default 1), so
+the game's zoom (the mask lens, the "spyglass") magnifies the view about its centre instead of
+shrinking the picture. It ships on as a stated exception to "every render lever ships off": the owner
+asked for the zoom and the honest claim is the reported box; `zoommagnify off` is the live A/B.
+Record: dishonored/ENGINE_NOTES.md, 2026-10-07.

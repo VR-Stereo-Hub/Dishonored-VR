@@ -4846,3 +4846,47 @@ pixel checks across RGBA/BGRA, PNG compatibility and failed-write cleanup pass.
 Game capture and perceptual effect are pending. Screenshot output is locally
 ignored game-derived data. See ARM_IK and FLICKER_REFERENCE for experiment
 identity and the one-question roll/capture launch. No new performance report.
+
+## 2026-10-07: audit of the FOV/zoom/IK session for added overhead (reported 60 fps at Hound Pits)
+
+Reported: at Hound Pits, 100% resolution (2750x2850 per eye), the stereo (reentry) method, no DLSS,
+about 60 fps where about 90 was remembered. Asked: did this session or the last add overhead.
+
+**What the run's own instruments say (build v1.0.3-136-g5de0d92fd, `perf: tick` every 3 s).**
+
+| Segment | Settings | Ticks/s | Tick ms | Mod time inside the tick (`in`) | Method | Capture lock |
+|---|---|---|---|---|---|---|
+| Before 65149703 | reentry, DLSS Ultra Quality (render 2114x2192, output 2750x2850) | 76 to 81 | 12.3 to 13.1 | 1.1 to 1.2 ms | 0.5 to 0.6 | 0.0 to 0.1 |
+| After (DLSS off) | reentry, native 2750x2850 | 66 to 84 (quiet moments 126 to 143) | 12.0 to 15.2 | 0.7 to 0.9 ms | 0.1 | 0.0 |
+
+The mod's own time inside the tick is under 1.2 ms either way and LOWER on the native side; the tick is
+12 to 15 ms because the game draws the scene twice (one per eye) at 7.84 MP each. The GPU instrument
+(`perf: gpu/present render-to-entry`) read 3.7 to 4.4 ms per present, the same band as the 2026-10-05
+runs (3.0 to 4.9). The 2026-10-05 perf audit's floor arithmetic, 0.64 ms per megapixel on a 5.6 ms
+floor, gives 2 x 7.84 x 0.64 + 5.6 = 15.6 ms = 64 fps for reentry at 100%: the reported 60 is that
+floor, measured again.
+
+**Where the 90 came from.** The long play session of 2026-10-06 (build v1.0.3-131-g06d345d75,
+566 beats, Hound Pits included: the sewer pickup and Piero's shop are in it) ran AFW at 2114x2192
+with DLAA: one scene draw per tick plus the warp, average 133 presents per second. Last night's
+native 2750x2850 reentry stretch (v1.0.3-128-ge840151a4, fresh defaults) read 113 to 131 ticks/s,
+but in the prison and sewer, not the hub. Same build family, three heavier settings at once
+(two draws instead of one, 1.7x the pixels, no upscaler) is the whole difference.
+
+**What this session added per frame, and its cost.** `fgproj` per-frame histogram: one increment per
+sampled draw (1 in 8 world draws) and a 1400-bin scan twice per present (microseconds). The layer
+claim: a few compares per present. `CineFovClaim()` in the lever: one shared lock per script
+dispatch (about 1200 a second). The cutscene arm hide, the pose fingerprint and the lens-zoom hide:
+only while the game owns both arms (takedowns, scenes), none in play. The nominal-shoulder re-seat:
+one vector length per arm draw. The zoom tap and gesture: a few compares per frame, pose reads only
+when the trigger starts moving. `eye/probe`: two memoised `RflOffsetOf` lookups and one log line
+every 5 s (the reflection cache refuses rather than re-scans, VR-165). The stand-in window: three
+`strcmp` per presentation verdict. Nothing here reaches the game's render thread per draw beyond the
+sampler increment. Last session's defaults (#187, #189): the IK fit numbers (no cost), `DefaultsRev`
+(once), `CineHideStaticArms` on (two shared-lock reads per frame, early return in play),
+`CameraSilentGrace` on (changes which quiet ticks draw twice; a head-tracked camera is never quiet in
+play).
+
+**Verdict:** no added overhead found; the measured mod cost per tick fell. The 60 is the GPU floor of
+two native 7.84 MP draws. The like-for-like for "90" is AFW + DLAA at 2114x2192, or `stereo afw` at
+100% (one draw per tick). `[Perf] Parts=1` breaks `in` down further if a later run disagrees.

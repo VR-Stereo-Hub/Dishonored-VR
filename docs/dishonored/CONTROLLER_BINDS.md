@@ -51,6 +51,15 @@ follow it because they read the logical sticks.
 - **The thumbrests.** They are the D-pad modifier's gesture and already have their own setting.
 - **The R3 D-pad modifier** always reads the physical right stick click. It takes Health's slot as
   before; an action bound to the right stick click while R3 is the modifier is warned about.
+- **The zoom (2026-10-07)** is not an action in the layout: the game's zoom button is the right stick
+  click, which the modifier and the elixir hold both consume, so nothing ever sent it. A TAP of the
+  physical right stick click (released before `[Input] HealthElixirHoldMs`, no D-pad pick, not the
+  both-sticks chord) pulses the pad's right thumb button for 120 ms, the game's own toggle
+  (`[Controllers] ZoomTap`, `zoomtap on|off`). So does the right trigger with the right controller
+  held at the right eye, within `[Controllers] ZoomGestureRadiusCm` (25) of the head pose moved half
+  the IPD plus `ZoomGestureRightCm` (8, the temple) along its right axis; the press is swallowed from
+  the trigger's first movement, so the game never sees it as an attack or an unholster (`[Controllers] ZoomGesture`,
+  `zoomgesture on|off`, `zoomgesture radius <cm>`). Both log `zoom:` with the reason. F10 Controls.
 - **The F10 pointer** reads the physical snapshot: the pointing hand's trigger clicks, its stick
   scrolls. With a custom layout, that trigger is muted for every action while the panel is up.
 - **SteamVR's own bindings.** On the SteamVR shim, SteamVR's controller binding UI is applied first;
