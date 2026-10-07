@@ -1,3 +1,41 @@
+## 2026-10-07: NEXT SESSION - a grabbable the reticle is on cannot be grabbed by either grip (not started)
+
+**State.** #190 and #191 are merged into staging (`84563da62`); release PR #188 (staging -> VR-Main)
+carries them and is the owner's to merge. Installed on the dev PC: v1.0.3-137-g14af12044 (the #191 tip)
+with the player's settings kept. Open from #191: hands hidden while zoomed with a weapon out (the game's
+arm lens scales the arm mesh's LocalToWorld; the refusal logs the column norms; the fix is placing the
+hand through that scale), and the `eye/probe:` reading for the mask-on scene (unread).
+
+**The focus.** Reported in the headset: when the reticle (the game's own interaction focus, from the
+head) is on an object, that object cannot be grabbed with either grip; grabbing works when the reticle
+is off it. Nothing is diagnosed yet. Where to start, in order:
+
+1. `src/game/dishonored/physical_pickup.cpp` (the header comment is the design): the grip is swallowed
+   and Interact pressed only while the ENGINE's focused actor IS the mod's target
+   (`PpNearest` reads `pc + focusOff`; the tick's "in reach and focused" gate). `interact_aim.cpp`'s two
+   bridges hand the engine's interaction trace a ray from the head to the hand's target. Hypothesis to
+   test first: with the reticle already on an object, the engine's focus is set by its own head trace
+   and the bridge either does not replace it or replaces it with a different actor, so the gate's
+   "focused actor == target" fails, the grip is not swallowed, and its normal binding (wheel, block)
+   fires instead. The counter-hypothesis: the target is dropped as "the game did not focus it" because
+   the engine's focus points at the SAME object through a different pointer (a component, a child).
+2. The instrument exists: `pickup:` lines name the target, the palm distance, and at release "engine
+   focus on it YES/NO"; the beat counts grips swallowed and Interact presses. Reproduce in the headset:
+   look straight at a coin or bottle so the game's prompt shows, bring a hand to it, press that grip;
+   then look away and repeat. The two `pickup:` sequences side by side say which gate refused. If the
+   release reason says "the game did not focus it" while the prompt was visible, the focus pointer the
+   mod compares is not the one the reticle sets (`propwatch on` names the field that moves when the
+   prompt appears; that is how `focusOff` was found).
+3. Fix at the gate, not the bridge: if the engine focuses the same actor (or a component of it), the
+   grip must count. Log the two pointers and their classes on every refused grip so the next run is
+   arithmetic. The rule from CLAUDE.md applies: a verified write is not an honoured one, and the
+   headset decides.
+
+**Also owed before 1.0.4 ships:** the release notes still say settings carry over (the launcher's Update
+replaces the ini unless unticked), and the packaged ini carries `DataDir=D:\dvr-data`; both are owner
+decisions. The 1.0.4 package in `build\worktreeselease-104\dist\` predates #190/#191: repackage on
+the VR-Main tip.
+
 ## 2026-10-07: the layer's claim and the spyglass zoom (claude/fov-claim-zoom, stacked on #190, not merged)
 
 **Current state.** Two reports from the same run, one cause. (1) A conversation turning into Piero's
