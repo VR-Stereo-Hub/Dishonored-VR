@@ -1021,6 +1021,7 @@ static void ApplyHandToMeshInner()
             *(uint8_t*)(o + kSkcTSpace) = useSpace;
             uint32_t* b = (uint32_t*)(o + kSkcBools);
             *b = (*b & ~(kSkcApplyTrans|kSkcAddTrans)) | useMask;
+            CorvoHandSample(hand, v, useSpace);   // CorvoBody: the same point, the same space
             InterlockedIncrement(&g_skcHits);
         }
     }

@@ -1,3 +1,42 @@
+## 2026-10-07: CorvoBody (Nexus 453) decompiled; the body's arms meet the VR hands (claude/corvobody-research, PR #193 draft, not merged)
+
+**Current state.** The CorvoBody first-person body mod was fully decompiled headless (IDA, two
+new scripts for third-party DLLs) and read against our camera, hand and neck code; the record is
+`docs/dishonored/CORVOBODY.md` and the generated-SDK tools it was named from are
+`docs/SDK_WORKFLOW.md`. Its RigidCamera neck pivot must stay OFF in VR (it learns the arc from
+the POV cache our head offsets land in, persists it to disk, and doubles the `[Neck]` cancel);
+its F6-F11 keys are hard-coded. Built on top: `game/dishonored/corvobody.cpp`. When their
+`dinput8.dll` (exporting `BlinkBootstrap_Register`) and `CorvoBody.ini` sit next to the exe, the
+module finds their visible body component (outer = pawn, mesh `*skm_Corvo_Body`, not HiddenGame),
+resolves the body's own `hand_L_jnt` / `hand_R_jnt` SkelControlLimb through the engine's
+`FindSkelControl`, hides the body's hand bones, measures each arm's segment lengths once, and on
+every dispatch after `ApplyHandToMesh` writes the effector = the identical world point the hand
+drive just handed the 1P hand bone, strength 1, clamped to 98 % of the arm's reach. Every offset
+is resolved by name and refused on a mismatch with the SDK numbers. `[CorvoBody]` Enabled /
+HideBodyHands / ArmStrength / ReachClamp, F10 Hands section, `corvobody on|off|status|rescan`,
+`status.json corvobody`. While the mod is present our F6-F9 debug toggles park and the overlay
+opens on Insert (`[Overlay] Key` overrides). Nothing of the author's is modified, bundled or
+patched; their ini is read and two Warns name `RigidCamera=1` / `HideBodyArms=1`.
+
+Installed on the dev PC 2026-10-07 (RelWithDebInfo d3d9.dll sha256 A23A56C0..., the player's
+`dishonored_vr.ini` unchanged, backup in `%LOCALAPPDATA%\DishonoredVR\backups\2026-10-07-pre-corvobody`)
+together with CorvoBody v1.1's `dinput8.dll` and its ini with exactly two bytes changed
+(`RigidCamera=0`, `HideBodyArms=0`). NOT RUN. Simulator not run either (a launch).
+
+**Next steps.** Run it. In `dishonored_vr.log` expect, in order: `corvobody: PRESENT (module ...)`,
+`corvobody: offsets resolved and cross-checked against the SDK`, after CorvoBody's own
+`body created:` line in `CorvoBody.log` our `corvobody: body %p on pawn %p ... hand_L_jnt %p
+hand_R_jnt %p, arm length L %.1f R %.1f uu`, then `effector write #1`. A `REFUSING` Warn means an
+offset or UFunction is not what the SDK said: stop and read it. `corvobody status` on the seam
+prints the same. Headset questions, in order: does the body's forearm reach the VR hand with the
+hands at rest and at full stretch (the clamp logs the deficit); elbow direction (their
+JointTarget is back and out; `[CorvoBody]` has no elbow lever yet); the wrist seam between
+their forearm and our cut hand; whether CorvoBody's upper-body hides (look up, sprint, camera
+dip) cut the arm at the collar (then `HideShouldersUp=0` in their ini and a strength fade on
+our side); the hand rotation (not driven: the body's `Offset_hand_*` controls are left alone
+in this build, the forearm roll is the IK's). Then the Linear ticket for #193, and the author
+conversation named in CORVOBODY.md section 7.
+
 ## 2026-10-07: the layer's claim and the spyglass zoom (claude/fov-claim-zoom, stacked on #190, not merged)
 
 **Current state.** Two reports from the same run, one cause. (1) A conversation turning into Piero's

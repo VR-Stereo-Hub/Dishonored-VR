@@ -342,6 +342,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             // The head writer applies the matching body target only after a
             // successful fresh write or replay, never after a refused event.
             ApplyHandToMesh();
+            CorvoTick();   // CorvoBody: the body's arm IK takes the hand point this dispatch just wrote
             return;
         }
     }

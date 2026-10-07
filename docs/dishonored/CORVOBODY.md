@@ -229,6 +229,21 @@ want. Try `CameraFollow=0.5, CameraFollowMax=10` first.
 
 ## 7. The plan: attach the body to the VR hands at the shoulder
 
+**Built 2026-10-07** (`src/game/dishonored/corvobody.cpp`, state in
+`src/mod/state/64_game_dishonored_corvobody.inc`), installed on the dev PC, NOT RUN. What of
+the plan below is in the build: steps 1 to 6 (detect and warn, find the visible body, resolve
+the two controls by name with the SDK cross-check and a refusal on mismatch, drive the effector
+from the hand drive's own point, hide the body's hand bones, the reach clamp at 98 % of the
+measured upper-arm + forearm length). Step 7 (fade when their upper-body hide removes the
+shoulder) and the `Offset_hand_*` rotation drive are not in it. Keys: `[CorvoBody]
+Enabled=1 HideBodyHands=1 ArmStrength=1.00 ReachClamp=0.98`, `[Overlay] Key=`; seam
+`corvobody on|off|status|rescan|hands on|hands off`; F10 Hands, first section; `status.json
+corvobody`. While the mod is present our F6-F9 debug toggles park and the overlay opens on
+Insert. Lanes: everything runs on the script lane, in the ProcessEvent hook right after
+`ApplyHandToMesh`; the hand drive hands over its point and space through `CorvoHandSample`
+at its own write (`skelcontrol.cpp`), so the body's arm and the 1P hand bone are driven by one
+point in one dispatch. Log lines to expect are in STATUS.md's 2026-10-07 entry.
+
 The body's arms already have a named two-bone IK (`hand_L_jnt`, `hand_R_jnt`,
 `SkelControlLimb`) and a hand-rotation control (`Offset_hand_L/R_jnt`) on the **visible**
 body, left at strength 0 (section 3). CorvoBody only drives them on the shadow body. The VR

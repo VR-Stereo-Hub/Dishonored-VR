@@ -129,6 +129,32 @@ static void OvlTopRow()
 // ---- Hands ----------------------------------------------------------------------------------
 static void OvlTabHands()
 {
+    if (OvlSec("First-person body (CorvoBody mod)", kOvlB,
+               "The CorvoBody body mod's arms follow your VR hands. Needs the mod from Nexus (453) next to the game.")) {
+        if (!g_cbPresent) {
+            dvr::ovl::note("CorvoBody is not installed next to Dishonored.exe. Download it from Nexus (mod 453), copy "
+                           "its dinput8.dll and CorvoBody.ini into Binaries\\Win32, and set RigidCamera=0 and "
+                           "HideBodyArms=0 in CorvoBody.ini.");
+        } else {
+            if (g_cbTheirRigid)    dvr::ovl::note("CorvoBody.ini has RigidCamera=1: set it to 0 (its neck pivot fights the VR camera).");
+            if (g_cbTheirHideArms) dvr::ovl::note("CorvoBody.ini has HideBodyArms=1: set it to 0 (the shoulder must stay visible with gear out).");
+            bool on = g_cbEnabled;
+            if (dvr::ovl::checkbox("Body arms follow the VR hands", &on)) { CorvoSet(on, "F10"); OvlSaveBool("CorvoBody", "Enabled", on); }
+            OvlTip("Drives the body's own arm IK with the hand point. Off leaves CorvoBody's holstered arm animation.");
+            bool hide = g_cbHideHands;
+            if (dvr::ovl::checkbox("Hide the body's own hands", &hide)) { CorvoHideHandsSet(hide, "F10"); OvlSaveBool("CorvoBody", "HideBodyHands", hide); }
+            OvlTip("The VR hands show at the wrist. Off shows the body's hands at the controller as well.");
+            dvr::ovl::slider_float("Arm strength", &g_cbStrength, 0.0f, 1.0f, "%.2f");
+            OvlSaveOnRelease("CorvoBody", "ArmStrength", g_cbStrength, "%.2f");
+            dvr::ovl::slider_float("Reach clamp (fraction of arm length, 0 = off)", &g_cbReach, 0.0f, 1.2f, "%.2f");
+            OvlSaveOnRelease("CorvoBody", "ReachClamp", g_cbReach, "%.2f");
+            char cbs[160];
+            _snprintf(cbs, sizeof(cbs), "%s. Body %s, arm L %.0f / R %.0f uu, %ld writes.", g_cbWhy,
+                      g_cbBody ? "found" : "not found", g_cbArmLen[0], g_cbArmLen[1], g_cbWrites);
+            cbs[sizeof(cbs) - 1] = 0;
+            dvr::ovl::note(cbs);
+        }
+    }
     if (OvlSec("Hand size, position and weapon FOV", kOvlB,
                "How big the hands are and where they sit on your controllers.")) {
         dvr::ovl::slider_float("Hand / weapon size", &g_mpModelScale, 0.4f, 1.6f, "%.2f");

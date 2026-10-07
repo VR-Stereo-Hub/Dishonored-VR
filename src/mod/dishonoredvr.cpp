@@ -139,6 +139,7 @@
 #include "mod/state/61_game_dishonored_startup.inc"
 #include "mod/state/62_game_dishonored_ue3_ui_state.inc"
 #include "mod/state/63_game_dishonored_aim_seam.inc"
+#include "mod/state/64_game_dishonored_corvobody.inc"
 
 // ---- every function, so the bodies below can be in any order --------------
 #include "mod/fwd.h"
@@ -279,6 +280,7 @@
 #include "game/dishonored/swing_trace.cpp"    // VR-165: raw present-rate series
 #include "game/dishonored/aim_source.cpp"     // VR-166: who shares the power-aim helper
 #include "game/dishonored/rain_control.cpp"   // VR-136: after the trace's camera-cache layout
+#include "game/dishonored/corvobody.cpp"      // CorvoBody (Nexus 453): the body mod meets the VR hands at the shoulder
 #include "game/dishonored/stereo_occlusion.cpp"   // VR-79: per-eye occlusion culling
 #include "game/dishonored/delta_clamp.cpp"        // VR-39: AER's delta clamp; after cinematic_trace (identity helpers)
 #include "game/dishonored/trail_control.cpp"  // VR-171: the sword's swing trail; after anim_state and reflect

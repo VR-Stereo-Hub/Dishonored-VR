@@ -1178,6 +1178,10 @@ static bool WriteDefaultIni(const char* ini)
         "; Level: which F10 controls are shown. basic = player settings, advanced = preference detail,\n"
         "; debug = fixes that should stay on, A/B levers and instruments. Live: the selector at the top.\n"
         "Level=basic\n"
+        "; Key: the key that opens the panel. Empty = F10, or Insert while the CorvoBody body mod (Nexus 453) is next\n"
+        "; to the exe, because its own F10 is hard-coded (it flips the body's attach mode). F1..F24, Insert, Delete,\n"
+        "; Home, End, Pause, ScrollLock, PageUp, PageDown, Backspace, Tab. The controller chord is unchanged.\n"
+        "Key=\n"
         "; ReticleWhileOpen=1: the reticle stays on while the F10 panel is up and hides where the panel\n"
         "; covers it, so it can be tuned beside the panel. 0 = off while the panel is up (as before).\n"
         "ReticleWhileOpen=1\n"
@@ -1341,6 +1345,21 @@ static bool WriteDefaultIni(const char* ini)
         "Generic=1\n"
         "Smoother=1\n"
         "PopSmoothing=0\n"
+        "\n"
+        "; CorvoBody (Nexus mod 453, a dinput8 proxy that gives Corvo a first-person body) meets the VR\n"
+        "; hands at the shoulder. Acts only when that mod's dinput8.dll and CorvoBody.ini are next to the\n"
+        "; exe (downloaded from Nexus by the player; nothing of the author's is bundled or modified). The\n"
+        "; body's own arm IK controls (hand_L_jnt / hand_R_jnt) are driven with the VR hand point; the\n"
+        "; body's hand bones are hidden so the VR hands show at the wrist. In CorvoBody.ini set\n"
+        "; RigidCamera=0 (its neck pivot fights the [Neck] cancel in VR) and HideBodyArms=0 (the shoulder\n"
+        "; must stay visible with gear out). Live: F10 Hands, `corvobody on|off|status|rescan`.\n"
+        "; ArmStrength: the IK's weight, 1 = the hand reaches the controller. ReachClamp: the effector is\n"
+        "; kept within this fraction of the measured arm length so the wrist seam never opens (0 = off).\n"
+        "[CorvoBody]\n"
+        "Enabled=1\n"
+        "HideBodyHands=1\n"
+        "ArmStrength=1.00\n"
+        "ReachClamp=0.98\n"
         "\n"
         "[Rain]\n"
         "Recovery=1\n"
@@ -3144,6 +3163,7 @@ static void LoadConfig()
     StereoStateConfigure(ini);
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
+    CorvoConfigure(ini);        // CorvoBody (Nexus 453) shoulder attach
     OcclusionConfigure(ini);    // VR-79
     DeltaClampConfigure(ini);   // VR-39
     SwordTrailConfigure(ini);   // VR-171
