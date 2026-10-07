@@ -389,8 +389,11 @@ static void DvrFovHandoff()
         float claim = measured > 1.0f ? measured : scoped > 0 ? scoped : sensor;
         const char* why = measured > 1.0f ? "measured from the frame's world draws"
                         : scoped > 0 ? "the scene scope's write (no world draw sampled)" : "the camera sensor (no scope, no world draw sampled)";
-        if (ZoomMagnifyGet() && world > 0.0f && claim > 1.0f && claim < world - 0.5f) {
-            claim = world; why = "MAGNIFIED: drawn narrower than ProjectionFov, claimed at it (a zoom)";
+        // Only a zoom the scene scope itself drew narrower (it publishes the tangent-scaled draw) is magnified.
+        // The first run magnified the second after a load, when the world is drawn at the game's own 75 or 90
+        // before the lever arms and no scope is up: a 1.4x pop on every load. Those frames claim what was drawn.
+        if (ZoomMagnifyGet() && world > 0.0f && scoped > 0.0f && scoped < world - 0.5f && claim > 1.0f && claim < world - 0.5f) {
+            claim = world; why = "MAGNIFIED: the scene scope drew narrower than ProjectionFov, claimed at it (a zoom)";
         }
         dvr::vr::set_rendered_hfov(claim);
         const uint32_t w = dvr::capture::width(), h = dvr::capture::height();

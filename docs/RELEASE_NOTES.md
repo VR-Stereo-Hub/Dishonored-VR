@@ -48,7 +48,8 @@
 - **The Heart's glow and the Possession and Blink effects sliding off your hand** while walking.
 - **The still arms pointing behind you on the opening boat ride** are hidden, whichever way you look.
 - **The view shrinking into a small box for a moment when a conversation turns into a shop.**
-- **The mask's zoom (the spyglass upgrade) now zooms in VR** instead of shrinking the picture. Off in F10 > Display > Field of view if you prefer the old behaviour.
+- **The mask's zoom (the spyglass upgrade) works in VR**: hold the right controller at your right eye and pull the trigger, as if clicking the mask's lens, or tap the right stick. Press again to step or stop. It magnifies the view like a scope instead of shrinking the picture. All three are in F10 (Controls, and Display > Field of view) if you prefer the old behaviour.
+- **The view dropping to a flat rectangle for a second when you choose a merchant's shop** in the conversation.
 - **Shoulders in front of you during takedowns and scripted scenes** with full-arm IK: the game's arm now reaches back to your own shoulder (F10 > IK > Game arm stretch limit if it still shows, or looks too long).
 
 ## Known issues

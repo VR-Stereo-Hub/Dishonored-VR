@@ -9,6 +9,55 @@
 #include <shlobj.h>   // VR-204: SHGetFolderPathA for the game's DishonoredInput.ini
 
 static dvr::controller::Composer g_controllerComposer;
+// 2026-10-07: [Controllers] ZoomTap. A TAP of the right stick click is the game's own zoom (the mask lens, the
+// "spyglass" upgrade: XboxTypeS_RightThumbstick -> GBA_Zoom -> Dis_Zoom, toggled inside m_fCurZoomToggleTime).
+// The click never reached the pad: the R3 D-pad modifier consumes it and the health elixir takes the hold, so a
+// run that tried the zoom narrowed nothing (every world draw at 103, measured). A press released before the
+// elixir's hold threshold that selected no D-pad direction and was not the both-sticks chord pulses the pad's
+// right thumb button for 120 ms. Live: zoomtap on|off, F10 Controls.
+static std::atomic<bool> g_zoomTap{true};
+static bool ZoomTapGet() { return g_zoomTap.load(); }
+// 2026-10-07: [Controllers] ZoomGesture. The mask's lens is on the face: with the right controller held at the RIGHT
+// EYE (its grip pose within ZoomGestureRadiusCm of the head pose moved half the IPD to the right, XR LOCAL space,
+// metres) a right-trigger press is the zoom toggle instead of an attack, and the trigger stays swallowed until it is
+// released. Every press cycles the game's own zoom (the Spyglass upgrade adds levels). Live: zoomgesture on|off,
+// zoomgesture radius <cm>, F10 Controls.
+static std::atomic<bool>  g_zoomGesture{true};
+static std::atomic<float> g_zoomGestureRadiusM{0.12f};
+static double g_zoomPulseUntil = 0.0;   // present lane: the pad's right thumb button is held until this time
+static bool ZoomGestureGet() { return g_zoomGesture.load(); }
+static void ZoomGestureSet(bool on, const char* who) {
+    if (g_zoomGesture.exchange(on) != on)
+        Log("zoom: the right trigger with the right hand at the right eye %s (%s)",
+            on ? "ZOOMS (that press is swallowed as an attack)" : "is an attack as usual", who ? who : "?");
+}
+static void ZoomGestureRadiusSet(float cm, const char* who) {
+    if (!(cm >= 4.0f && cm <= 30.0f)) { Log("zoom: gesture radius %.1f cm refused (4..30) (%s)", cm, who ? who : "?"); return; }
+    g_zoomGestureRadiusM.store(cm * 0.01f);
+    Log("zoom: gesture radius %.1f cm from the right eye (%s)", cm, who ? who : "?");
+}
+static void ZoomPulse(const char* why) {
+    g_zoomPulseUntil = MaimNowMs() + 120.0;
+    Log("zoom: %s -> right thumb pulse to the pad, the game's zoom toggle; the fov: line says MAGNIFIED if it took", why);
+}
+// The right hand's grip pose against the right eye, metres; negative when either is untracked.
+static float ZoomHandToRightEyeM() {
+    dvr::vr::HeadPose head{}, hand{};
+    if (!dvr::vr::peek_head_pose(head) || !dvr::vr::get_hand_pose(1, false, hand)) return -1.0f;
+    // the head's right axis, R(q) * (1,0,0)
+    const float rx = 1.0f - 2.0f * (head.qy * head.qy + head.qz * head.qz);
+    const float ry = 2.0f * (head.qx * head.qy + head.qz * head.qw);
+    const float rz = 2.0f * (head.qx * head.qz - head.qy * head.qw);
+    const float h = g_ipdM * 0.5f;
+    const float dx = hand.px - (head.px + rx * h), dy = hand.py - (head.py + ry * h), dz = hand.pz - (head.pz + rz * h);
+    const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+    return std::isfinite(d) ? d : -1.0f;
+}
+static void ZoomTapSet(bool on, const char* who) {
+    if (g_zoomTap.exchange(on) != on)
+        Log("zoom: a tap of the right stick click %s (%s)", on ? "ZOOMS (the pad's right thumb button, the game's own toggle)"
+                                                                 : "does nothing", who ? who : "?");
+}
 
 static inline SHORT PadStick(float v)
 {
@@ -146,6 +195,22 @@ static void UpdateVirtualPad()
         active = true;
         g_dbgRawMx = in.mv[0]; g_dbgRawMy = in.mv[1];  // 38.25 pre-shaping
         float mx = in.mv[0], my = in.mv[1], tx = in.lk[0], ty = in.lk[1];
+        {   // ZoomGesture: the right trigger with the right hand at the right eye (g_zoomGesture above)
+            static bool swallow = false, trigWas = false;
+            const bool trig = in.trigR > (trigWas ? 0.5f : 0.7f);
+            if (trig && !trigWas && ZoomGestureGet() && !g_ovlVisible && !g_menuOpen && !g_inMenu &&
+                !UiSurfaceBlocks() && !CineActive() && !g_wheelHeld) {
+                const float d = ZoomHandToRightEyeM();
+                if (d >= 0.0f && d <= g_zoomGestureRadiusM.load()) {
+                    swallow = true;
+                    char why[96]; _snprintf_s(why, _TRUNCATE, "right trigger with the right hand %.1f cm from the right eye", d * 100.0f);
+                    ZoomPulse(why);
+                }
+            }
+            if (!trig) swallow = false;
+            trigWas = trig;
+            if (swallow) in.trigR = 0.0f;   // this press is the zoom, not an attack or a throw
+        }
         float hr = in.trigR, hl = in.trigL;
         WORD b = emulation.buttons;
         static bool wheelWas = false, chokeWas = false;
@@ -163,6 +228,24 @@ static void UpdateVirtualPad()
         if (in.y)            b |= XINPUT_GAMEPAD_Y;       // native lean/adrenaline
         if (SprintBit(in.clkL)) b |= XINPUT_GAMEPAD_LEFT_THUMB; // SPRINT 38.28
         HealthElixirTick(in.clkR);                        // health hold
+        {   // ZoomTap: the PHYSICAL right stick click, tapped (g_zoomTap above)
+            static bool r3Was = false, r3Used = false; static double r3Down = 0.0;
+            const double zNow = MaimNowMs();
+            const bool gated = g_menuOpen || g_inMenu || g_wheelHeld || g_ovlVisible || UiSurfaceBlocks() || CineActive() || !g_handMesh;
+            if (raw.clkR && !r3Was) { r3Down = zNow; r3Used = gated; }
+            if (raw.clkR && (raw.clkL || (emulation.buttons & 0xF) || gated)) r3Used = true;   // the chord, a D-pad pick, a menu
+            if (!raw.clkR && r3Was && ZoomTapGet() && !r3Used) {
+                const double held = zNow - r3Down;
+                if (held < (double)g_elixirHoldMs) {
+                    char why[96]; _snprintf_s(why, _TRUNCATE, "right stick click tapped (%.0f ms, under the %.0f ms elixir hold)", held, g_elixirHoldMs);
+                    ZoomPulse(why);
+                } else {
+                    Log("zoom: right stick click held %.0f ms - the elixir's hold, not a zoom tap", held);
+                }
+            }
+            r3Was = raw.clkR;
+            if (zNow < g_zoomPulseUntil) b |= XINPUT_GAMEPAD_RIGHT_THUMB;
+        }
         {   // stick-click edges stay measured facts
             static bool sw = false, hw = false;
             if (in.clkL != sw) { sw = in.clkL;

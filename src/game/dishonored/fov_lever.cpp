@@ -167,6 +167,29 @@ static inline void FovLeverApply()
         RangeReadable(clampPawn + g_actorLocOff, 12)) {
         float pz = ((const float*)(clampPawn + g_actorLocOff))[2];
         float zmax = pz + g_cylLast - g_eyeClampMargin;
+        {   // 2026-10-07 eye/probe: where the camera sits against the pawn's eye, in the pawn's yaw frame (UE3: X forward,
+            // Y right, Z up; yaw in 65536ths). A report of "too far back" in an authored scene is arithmetic with this
+            // line: ahead/behind is the number to read, with the positional-tracking offset included.
+            static double nextProbe = 0.0; const double pn = MaimNowMs();
+            if (pn >= nextProbe) {
+                nextProbe = pn + 5000.0;
+                const uint32_t rotOff = RflOffsetOf("Actor", "Rotation"), eyeOff = RflOffsetOf("Pawn", "EyeHeight");
+                const float* pl = (const float*)(clampPawn + g_actorLocOff);
+                const float* cl = RangeReadable(g_camObj + kPovOffs[0], 12) ? (const float*)(g_camObj + kPovOffs[0]) : NULL;
+                float eyeH = NAN; if (eyeOff && RangeReadable(clampPawn + eyeOff, 4)) memcpy(&eyeH, clampPawn + eyeOff, 4);
+                int32_t rot[3] = { 0, 0, 0 }; const bool rotOk = rotOff && RangeReadable(clampPawn + rotOff, 12);
+                if (rotOk) memcpy(rot, clampPawn + rotOff, 12);
+                if (cl && std::isfinite(eyeH) && rotOk) {
+                    const float yaw = (float)rot[1] * (6.2831853f / 65536.0f), fx = cosf(yaw), fy = sinf(yaw);
+                    const float dx = cl[0] - pl[0], dy = cl[1] - pl[1], dz = cl[2] - (pl[2] + eyeH);
+                    Log("eye/probe: the camera sits %+.1f uu ahead(+)/behind(-) the pawn's eye, %+.1f right, %+.1f up (pawn EyeHeight %.1f, "
+                        "positional offset included) master=%s", dx * fx + dy * fy, -dx * fy + dy * fx, dz, eyeH,
+                        dvr::anim::snapshot().state[0]);
+                } else {
+                    Log("eye/probe: unavailable (camera location %d, EyeHeight %d, rotation %d)", cl != NULL, (int)std::isfinite(eyeH), (int)rotOk);
+                }
+            }
+        }
         if (za) {
             memcpy(zc.pawn, (const float*)(clampPawn + g_actorLocOff), sizeof(zc.pawn));
             zc.ceilRaw = zmax;

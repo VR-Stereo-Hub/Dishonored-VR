@@ -10565,3 +10565,35 @@ projection FOV IS a magnification about the view centre; that is the only way a 
 
 Not yet run: a gameplay zoom under this build. What its log must show: `fov: ... MAGNIFIED` while
 `fgproj` WORLD reads about 47 and FOREGROUND reads 103 (hands true size) or 47 (hands magnified too).
+
+### Second run (v1.0.3-133-g04b8df581): the rectangle is the presentation, the zoom never reached the game
+
+- The claim held at 103 for the whole run (one `fovaudit submit` line), and the shop choice still showed a
+  small picture, rectangular. It is `stereo/state: FALLBACK`: the dialogue's shop choice raises the menu
+  flag (`menu=1`, `standIn=open pending`) with no owner ever published (`ui/surface: context=Other
+  blocked=0 rides=0`), the 300 ms open-pending stand-in expires (`standIn=none`), `scene_state::eligible`
+  refuses on the menu flag, and the mono quad (`xr: cinematic quad ON`) shows the frame as a flat
+  rectangle until the flag drops (`gateAge=1187` on recovery; 1203 in the previous run). The dialogue
+  scene kept drawing throughout (`fgproj` WORLD 103, 100%). The open gap is now 2.5 s in a cinematic
+  state (`stereo_state.cpp`); `ride_eligible` still demands the raw camera-upload clock or a tagged
+  projection present, so a pause that stops the world still falls back.
+- The zoom narrowed nothing: no `fovlever` sensor under 95 in a Walk state, `fgproj` WORLD 103 at 100%
+  in play. The right stick click (the game's `GBA_Zoom`) never reaches the pad: the composer consumes it
+  as the R3 D-pad modifier (`s.clkR=false`) and `HealthElixirTick` takes the hold; nothing ever set
+  `XINPUT_GAMEPAD_RIGHT_THUMB`. The previous `ZoomMagnify` lines marked MAGNIFIED only in the second
+  after a load (the world drawn at the game's own 75 or 90 before the lever arms, no scope up), a 1.4x
+  pop on every load; the gate now requires the scene scope to have published the narrower draw.
+  Shipped: `[Controllers] ZoomTap` (a tap under the elixir hold with no D-pad pick and no both-sticks
+  chord pulses the thumb button 120 ms: the game's own toggle, `m_fCurZoomToggleTime`) and
+  `[Controllers] ZoomGesture` / `ZoomGestureRadiusCm` (the right trigger with the right grip pose
+  within 12 cm of the right eye, head pose + half the IPD along the head's right axis, XR LOCAL metres;
+  that press is swallowed as an attack). Not yet run; `zoom:` logs every pulse with its reason.
+- Reported: the eye a foot behind Piero's hands in the mask-on scene, suspected as a general eye
+  offset. The positional-tracking offset during that scene in the previous run was under 1 cm
+  (`heartbeat ... lean=(-0.9,+5.6,-0.0)uu`; the reference had been taken at `(-0.000 0.001 -0.000) m`),
+  so it is not the room. Two other readings fit: the first-person arm rig places the game's shoulders
+  10 to 46 uu in front of the nominal shoulder (the re-seat corrects it), and a flat-screen scene
+  stages a face-level prop where it fills a 75 deg frame, about 30 uu out. Undecided by measurement:
+  `eye/probe:` (every 5 s, `fov_lever.cpp`) now logs the camera's position against the pawn's eye
+  (`Actor.Location` + `Pawn.EyeHeight`) in the pawn's yaw frame; a negative "ahead" there in play is
+  an eye offset to fix, a zero with the hands still short is the scene's staging.

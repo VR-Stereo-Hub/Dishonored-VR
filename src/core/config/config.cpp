@@ -442,6 +442,15 @@ static bool WriteDefaultIni(const char* ini)
         "DpadModifier=1\n"
         "DpadFlip=0\n"
         "PauseChord=1\n"
+        "; ZoomTap=1: a tap of the right stick click (released before the health elixir's hold, no\n"
+        "; D-pad pick) is the game's own zoom, the mask lens. 0 = a tap does nothing. Live: zoomtap\n"
+        "; on|off, F10 Controls.\n"
+        "ZoomTap=1\n"
+        "; ZoomGesture=1: the right trigger pressed with the right controller held at your right eye\n"
+        "; (within ZoomGestureRadiusCm) is the zoom too - click your mask's lens. That press is not an\n"
+        "; attack. Live: zoomgesture on|off, zoomgesture radius <cm>, F10 Controls.\n"
+        "ZoomGesture=1\n"
+        "ZoomGestureRadiusCm=12\n"
         "Enabled=1\n"
         "Deadzone=0.12\n"
         "Haptics=1\n"
@@ -2290,6 +2299,9 @@ static void LoadConfig()
     dvr::controller::configure({int(GetPrivateProfileIntA("Controllers","DpadModifier",1,ini)),
         GetPrivateProfileIntA("Controllers","DpadFlip",0,ini)!=0,
         GetPrivateProfileIntA("Controllers","PauseChord",1,ini)!=0});
+    ZoomTapSet(GetPrivateProfileIntA("Controllers","ZoomTap",1,ini)!=0,"ini");   // 2026-10-07: the mask lens zoom
+    ZoomGestureSet(GetPrivateProfileIntA("Controllers","ZoomGesture",1,ini)!=0,"ini");
+    ZoomGestureRadiusSet(IniFloat(ini,"Controllers","ZoomGestureRadiusCm",12.0f),"ini");
     const auto controller=dvr::controller::config();
     Log("controls: modifier=%d dpad=%s X+Y=%d; Y=native, menu tap=START, modifier/hold+menu=BACK",
         controller.modifier,controller.flip ? "right" : "left",int(controller.pauseChord));
@@ -4126,6 +4138,8 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Controllers","DpadModifier",v,ini);
     WritePrivateProfileStringA("Controllers","DpadFlip",controller.flip ? "1" : "0",ini);
     WritePrivateProfileStringA("Controllers","PauseChord",controller.pauseChord ? "1" : "0",ini);
+    WritePrivateProfileStringA("Controllers","ZoomTap",ZoomTapGet() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Controllers","ZoomGesture",ZoomGestureGet() ? "1" : "0",ini);
 
     _snprintf(v, 64, "%.1f", g_posScaleUU);
     WritePrivateProfileStringA("PosTrack", "Scale", v, ini);

@@ -11,13 +11,33 @@ Shipped: the claim is the frame's own measured world projection (`fgproj_frame_w
 `[Screen] ZoomMagnify` (default 1, F10 Display, `zoommagnify`) holds the claim at `ProjectionFov` when
 the scene is drawn narrower so the zoom magnifies like a scope, the lever keeps the arms' FOV field at
 the target during such a zoom, and `cine/fov` keeps its scope through the dialogue/store menu gate.
-ENGINE_NOTES, ARCHITECTURE and TRAPS have the measurements and the decision. Built, installed with the
-player's settings kept, NOT run.
+ENGINE_NOTES, ARCHITECTURE and TRAPS have the measurements and the decision.
 
-**Next.** In the headset: hold the zoom (right stick click) in play. The `fov:` line must say
-`MAGNIFIED` with `fgproj` WORLD about 47 deg; whether FOREGROUND reads 103 (hands true size) or 47
-(hands magnified) decides the next step. Then enter Piero's store from a conversation: no box. Then
-the owner merges #190 and this PR (retargeted to staging) so #188 carries them.
+Second run (v1.0.3-133-g04b8df581), three findings, all built into the second commit. (a) The claim
+held at 103 all run, yet the shop choice still showed a small picture, rectangular: it is the
+PRESENTATION falling back to the flat quad. Choosing the shop in the dialogue raises the menu flag
+for 1.2 s with no owner ever published (context Other, nothing rides), the 300 ms "open pending"
+stand-in expires, the ordinary terms refuse on the menu flag, and the mono quad shows until the flag
+drops (measured twice, gateAge 1187 / 1203 ms). The open gap is now 2.5 s in a cinematic state, still
+demanding the scene draw. (b) The zoom narrowed nothing (every world draw at 103): the right stick
+click never reaches the pad, the R3 D-pad modifier consumes it and the elixir takes the hold.
+`[Controllers] ZoomTap` (default 1): a tap under the elixir hold with no D-pad pick pulses the pad's
+right thumb button, the game's own zoom toggle. Asked for in the same session and built:
+`[Controllers] ZoomGesture` (default 1, radius 12 cm): the right trigger with the right controller
+held at the right eye (grip pose against the head pose moved half the IPD right) is the same pulse,
+and that press is swallowed as an attack, so clicking the mask's lens steps the zoom. (c) `ZoomMagnify` had magnified the second after
+each load (the world drawn at the game's 75 or 90 before the lever arms, no scope up); it now acts
+only on a draw the scene scope itself narrowed. Also reported: the eye a foot behind Piero's hands in
+the mask-on scene. The run's positional offset there was under 1 cm (heartbeat `lean=(-0.9,+5.6,0)uu`),
+so it is not the room; `eye/probe:` (every 5 s) now logs the camera against the pawn's eye in the
+pawn's yaw frame, so the next run says whether the eye sits behind the pawn's eye or the scene is
+staged short of the face for a flat frame. Installed with the player's settings kept, NOT run.
+
+**Next.** In the headset: tap the right stick in play (`zoom: right stick click tapped`, then `fov:
+... MAGNIFIED`, `fgproj` WORLD about 47; FOREGROUND 103 or 47 decides the hands question); choose a
+merchant's shop in a conversation (no rectangle: `stereo/state` stays STEREO, standIn open pending);
+read `eye/probe:` during a scene with the game's hands at the face. Then the owner merges #190 and
+#191 (retargeted to staging) so #188 carries them.
 
 ## 2026-10-07: game-owned arms with full-arm IK - takedowns, the boat, a scripted pickup (#190, not merged)
 
