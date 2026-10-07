@@ -57,7 +57,8 @@ follow it because they read the logical sticks.
   both-sticks chord) pulses the pad's right thumb button for 120 ms, the game's own toggle
   (`[Controllers] ZoomTap`, `zoomtap on|off`). So does the right trigger with the right controller
   held at the right eye, within `[Controllers] ZoomGestureRadiusCm` (25) of the head pose moved half
-  the IPD along its right axis; that press is swallowed as an attack (`[Controllers] ZoomGesture`,
+  the IPD plus `ZoomGestureRightCm` (8, the temple) along its right axis; the press is swallowed from
+  the trigger's first movement, so the game never sees it as an attack or an unholster (`[Controllers] ZoomGesture`,
   `zoomgesture on|off`, `zoomgesture radius <cm>`). Both log `zoom:` with the reason. F10 Controls.
 - **The F10 pointer** reads the physical snapshot: the pointing hand's trigger clicks, its stick
   scrolls. With a custom layout, that trigger is muted for every action while the panel is up.

@@ -797,6 +797,7 @@ static void ZoomTapSet(bool on, const char* who);
 static bool ZoomGestureGet();                                  // 2026-10-07: [Controllers] ZoomGesture (pad_bridge.cpp)
 static void ZoomGestureSet(bool on, const char* who);
 static void ZoomGestureRadiusSet(float cm, const char* who);
+static void ZoomGestureRightSet(float cm, const char* who);
 static void MeleeTick();
 static bool MeleeActive();
 static void UpdateVirtualPad();

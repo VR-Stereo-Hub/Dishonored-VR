@@ -51,6 +51,14 @@ drew at 96 (`fgproj` 96.2 at 81%). `rearm_natural` now refuses a FIRST capture u
 (`kNaturalFloorDeg`; a kept base still treats a narrow reading as KeptNarrower) and the lever says so
 once; host test added. Fourth commit, installed, NOT run.
 
+Fifth run (v1.0.3-136-g5de0d92fd): the base floor held and the zoom worked from the same zoomed save.
+The gesture only worked with an empty hand and drew the weapons: the game acts on the trigger's first
+few percent before the 0.7 threshold decided it was the gesture. It is now decided at the trigger's
+first movement and swallowed from there; the anchor sits `ZoomGestureRightCm` (8) to the right of
+the right eye. Also audited for added overhead (reported 60 fps at Hound Pits, 100% reentry, no DLSS):
+none found, the mod's time inside the tick is under 1.2 ms and fell on the native side; the 60 is the
+GPU floor of two 7.84 MP draws (PERFORMANCE.md, 2026-10-07). Fifth commit, installed, NOT run.
+
 **Next.** In the headset: the eye gesture (read `zoom: right trigger ... cm from the right eye` on a
 press that did not fire; set `zoomgesture radius <cm>` from it); zoom with the crossbow out (no stuck
 hand; read the column norms in `ms/palette/world: ... NOT placed`); `eye/probe:` in a scene with the
