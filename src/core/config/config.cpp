@@ -1311,6 +1311,10 @@ static bool WriteDefaultIni(const char* ini)
         "HideBorders=1\n"
         "HeadLook=1\n"
         "SpecialHeadLook=1\n"
+        "; KeyholeForwardCm: while peeking through a keyhole, the eyes move this far forward along the\n"
+        "; door's view (physical cm), so they do not sit inside the door. 0 = the game's own spot.\n"
+        "; F10 Comfort > Cutscenes and special cameras (Advanced).\n"
+        "KeyholeForwardCm=15\n"
         "Trace=0\n"
         "LockRoll=1\n"
         "; SkipHoldMs (VR-165): during a cutscene the pad is parked - sticks and triggers to\n"
@@ -4504,6 +4508,7 @@ static void OverlaySaveDefaults()
     }
     WritePrivateProfileStringA("Cine","HeadLook",CineHeadEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","SpecialHeadLook",SpecialHeadEnabled() ? "1" : "0",ini);
+    { char v[32]; _snprintf(v,sizeof(v),"%.1f",KeyholeForwardCm()); WritePrivateProfileStringA("Cine","KeyholeForwardCm",v,ini); }
     WritePrivateProfileStringA("Cine","HideBorders",CineBordersEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","PossessionStereo",PossessionStereoEnabled() ? "1" : "0",ini);

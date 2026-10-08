@@ -1,4 +1,21 @@
-## 2026-10-07: the grip takes what the engine focuses (claude/vr-N-grab-reticle, not merged)
+## 2026-10-07: keyhole view pushed through the door; a post-keyhole stall recorded (claude/keyhole-peek, stacked on #194, not merged)
+
+**Current state.** Two reports from one run (v1.0.3-140-gf67e46430). (1) While peeking through a
+keyhole the eyes sat inside the door. New `[Cine] KeyholeForwardCm` (default 15, F10 Comfort >
+Cutscenes and special cameras, a slider; 0 = the game's own spot): while
+`StatePlayerMasterHolePeeking` owns the camera, the eye is pushed that far along the DOOR's authored
+heading (expressed in the head-look scope's composed-yaw frame, so turning the head does not move the
+push sideways), on top of the head's own offset. 15 cm is a starting value, not a measured door
+depth. `camera/keyhole: peeking - eye pushed ...` logs it once per peek. (2) After a keyhole peek one
+eye froze and the other ran at a few fps: FLICKER_REFERENCE's top entry. Every `xrEndFrame` blocked
+about 85 ms from 2 s into the second peek until the game was quit, in mono menus too, while the mod's
+own counters stayed flat and both eyes went out on every submit; the GPU slowed for every process.
+OPEN, one occurrence, nothing changed for it. Built and installed, NOT run.
+
+**Next.** In the headset: peek through a keyhole and set the slider until the door is behind the
+view; put the value in the ini default if 15 is wrong. If the stall recurs: reconnect the VD stream
+without restarting the game (the test in the FLICKER entry) and copy the log out first.
+## 2026-10-07: the grip takes what the engine focuses (claude/grab-reticle, PR #194, not merged; the Linear ticket is owed)
 
 **Current state.** Reported: a grabbable the reticle is on cannot be taken by either grip. Read from
 the 1.0.3-137 log already on disk (no new run): the grip gate in `physical_pickup.cpp` required the
