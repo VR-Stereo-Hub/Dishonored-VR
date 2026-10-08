@@ -1,4 +1,4 @@
-## 2026-10-07: after a keyhole peek, one eye frozen and the other at a few fps - every xrEndFrame blocks ~85 ms for the rest of the session (MEASURED from the log; cause OPEN, the mod NOT cleared; instrument built)
+## 2026-10-07: one eye frozen and the other at a few fps - every xrEndFrame blocks ~85 ms for the rest of the session (MEASURED; the headset's video DECODER was behind, VD overlay; not the keyhole, not the grab gate; OPEN on the VD side)
 
 1. **Symptom identity:** reported in the headset: on leaving a keyhole the RIGHT eye stayed frozen
    on one image while the LEFT kept rendering at a very low rate. Whole view, not hands or HUD.
@@ -42,10 +42,22 @@
 5. **Results:** read from the log only. Built in the same session: `core/gfx/gpu_engine.cpp`
    (per-process GPU engine utilization from Windows' counters, sampled on its own thread when a
    frame gap is reported, at most every 10 s) and the afw GPU line. Not run.
-6. **Status:** OPEN, one occurrence, the mod not cleared. Next occurrence: the `gpu/engines` and
-   `afw/warp: GPU per rebuild` lines during the stall decide between (a) and (b); copy the log out
-   before relaunching. The keyhole view change built in the same session (`[Cine]
-   KeyholeForwardCm`) is not known to be related; it changes only the keyhole's eye position.
+6. **Status, updated the same evening (four more runs):** the stuck stall recurred on
+   `v1.0.3-141-gec0b593ad` at 4.7 min while walking (no keyhole), then on `v1.0.3-140-g0237fffc0`
+   (staging plus the keyhole push only, WITHOUT the grab-gate change) at 11.9 min, same signature
+   (`xrEndFrame` about 82 ms on every frame). A bisect run without the grab gate had run 13.7 min
+   clean and was read as implicating it: RETRACTED, that was chance. On the last occurrence the
+   Virtual Desktop performance overlay showed about 200 ms DECODING and about 400 ms latency with
+   normal network numbers: the headset's video decoder fell behind, and `xrEndFrame` is the
+   runtime's back-pressure from it. That is (b) of section 4 above, downstream of the mod.
+   Measured with the instrument on a grab-gate build: GPU shares the same with and without it
+   (game about 50% 3D, DLSS helper about 22%, VD's VideoEncode 75-80% mean), afw rebuild at most
+   about 4 ms. Single 70-90 ms `xrEndFrame` blocks predate all of this (builds 131-137 at 0.6-1.2
+   a minute); the rate varies 0.15-3.9 a minute between sessions and does not separate builds.
+   No PC-side VD change (Streamer 1.34.22 from August, VDXR 1.0.10 in every log). OPEN on the VD
+   side: the discriminators are a stream reconnect without restarting the game, and a session on
+   another codec at the same refresh rate. Logs under
+   `%LOCALAPPDATA%\DishonoredVR\backups\2026-10-07-*` on the dev PC.
 
 ## 2026-10-05: afw flicker on a fast GPU at 120 Hz - capture timeouts at 2-4%, under the AutoDepth threshold (MEASURED from field logs; threshold lever built, headset pending)
 
@@ -3781,7 +3793,7 @@ pose metadata without reopening the disproved historical theories.
 | Hands and weapons flicker sideways in the RIGHT eye about once every second or two under AFW, after a new per-frame feature was added; `gates -> SINGLE draw (camera silent ...)` then `pushed eye -1 TWICE` at that rate | The game tick got slower: read `pe/cost` (us an event, mid ticks) against a session without the feature BEFORE looking at the eye path | 2026-10-05 HEADSET-CONFIRMED: the pickup scan (2.4 ms a tick, then 0.32 ms with slow frames) raised the rate from under 1 to 17-32 a minute; bounded to 60 us a frame it is back to 1.1 and no flicker is reported. `pickup/silent` prints the frames before each gate; top entry |
 | One eye lags and flickers sideways (world AND weapon) all the time on a slow GPU, since 1.0.2; `stereo: beat` lopsided with `none/s` ~25 | Capture waits time out and REFUSE (1.0.2, 1d2ee24a5); the refusals land on one eye | `TimeoutRefuse=0` REPORTED fixing the strong flicker (2026-10-03); `[Capture] AutoDepth` measured removing the hitch (2026-10-04); top entry |
 | Rare single one-eye flicker while moving sideways; ledger `TOOK` right after the same eye, then `pushed eye TWICE` | The c5 within-tick arm misreads a cross-tick step when the walk per tick is ~2 ipd | 2026-10-04 candidate `[Stereo] C5SameEyeGuard`, host-verified (599 -> 0 wrong eyes); headset pending; top entry |
-| One eye frozen, the other at a few fps, for the rest of the session (seen once, during a keyhole peek) | `perf: frame gap ... sat in: present-tail (xrEndFrame)` at 80-90 ms on every present, `UNDER-SUBMITTING 0.08x`, the pause menu untagged though it rides stereo; read `gpu/engines` (whose GPU) and `afw/warp: GPU per rebuild` | OPEN 2026-10-07, one occurrence, the mod not cleared; instrument built (top entry) |
+| One eye frozen, the other at a few fps, for the rest of the session (seen once, during a keyhole peek) | `perf: frame gap ... sat in: present-tail (xrEndFrame)` at 80-90 ms on every present, `UNDER-SUBMITTING 0.08x`, the pause menu untagged though it rides stereo; read `gpu/engines` (whose GPU) and `afw/warp: GPU per rebuild` | OPEN 2026-10-07 on the VD side: the VD overlay showed about 200 ms headset DECODING during it; recurred without the grab gate; instrument built (top entry) |
 | One eye appears frozen, swapped, or behind after pause/load/rearm | Tag-ring skew, capture freshness, c5 arbitration, or one-sided tag generation | VR-80 late-tag repair confirmed; distinct reload R/0 capture repair headset-confirmed on build 215 (18:01:15), latest record below. Residual generation/timing remains open |
 | Both near hands/weapons flash or lose disparity for a frame | Untagged mono image enters a stereo stream | `HoldUntagged=3` confirmed mitigation; burst generation remains open |
 | Both eyes go black for one frame | Texture-less present ends an XR frame without a scene layer | Previous-layer fallback implemented and historically confirmed |

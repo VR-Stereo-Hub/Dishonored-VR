@@ -9,15 +9,16 @@ push sideways), on top of the head's own offset. 15 cm is a starting value, not 
 depth. `camera/keyhole: peeking - eye pushed ...` logs it once per peek. (2) After a keyhole peek one
 eye froze and the other ran at a few fps: FLICKER_REFERENCE's top entry. Every `xrEndFrame` blocked
 about 85 ms from 2 s into the second peek until the game was quit; the pause menu, which rides stereo,
-went out untagged. The mod is NOT cleared (a first reading that took those menu presents as normal
-mono, and so cleared afw, was retracted). Nothing on disk says which process held the GPU or what the
-afw rebuild cost, so both are instrumented now: `gpu/engines (gap): ...` (per-process GPU engine
-utilization from Windows' counters, on its own thread when a frame gap is reported, at most every
-10 s, follows `[Perf] GpuMem`) and `afw/warp: GPU per rebuild ...`. Built and installed, NOT run.
+went out untagged. Instrumented: `gpu/engines (gap): ...` (per-process GPU engine utilization from
+Windows' counters, on its own thread when a frame gap is reported, at most every 10 s, follows
+`[Perf] GpuMem`) and `afw/warp: GPU per rebuild ...`. Later the same evening it recurred without the
+grab gate and without a keyhole, and the VD overlay showed about 200 ms headset DECODING with normal
+network numbers: the stall is the headset's decoder falling behind (FLICKER_REFERENCE top entry).
+The keyhole push itself was seen working in a live log (`eye pushed 15.0 cm = 16.2 uu`).
 
 **Next.** In the headset: peek through a keyhole and set the slider until the door is behind the
-view; put the value in the ini default if 15 is wrong. If the stall recurs: copy the log out before
-relaunching and read the `gpu/engines` and `afw/warp: GPU per rebuild` lines from inside the stall.
+view; put the value in the ini default if 15 is wrong. If the stall recurs: reconnect the VD stream
+without restarting the game, or try another codec at the same refresh rate; copy the log out first.
 ## 2026-10-07: the grip takes what the engine focuses (claude/grab-reticle, PR #194, not merged; the Linear ticket is owed)
 
 **Current state.** Reported: a grabbable the reticle is on cannot be taken by either grip. Read from
