@@ -16,9 +16,10 @@
 //      validates, highlights and prompts: the highlight is the game's, and an item the game
 //      would refuse stays refused. A target the engine does not focus within a quarter second
 //      is dropped for a few seconds (a looted item that is still an actor, something in the way).
-//   3. THE GRIP. While the engine's focused actor IS the target and a hand is within reach, a
-//      press of that hand's PHYSICAL grip is swallowed (the power wheel or the block bound to
-//      it does not fire) and Interact is pressed for a moment instead (pad_bridge.cpp).
+//   3. THE GRIP. While the engine's focused actor is a listed thing within a palm's reach (the
+//      target, or another listed thing the trace or the reticle landed on: PpGate), a press of
+//      that hand's PHYSICAL grip is swallowed (the power wheel or the block bound to it does not
+//      fire) and Interact is pressed for a moment instead (pad_bridge.cpp).
 //
 // Books, notes and audio logs (DisAbstractItemPickup and its children) are larger than a coin and
 // are measured from their origin like everything else, so they have a longer reach of their own;
@@ -137,6 +138,17 @@ static void PpBlock(uint8_t* obj, double nowMs, double forMs)
 }
 static float g_ppTargetFrom[3] = {};                    // where the engine's check traces FROM: the target hand's palm
 static uint32_t g_ppTargetKind = kPpLoot;
+// THE GRIP'S OBJECT (2026-10-07): what a grip takes is whatever the ENGINE focuses (Interact acts on
+// the focus), so the pad bridge reads the focused item's kind, not the target's. Published by PpGate.
+static std::atomic<uint32_t> g_ppGripKind{kPpLoot};
+// Why each hand's grip is or is not taken right now, with the values, for the pad bridge's refused-
+// grip line (present thread). Class names come from GNames and stay valid; written by PpGate only.
+static std::atomic<const char*> g_ppGateWhy[2] = { {"not asked yet"}, {"not asked yet"} };
+static std::atomic<uintptr_t>   g_ppDiagTarget{0}, g_ppDiagFocus{0};
+static std::atomic<const char*> g_ppDiagTargetCls{""}, g_ppDiagFocusCls{""};
+static std::atomic<int>         g_ppDiagTargetHand{-1}, g_ppDiagFocusKind{-1};   // -1: not listed
+static std::atomic<float>       g_ppDiagFocusCm[2] = { {-1.0f}, {-1.0f} }, g_ppDiagReachCm{0.0f};
+static uint32_t g_ppGateByFocus = 0;                   // gate passes on a focused thing that is not the target, since the beat
 // 2026-10-05: the hand whose grip last pressed Interact on a carryable, and when (throw_aim.cpp makes it
 // the carry hand if a carry starts within 2 s).
 static std::atomic<int> g_ppCarryGripHand{-1};
@@ -311,7 +323,10 @@ struct PpQuery {
     uint8_t* blocked[8];
 };
 struct PpCand { uint8_t* obj; uint32_t idx; uint32_t kind; float aim[3]; float d2[2]; int hand; float keep; };
-struct PpPick { PpCand best; uint8_t* focus; bool fault; };
+// The engine's focused actor as the list sees it: listed (an interactable of an enabled kind in the
+// near list) or not, and each palm's distance to its box. The grip gate reads this (2026-10-07).
+struct PpFocus { uint8_t* obj; bool listed; uint32_t kind; float d2[2]; };
+struct PpPick { PpCand best; uint8_t* focus; PpFocus f; bool fault; };
 
 // EACH HAND'S nearest listed thing within reach, the better of the two as the pick, and the
 // engine's focused actor. Distances run from the PALM to the nearest point of the thing's
@@ -321,9 +336,11 @@ static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n
                       const float (*hand)[3], const bool* handOk, PpPick* out)
 {
     out->best.obj = NULL; out->focus = NULL; out->fault = false;
+    out->f.obj = NULL; out->f.listed = false; out->f.kind = 0; out->f.d2[0] = out->f.d2[1] = 1e30f;
     PpCand bestH[2]; float scoreH[2] = { 1e30f, 1e30f }; bestH[0].obj = bestH[1].obj = NULL;
     __try {
         if (q->pc && !((uintptr_t)q->pc & 3)) out->focus = *(uint8_t**)(q->pc + q->focusOff);
+        out->f.obj = out->focus;
         for (uint32_t k = 0; k < n; ++k) {
             const PpEntry& e = list[k];
             if (e.idx >= num || (uint8_t*)objs[e.idx] != e.obj) continue;      // the slot moved on: not this actor any more
@@ -331,7 +348,8 @@ static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n
             if (e.kind >= kPpKinds || !q->kindOn[e.kind]) continue;
             bool blocked = false;
             for (int b = 0; b < 8; ++b) if (q->blocked[b] == e.obj) blocked = true;
-            if (blocked) continue;
+            const bool isFocus = e.obj == out->focus;
+            if (blocked && !isFocus) continue;                                  // a blocked item the engine focuses is still measured
             if (q->hiddenMask && (*(uint32_t*)(e.obj + q->hiddenOff) & q->hiddenMask)) continue;
             float loc[3]; memcpy(loc, e.obj + q->locOff, 12);
             if (!(loc[0] == loc[0]) || !(loc[1] == loc[1]) || !(loc[2] == loc[2])) continue;   // NaN
@@ -361,6 +379,8 @@ static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n
                 d2h[h] = dx * dx + dy * dy + dz * dz;
                 for (int a = 0; a < 3; ++a) aimh[h][a] = box ? pt[a] + (bo[a] - pt[a]) * 0.08f : pt[a];   // a little inside the box
             }
+            if (isFocus) { out->f.listed = true; out->f.kind = e.kind; out->f.d2[0] = d2h[0]; out->f.d2[1] = d2h[1]; }
+            if (blocked) continue;                                              // measured for the gate, never a target
             for (int h = 0; h < 2; ++h) {
                 if (!handOk[h] || !(d2h[h] <= lim * lim)) continue;
                 // a fraction of the reach; the held target is favoured so the pick does not flicker
@@ -409,6 +429,87 @@ static bool PpHandWorld(int hand, const float camera[3], float out[3])
     (void)hand; (void)camera; (void)out;
     return false;
 #endif
+}
+
+// The reach a focused thing is measured against: its kind's own, with the held target's 1.25
+// hysteresis only when it IS the target.
+static float PpFocusReach(const PpFocus& f, const PpQuery& q)
+{
+    return f.listed && f.kind < kPpKinds ? q.reach[f.kind] * (f.obj == q.held ? 1.25f : 1.0f) : 0.0f;
+}
+
+// The nearer palm within reach of the engine's focused actor when the list holds it, else -1.
+static int PpFocusHand(const PpPick& pick, const PpQuery& q, const bool* handOk)
+{
+    const PpFocus& f = pick.f;
+    if (!f.obj || !f.listed || f.kind >= kPpKinds || !q.kindOn[f.kind]) return -1;
+    const float lim = PpFocusReach(f, q);
+    int best = -1;
+    for (int h = 0; h < 2; ++h)
+        if (handOk[h] && f.d2[h] <= lim * lim && (best < 0 || f.d2[h] < f.d2[best])) best = h;
+    return best;
+}
+
+// THE GRIP GATE (2026-10-07). A grip takes what the ENGINE focuses, because Interact acts on the
+// focus. It used to require the focus to BE the mod's target, and a headset run showed the two
+// apart for whole seconds: the game focusing an elixir (its prompt on screen) while the target was
+// a usable whose box held the palm, or while there was no target at all (the elixir dropped and
+// left out for a second after the palm's own trace to it had found nothing); neither grip did
+// anything. Now a grip is taken when the focus is a listed thing within that palm's reach:
+//   * the focus IS the target: the hand that picked it, as before;
+//   * the focus is another listed thing (or there is no target): the nearer palm in its reach.
+// Never both hands (2026-10-05: both ready at once hid the crossbow in the other hand). Nothing
+// unlisted counts: a pawn, a talk target or a class the list does not hold is never offered.
+static void PpGate(const PpPick& pick, const PpQuery& q, const bool* handOk, double now)
+{
+    (void)now;
+    const PpFocus& f = pick.f;
+    const int fHand = PpFocusHand(pick, q, handOk);
+    uint32_t mask = 0;
+    if (f.obj && f.obj == g_ppTarget && g_ppTargetHand >= 0) mask = 1u << g_ppTargetHand;
+    else if (fHand >= 0) { mask = 1u << fHand; ++g_ppGateByFocus; }
+    if (mask) {
+        g_ppGripKind.store(f.kind);
+        g_ppTargetReadable.store(f.kind == kPpReadable);
+        g_ppTargetHold.store(f.kind == kPpUsable);
+        g_ppTargetId.store((uintptr_t)f.obj);
+    } else {
+        g_ppTargetHold.store(false);
+        g_ppTargetId.store((uintptr_t)g_ppTarget);
+    }
+    g_ppReadyMask.store(mask);
+    g_ppReadyMs.store(GetTickCount64());
+    GrabReadyPublish(mask);                                  // the ready hand (mesh_split.cpp): eligibility with hysteresis
+
+    // The refused-grip line's values. Names are looked up when a pointer CHANGES, not every tick.
+    static uint8_t* lastFocus = (uint8_t*)1; static uint8_t* lastTarget = (uint8_t*)1;
+    if (f.obj != lastFocus) {
+        lastFocus = f.obj;
+        const char* cn = f.obj && LooksLikeObj(f.obj) ? ObjClassName(f.obj) : NULL;
+        g_ppDiagFocusCls.store(cn ? cn : (f.obj ? "?" : "none"));
+    }
+    if (g_ppTarget != lastTarget) {
+        lastTarget = g_ppTarget;
+        const char* cn = g_ppTarget ? ObjClassName(g_ppTarget) : NULL;
+        g_ppDiagTargetCls.store(cn ? cn : (g_ppTarget ? "?" : "none"));
+    }
+    g_ppDiagFocus.store((uintptr_t)f.obj); g_ppDiagTarget.store((uintptr_t)g_ppTarget);
+    g_ppDiagTargetHand.store(g_ppTarget ? g_ppTargetHand : -1);
+    g_ppDiagFocusKind.store(f.listed ? (int)f.kind : -1);
+    const float lim = PpFocusReach(f, q);
+    for (int h = 0; h < 2; ++h) g_ppDiagFocusCm[h].store(f.listed && handOk[h] ? sqrtf(f.d2[h]) / g_posScaleUU * 100.0f : -1.0f);
+    g_ppDiagReachCm.store(lim / g_posScaleUU * 100.0f);
+    for (int h = 0; h < 2; ++h) {
+        const char* why;
+        if (mask & (1u << h)) why = f.obj == g_ppTarget ? "taken: the focus is the target" : "taken: the focus is a listed thing in this palm's reach";
+        else if (!f.obj) why = g_ppTarget ? "the engine focuses nothing (the target is not focused)" : "no target and the engine focuses nothing";
+        else if (!f.listed) why = "the engine focuses an actor the list does not hold (not an interactable kind that is on, or a component or child of one)";
+        else if (!q.kindOn[f.kind]) why = "the focused thing's kind is switched off";
+        else if (!handOk[h]) why = "this hand is not tracked or not free (a carried body's lane)";
+        else if (!(f.d2[h] <= lim * lim)) why = "the focused thing is out of this palm's reach";
+        else why = "the other hand is the one offered (the target's hand, or the nearer palm)";
+        g_ppGateWhy[h].store(why);
+    }
 }
 
 // interact_aim.cpp asks this before its own ray: while a target is held, the engine's
@@ -639,24 +740,24 @@ static void PhysicalPickupTick()
         for (uint32_t k = 0; k < g_ppListN; ++k) if (g_ppList[k].kind < kPpKinds) ++byKind[g_ppList[k].kind];
         Log("pickup: beat - %u interactable actor(s) listed (loot %u, books %u, doors %u, carry %u, usable %u; %u within 2.5 m), "
             "sweep %u took %.0f ms of game time, trace driven %ld time(s), targets taken loot %u books %u doors %u carry %u usable %u, "
-            "grips swallowed %u, Interact pressed %u, reach %.0f cm | own cost %.1f us a frame, max %.0f, over 250 us in %u and "
+            "grips swallowed %u, Interact pressed %u, gate passes on a focus that is not the target %u, reach %.0f cm | own cost %.1f us a frame, max %.0f, over 250 us in %u and "
             "over 1000 us in %u of %u frames (a frame of several ms on the game thread alone is what starves an eye: both "
             "counts must read 0 or close to it), slices cut by the 60 us budget %u, guarded-read faults %u | doors %s, carry %s, "
             "usables %s | pawn or talk targets refused %u (%u this run; counts targets whose class chain names a pawn or a talk "
             "class, read by text: must read 0)",
             g_ppListN, byKind[0], byKind[1], byKind[2], byKind[3], byKind[4], g_ppNearN, g_ppSweeps, g_ppLastSweepMs,
             (long)g_ppRayDriven, g_ppTargetsByKind[0], g_ppTargetsByKind[1], g_ppTargetsByKind[2], g_ppTargetsByKind[3],
-            g_ppTargetsByKind[4], g_ppSwallowed.load(), g_ppFired.load(),
+            g_ppTargetsByKind[4], g_ppSwallowed.load(), g_ppFired.load(), g_ppGateByFocus,
             g_ppReachM.load() * 100.0f, g_ppCostN ? g_ppCostUsSum / g_ppCostN : 0.0, g_ppCostUsMax, g_ppCostOver250,
             g_ppCostOver1000, g_ppCostN, g_ppSliceCut, g_ppFaults, g_ppDoorsOn.load() ? "ON" : "off",
             g_ppCarryOn.load() ? "ON" : "off", g_ppUsablesOn.load() ? "ON" : "off", g_ppPawnTargets, g_ppPawnTargetsTotal);
         g_ppCostUsSum = 0; g_ppCostUsMax = 0; g_ppCostN = 0; g_ppCostOver250 = 0; g_ppCostOver1000 = 0; g_ppSliceCut = 0;
-        memset(g_ppTargetsByKind, 0, sizeof(g_ppTargetsByKind)); g_ppPawnTargets = 0;
+        memset(g_ppTargetsByKind, 0, sizeof(g_ppTargetsByKind)); g_ppPawnTargets = 0; g_ppGateByFocus = 0;
     }
     if (g_ppNearReq.exchange(false)) PpLogNear(objs, num, camera, locOff, collOff, boundsOff, hand, handOk);
 
     const PpCand* c = pick.best.obj ? &pick.best : NULL;
-    if (!c) { if (g_ppTarget) PpDropTarget("nothing within reach", now, false); return; }
+    if (!c) { if (g_ppTarget) PpDropTarget("nothing within reach", now, false); PpGate(pick, q, handOk, now); return; }
 
     static const char* const kKind[kPpKinds] = { "", " (a book or note: its own reach, and the page goes to the hand that opens it)",
                                                  " (a door: measured from its collision box)",
@@ -674,7 +775,7 @@ static void PhysicalPickupTick()
             DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 2000, "pickup: REFUSED a target whose class chain names %s (%s) - a pawn or talk target must never be offered; "
                  "the list should have excluded it", pawn, ObjClassName(c->obj));
             PpBlock(c->obj, now, 60000.0);
-            g_ppReadyMask.store(0);
+            PpGate(pick, q, handOk, now);
             return;
         }
         g_ppTarget = c->obj; g_ppTargetIdx = c->idx; g_ppTargetSinceMs = now; g_ppFocusedLastMs = 0; g_ppTargetFocused = false;
@@ -689,28 +790,20 @@ static void PhysicalPickupTick()
     memcpy(g_ppTargetLoc, c->aim, 12);
     memcpy(g_ppTargetFrom, hand[c->hand], 12);
     g_ppTargetHand = c->hand; g_ppTargetKind = c->kind;
-    g_ppTargetReadable.store(c->kind == kPpReadable);
-    g_ppTargetHold.store(c->kind == kPpUsable);
-    g_ppTargetId.store((uintptr_t)c->obj);
 
-    // The engine's verdict: is its focused actor our target?
+    // The engine's verdict: is its focused actor our target? A focus on ANOTHER listed thing in a
+    // palm's reach also keeps the target: the trace aimed at the target is what produced that focus,
+    // and dropping the target would swap the trace and lose it (PpGate takes the grip for it).
     uint8_t* focus = pick.focus;
     if (focus == g_ppTarget) { g_ppFocusedLastMs = now; g_ppTargetFocused = true; }
-    else if (now - (g_ppFocusedLastMs > 0 ? g_ppFocusedLastMs : g_ppTargetSinceMs) > 250.0) {
+    else if (PpFocusHand(pick, q, handOk) < 0 &&
+             now - (g_ppFocusedLastMs > 0 ? g_ppFocusedLastMs : g_ppTargetSinceMs) > 250.0) {
         // Aimed at it for a quarter second and the game did not take it: not usable now.
         PpDropTarget("the game did not focus it (looted, hidden, covered or not usable) - left out for 1 s, the next nearest is tried", now, true);
+        PpGate(pick, q, handOk, now);
         return;
     }
-    // ONLY the hand that picked it. Every hand within 1.25 reach used to qualify, and then (one
-    // build later) the other hand whenever the thing was its nearest too: with the longer reach
-    // that was most grabs, and reaching with the right hand hid the crossbow in the left (headset,
-    // 2026-10-05, both hands READY in the same millisecond in the log).
-    uint32_t mask = 0;
-    if (focus == g_ppTarget) mask |= 1u << c->hand;
-    g_ppReadyMask.store(mask);
-    g_ppReadyMs.store(GetTickCount64());
-    GrabReadyPublish(mask);                                  // the ready hand (mesh_split.cpp): eligibility with hysteresis
-
+    PpGate(pick, q, handOk, now);
 }
 
 // Pad bridge (present thread). `raw` is the PHYSICAL snapshot about to be remapped: a grip that
@@ -736,11 +829,29 @@ static bool PickupPadFilter(dvr::vr::InputSnapshot& raw, bool blocked)
             pressedOn[h] = g_ppTargetHold.load() ? g_ppTargetId.load() : 0;
             holding[h] = pressedOn[h] != 0; holdSince[h] = now;
             g_ppSwallowed.fetch_add(1); g_ppFired.fetch_add(1);
-            if (g_ppTargetKind == kPpCarry) { g_ppCarryGripHand.store(h); g_ppCarryGripMs.store(now); }
+            if (g_ppGripKind.load() == kPpCarry) { g_ppCarryGripHand.store(h); g_ppCarryGripMs.store(now); }
             const bool page = g_ppTargetReadable.load();
             if (page) dvr::hudlayout::note_opened_by_hand(h);     // the reading panel attaches to this hand
             Log("pickup: %s grip pressed with the target in reach and focused - grip swallowed, Interact pressed for 130 ms%s",
                 h ? "RIGHT" : "LEFT", page ? "; a book or note: its page is asked onto this hand" : "");
+        }
+        if (down && !was[h] && !(mask & (1u << h)) && (g_ppDiagTarget.load() || g_ppDiagFocus.load())) {
+            // A grip pressed near something and NOT taken: both pointers, their classes and the reason,
+            // so the next run is arithmetic. A component or child of the target shows as an unlisted focus.
+            const int fk = g_ppDiagFocusKind.load();
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 300,
+                "pickup: %s grip NOT taken - %s | target %s %p (%s hand), engine focus %s %p (%s%s), this palm %.0f cm from it, "
+                "reach %.0f cm",
+                h ? "RIGHT" : "LEFT",
+                !g_ppOn.load() ? "physical pickup is off" : blocked ? "the overlay, a menu or a cinematic blocks it"
+                : !fresh ? "the gate is stale (no gameplay tick in 250 ms: not in gameplay, no tracked hand, or a carry)"
+                : g_ppGateWhy[h].load(),
+                g_ppDiagTargetCls.load(), (void*)g_ppDiagTarget.load(),
+                g_ppDiagTargetHand.load() == 1 ? "RIGHT" : g_ppDiagTargetHand.load() == 0 ? "LEFT" : "no",
+                g_ppDiagFocusCls.load(), (void*)g_ppDiagFocus.load(),
+                fk < 0 ? "not listed" : kPpKindName[fk < (int)kPpKinds ? fk : 0],
+                g_ppDiagFocus.load() && g_ppDiagFocus.load() == g_ppDiagTarget.load() ? ", the target" : "",
+                (double)g_ppDiagFocusCm[h].load(), (double)g_ppDiagReachCm.load());
         }
         if (!down) swallow[h] = false;
         was[h] = down;

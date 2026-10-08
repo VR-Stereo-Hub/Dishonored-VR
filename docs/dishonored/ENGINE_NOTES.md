@@ -10508,6 +10508,28 @@ First headset session 2026-10-05: targets were found from both hands, the game f
   when it is each hand's nearest" exception still hid the crossbow in the left hand during a
   right-hand grab (headset, 2026-10-05: both hands READY in the same millisecond), so it went too. Pointing is unchanged: with no hand
   near anything, the engine's own cursor trace runs as before.
+* **The grip gate takes the FOCUS, not the target (2026-10-07, built, not yet run).** Reported in
+  the headset: a thing the reticle is on (its prompt showing) cannot be taken by either grip, while
+  grabbing works with the reticle off it. The 1.0.3-137 log (`dishonored_vr.prev7.log` on the dev
+  PC) measures why. The gate needed `m_pCrosshairActor == target`, and the two were apart for whole
+  seconds: (a) the target a `DishonoredUsableObject` whose box held the palm (0 to 23 cm) and never
+  focused, while the engine, tracing palm-to-usable, focused a `DisElixirMana` behind it
+  (`interact/focus: DisElixirMana | driving (physical pickup target)` with the usable as target);
+  (b) the elixir as target, its own palm trace finding nothing, so after 250 ms it was dropped and
+  left out for 1 s, during which the pointing ray drove the trace and focused it again (the prompt
+  visible) with no target at all. Over the 77 s of that episode: 20 "did not focus" drops, the
+  target alternating between the elixir (13 times) and the usable (14), 3 grips taken. Neither
+  state could pass the gate. The focus pointer was the listed actor's own (`DisElixirMana`, the listed class), not a
+  component, so the brief's counter-hypothesis is not what this log shows. The gate now asks
+  whether the ENGINE's focus is a listed thing (in the near list, its kind on) within a palm's
+  reach (its kind's own; 1.25 x only when it is the target) and offers the grip to one hand: the
+  target's hand when the focus is the target, else the nearer palm. A target is no longer dropped
+  as unfocused while the focus is such a thing (the trace aimed at the target is what produced it).
+  The grip's kind, page and usable-hold follow the focused thing, since Interact acts on the focus.
+  The trace (interact_aim.cpp's bridges) is unchanged. A grip pressed near something and not taken
+  logs `pickup: <hand> grip NOT taken - <why> | target <class> <ptr>, engine focus <class> <ptr>
+  (<kind> or not listed), this palm <cm>, reach <cm>`; the beat counts `gate passes on a focus that
+  is not the target`.
 
 ## 2026-10-07: the layer's claim followed a camera FOV the render ignores (the store box, the mask-on "zoom")
 
