@@ -18,7 +18,7 @@ static bool WriteDefaultIni(const char* ini)
         "; (auto-refreshed when the mod's defaults change)\n"
         "[Meta]\n"
         "Version=%d\n"
-        "DefaultsRev=3\n"
+        "DefaultsRev=4\n"
         "[Tracking]\n"
         "; head tracking drives the game camera via mouse emulation.\n"
         "; Calibrate: pick a landmark, turn your head 90 degrees; if the\n"
@@ -1714,7 +1714,7 @@ static bool WriteDefaultIni(const char* ini)
         "WindowWheel=1\n"
         "WindowStore=1\n"
         "WindowMissionStats=1\n"
-        "Element.default.WinX=0.184\n"
+        "Element.default.WinX=0.004\n"
         "Element.default.WinY=-0.183\n"
         "Element.default.WinScale=1.210\n"
         "Element.vitals.WinX=-0.167\n"
@@ -1980,6 +1980,16 @@ static void LoadConfig()
         WritePrivateProfileStringA("Meta", "DefaultsRev", "3", ini);
         Log("config: defaults revision 3 applied once to this ini - CineHideStaticArms on; CineHidePoses %s. Every other key is unchanged",
             hadPoses ? "kept (this ini had captured its own)" : "set to the opening boat ride's pose");
+    }
+    // 2026-10-07: the HUD window's default element re-centred in a headset (WinX 0.184 -> 0.004). Only an ini
+    // still at the old default moves; a placement the player set in F10 stays.
+    if (!missing && GetPrivateProfileIntA("Meta", "DefaultsRev", 0, ini) < 4) {
+        const float was = IniFloat(ini, "Hud", "Element.default.WinX", 0.184f);
+        const bool atOld = std::fabs(was - 0.184f) < 0.0005f;
+        if (atOld) WritePrivateProfileStringA("Hud", "Element.default.WinX", "0.004", ini);
+        WritePrivateProfileStringA("Meta", "DefaultsRev", "4", ini);
+        Log("config: defaults revision 4 applied once to this ini - HUD Element.default.WinX %s. Every other key is unchanged",
+            atOld ? "moved 0.184 -> 0.004" : "kept as placed");
     }
     {   // [Paths] DataDir: where the harness files go. Applied before any of
         // them is written (the command seam and status.json start after the
