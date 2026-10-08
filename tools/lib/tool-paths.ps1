@@ -80,6 +80,12 @@ function Get-DvrToolCatalog {
                              find={ Find-DvrGlob @("$main\tools\uscript\_ueexplorer\ue-explorer") } }
         uscript_corpus  = @{ kind='dir';  group='Content'; what='decompiled UnrealScript dump (declarations + defaultproperties)'
                              find={ Find-DvrGlob @("$main\tools\uscript\dishonored") } }
+        codered_generator = @{ kind='dir'; group='SDK';   what='CodeRed-Generator clone (MIT; injected UE3 SDK generator, Engine\Dishonored config inside) - docs/SDK_WORKFLOW.md'
+                             find={ Find-DvrGlob @("$env:LOCALAPPDATA\DishonoredVR\sdk\CodeRed-Generator","$main\build\sdk\CodeRed-Generator") } }
+        dis_sdk         = @{ kind='dir';  group='SDK';     what='the generated Dishonored SDK (dismod external\sdk: offsets, params, wrappers); game-derived, never in the repo'
+                             find={ Find-DvrGlob @("$env:LOCALAPPDATA\DishonoredVR\sdk\dismod\external\sdk","$main\build\sdk\dismod\external\sdk") } }
+        mods_workspace  = @{ kind='dir';  group='SDK';     what='third-party mods under study (their zips, inis, string dumps); never in the repo'
+                             find={ Join-Path $env:LOCALAPPDATA "DishonoredVR\mods" }; create=$true }
         game_dir        = @{ kind='dir';  group='Game';    what='folder holding Dishonored.exe (lib\game-path.ps1 resolves it the same way)'
                              find={ try { . (Join-Path $script:DvrToolLibDir 'game-path.ps1'); Get-DvrGamePath } catch { $null } } }
         cooked_dir      = @{ kind='dir';  group='Game';    what='DishonoredGame\CookedPCConsole (the .upk packages UModel reads)'

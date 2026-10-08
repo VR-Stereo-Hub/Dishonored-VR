@@ -123,3 +123,35 @@ address only counts if the instruction before it is a `call`.
 - A numeric match is not a reading: a value that fits a formula does not prove the path ran.
 - `hasattr`-style probes that cannot fail are not checks (the same trap cost the Blender
   setup one false PASS; see MODEL_WORKFLOW.md).
+
+## 8. A third-party DLL (another mod next to the exe)
+
+`ida-run.ps1 -Module <name.dll>` runs any staged module. Copy the DLL into
+`<ida_workspace>\bin\` by hand under a clear name (`CorvoBody.dll` for the CorvoBody
+`dinput8.dll`), then:
+
+```powershell
+.\tools\ida-run.ps1 tools\ida\cb1_fulldecomp.py -Module CorvoBody.dll   # everything, once (3 min for 2.5 MB)
+.\tools\ida-run.ps1 tools\ida\cb2_rename_sdk.py  -Module CorvoBody.dll   # SDK wrappers named, core re-decompiled
+```
+
+- The wrapper reports `deployed copy not found; not compared` for a module that is not the
+  game's: expected. Record the md5 it prints in the write-up instead.
+- The template's known-good check (ProcessEvent in `Dishonored.exe`) does not apply; `cb1`
+  and `cb2` skip it. A third-party script's provenance is the module md5 on the first line.
+- **A mod built on a CodeRed SDK** (`docs/SDK_WORKFLOW.md`) embeds one `Function Pkg.Class.Func`
+  or `Class Pkg.Name` string per wrapper, and the wrapper is that string's only user: `cb2`
+  renames ~4,000 functions from that alone, after which the mod's own code reads as
+  `fn_SkeletalMeshComponent__FindSkelControl(...)`. The hard offsets it uses
+  (`pawn + 988`) are named from the SDK headers (`0x3DC` = `APawn::Mesh`).
+- **Where the mod's own code is**: a MinGW build links user code first, so it is the low
+  range of `.text` (CorvoBody: `0x10001000..0x1001C300`, 181 functions of 7,017); the SDK
+  wrappers (~200 bytes each) and the CRT follow. The immediates census in `cb1`
+  (`GAME-ADDRESS IMMEDIATES`) finds every engine address the mod hard-codes in one pass:
+  the hooks it installs are in its init thread (`StartAddress`), with the prologue bytes it
+  verifies spelled out as constants.
+- **The output is someone else's copyrighted code** as well as game-derived: it stays in
+  `out\`, `.gitignore` refuses `*_decomp_*.c` / `*_core_named_*.c`, and what the repo keeps
+  is a behavioural write-up (`docs/dishonored/CORVOBODY.md` is the model), the offsets
+  with their SDK names, and the integration plan. Quote log format strings and ini keys;
+  never paste decompiled text.

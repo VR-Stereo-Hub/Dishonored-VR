@@ -253,6 +253,10 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
         }
         return dvr::frame::orig_draw_indexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount);
     }
+    // CorvoBody (Nexus 453): the body mod's body is drawn without its arms. Two pointer
+    // tests when no body is latched; body_cut.cpp says how a draw is recognised.
+    if (g_cbBody && BodyCutDraw(self, type, baseVertex, minIndex, numVertices, startIndex, primCount))
+        return D3D_OK;
     // VR-33 W1. Records the draw's identity against the phase the component
     // sweep is currently in. Behind its own flag AND the skinned-draw gate, so
     // it costs one branch when off. Read-only: it takes no reference it does

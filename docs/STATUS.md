@@ -1,3 +1,58 @@
+## 2026-10-07: CorvoBody (Nexus 453) decompiled; the body meets the VR hands and head (claude/corvobody-research, PR #193 draft, not merged)
+
+**Current state.** The CorvoBody first-person body mod was fully decompiled headless (IDA, two
+new scripts for third-party DLLs) and read against our camera, hand and neck code; the record is
+`docs/dishonored/CORVOBODY.md` and the generated-SDK tools it was named from are
+`docs/SDK_WORKFLOW.md`. Its RigidCamera neck pivot must stay OFF in VR; its F6-F11 keys are
+hard-coded (ours park, the overlay opens on Insert). Two builds of
+`game/dishonored/corvobody.cpp` the same day. The first headset run found the body and both of
+its hand IK controls but (a) refused every effector because the hand drive writes in bone space
+(`[Hands] Space=3`, the shipped default), (b) the body's hands stayed visible after
+`HideBoneByName`, (c) the camera sat inside the chest and every glance moved the body (CorvoBody
+places the body under the pawn, whose yaw is the head's; turn-step threshold 1 deg/s). Version 2,
+installed with the DLC now present: the drive hands over a world point in every mode; `ArmMode`
+vr (default while full-arm IK is on: the body's arms hidden at the shoulder, our IK arms are the
+arms) or body (their arm IK reaches our hands); every hide read back from `BoneVisibilityStates`
+and re-issued when their weapon-change UnHide undoes it; a second jump chained over CorvoBody's
+own MinHook jump at `UGameEngine::Tick` places the body AFTER theirs so its shoulder midpoint
+sits on the arm IK's shoulder centre and it faces the arm IK's body yaw (published from the IK
+draw; 25 deg deadzone, so looking around does not turn the body, turning with the hands does);
+`MatchShoulderWidth` sets the IK width to the body's measured spacing. Version 2's first run refused itself at startup
+(`BoneVisibilityStates` is not reflected in this build; the read-back was a hard requirement), so
+that run tested nothing new. 2.1 ran: the body and a ghost of it circled each other, because CorvoBody's
+per-tick transform write and the chain's second write both reached the engine and the two eye draws
+disagreed. 2.2 (installed, not run): the placement rides CorvoBody's own SetTranslation/SetRotation
+call (its parameters rewritten in the ProcessEvent hook), one update per tick; the anchor is the
+upper-arm joint midpoint (shoulder_X_jnt are the clavicle roots, 21.5 cm apart; the IK width is
+matched to the upper-arm spacing instead). 2.2 ran: placement right, arms still there, torso still clipping;
+the scan proved no BoneVisibilityStates array exists on the component (bone hiding is a no-op in this
+build, for CorvoBody too) and the body's upper-arm joints sat at eye height. 2.3 (installed, not run):
+`hands/body_cut.cpp` draws the body without its arms at draw time (recognised by the shader's
+LocalToWorld, classified against the RefSkeleton arm chains, 3,572 triangles dropped on the PSK, verified
+in Blender with `tools/blender/cut_preview.py`); AnchorZ=1 default; the author gave permission
+(Nexus message, 2026-10-07) to modify and redistribute; his 1.2 is due. 2.3 ran: NO `bodycut:` line (the
+cutter never recognised the body's draw), the body's own arms reached the hands beside the IK arms (four
+hands), the user looked down into the collar ring (the AFW capture in dumpsfw-20261007-190631 shows it),
+the head sat a little to the right, and a crouch put the legs through the floor. 2.4 (installed, not run):
+a 6 s draw probe after the body is found logs every big skinned draw with the shader's LocalToWorld
+against the component's (`bodycut/probe:`), identification thresholds 300; the body's arms are driven
+only while the cut is live; the head anchor subtracts this eye's half-IPD like the arm IK does; AnchorZ=2
+keeps CorvoBody's height plus a standing-learned correction; NeckCut=1 drops the geometry above the neck
+base once the cut works. CorvoBody.ini on the dev
+PC: `RigidCamera=0 HideBodyArms=0 TurnStepThreshold=45` (three bytes from the author's). NOT RUN.
+
+**Next steps.** Run it. In `dishonored_vr.log`: `corvobody: offsets resolved and cross-checked`
+(now also `BoneVisibilityStates`, `Actor.Location 0xC4`, `Rotation 0xD0`), `body ... shoulder
+spacing N cm`, `mode vr applied ... BoneVisibilityStates after (2 = visible): hand_L x hand_R x
+shoulder_L x shoulder_R x` (a shoulder still at 2 = HideBoneByName does nothing here; then the
+shoulder hide moves to a runtime mesh cut), `post-Tick chain installed`, then `corvobody/place
+#1: head (...) view yaw .. body yaw .. (IK delta ..) -> shoulder centre C (...); their shoulder
+mid was (...)`. Headset: is the chest below the eyes now; does the body stay put when only the
+head turns and follow when the hands turn with it; does the body's hidden-shoulder stump sit
+inside our IK arm's upper arm (that is the seam question for 7b); do the feet still shuffle.
+`corvobody body <fwd> <right> <up>` trims the body live; `corvobody torso off` A/Bs the yaw;
+`corvobody anchor off` returns CorvoBody's own placement. Then the Linear ticket for #193.
+
 ## 2026-10-07: the layer's claim and the spyglass zoom (claude/fov-claim-zoom, stacked on #190, not merged)
 
 **Current state.** Two reports from the same run, one cause. (1) A conversation turning into Piero's

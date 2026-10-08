@@ -814,7 +814,8 @@ static void DvrGameTick(IDirect3DDevice9* self)
         {
             bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
 
-            bool f6 = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
+            // F6 is CorvoBody's "reload CorvoBody.ini" while that mod is present: parked then.
+            bool f6 = (GetAsyncKeyState(VK_F6) & 0x8000) != 0 && !CorvoParksDebugKeys();
             static bool f6Was = false;
             if (f6 && !f6Was) {
                 MaimHaptic(g_maimHand, 0.7f, 0.10f);

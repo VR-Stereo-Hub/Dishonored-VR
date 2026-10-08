@@ -85,6 +85,11 @@ static void PeSubReport(double s)
 
 extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
 {
+    // CorvoBody (Nexus 453): its per-tick SetTranslation / SetRotation on the body it built
+    // carry OUR placement (the parameters are rewritten here, before the engine runs the
+    // native), so the body gets one transform update per tick. Two pointer compares when
+    // no body is latched; corvobody.cpp says why this is the route.
+    if (g_cbBody && obj == g_cbBody) CorvoRewriteParms(a1, a2);
     // OUR OWN CALLS ARE NOT THE GAME'S EVENTS. A ProcessEvent call the mod
     // makes re-enters this hook, and everything below - PeLatch, the scene
     // draw's call-site patch, the blink candidate watch, the per-event mod
@@ -342,6 +347,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             // The head writer applies the matching body target only after a
             // successful fresh write or replay, never after a refused event.
             ApplyHandToMesh();
+            CorvoTick();   // CorvoBody: the body's arm IK takes the hand point this dispatch just wrote
             return;
         }
     }

@@ -90,6 +90,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "possessionstereo") && DvrOnOff(args, &b)) { PossessionStereoSet(b); return true; }   // VR-135
     if (!strcmp(cmd, "rainrecovery") && DvrOnOff(args, &b)) { RainRecoverySet(b); return true; }
     if (!strcmp(cmd, "rainhide") && DvrOnOff(args, &b)) { RainHideSet(b); return true; }   // VR-136
+    if (!strcmp(cmd, "corvobody")) return CorvoCommand(args);   // CorvoBody: on|off|status|rescan|hands on|hands off
     if (!strcmp(cmd, "swordtrail")) return SwordTrailCommand(args);   // VR-171
     if (!strcmp(cmd, "camshake")) return CamShakeCommand(args);   // VR-172
     if (!strcmp(cmd, "snapturn")) return dvr::snap::command(args);   // VR-219: snap turn
@@ -889,6 +890,8 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.obj("stereo"); dvr::stereo::status(w); w.end_obj();
     w.obj("frameid"); dvr::frameid::status(w); w.end_obj();   // 41.1 (session 9): the frame-identity trace
     w.obj("camera"); dvr::camera::status(w); w.end_obj();
+    w.obj("corvobody"); CorvoStatus(w); w.end_obj();   // CorvoBody (Nexus 453): the shoulder attach
+    w.obj("bodycut"); BodyCutStatus(w); w.end_obj();   // CorvoBody: the body drawn without its arms
     w.obj("draws"); dvr::hudclass::status(w); w.end_obj();   // VR-117: the HUD draw census
     w.obj("hud"); dvr::hudcap::status(w); w.end_obj();       // VR-117: the redirect and the layout
     { const dvr::vr::HudQuadStats hq = dvr::vr::hud_quad_stats(); w.obj("hudQuads"); w.kv("submitted", (unsigned long)hq.submitted);

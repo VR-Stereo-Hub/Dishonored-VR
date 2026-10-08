@@ -240,6 +240,7 @@ them. That is what the runtime layer is for.
 | `.\tools\hud-assets-export.ps1` + FFDec (tool file: `ffdec`) | The Scaleform HUD movies: `.gfx` -> XML, frames, ActionScript, the artwork. How the HUD anchors were measured |
 | `%USERPROFILE%\Documents\My Games\Dishonored\DishonoredGame\Config\` | The game's own 21 ini files. **Mapped in `docs/dishonored/GAME_CONFIG_MAP.md`** with a routing table by question and the debug instruments the game ships. Check it before adding a lever - the setting may already exist |
 | `docs/brvr-reference/` *(if present)* | The sibling BioShock VR mod, for parity on a subsystem before re-deriving it |
+| The generated Dishonored SDK (tool file: `dis_sdk`; generator: `codered_generator`) - `docs/SDK_WORKFLOW.md` | **Any reflected property's offset by name, offline**, the meaning of an offset in someone else's code, bitfield masks, the parameter struct for any ProcessEvent call, class hierarchies and enums. Grep it before the runtime resolver; a name from it resolved at runtime and checked against its number is a verified offset. Third-party mods under study go in `mods_workspace` |
 
 ### Models and animation: UModel + headless Blender - `docs/MODEL_WORKFLOW.md`
 
@@ -464,6 +465,8 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `tools/ue3-natives.py`, `tools/disasm-rva.py`, `tools/pe-xref.ps1` | **The RE toolkit** (not docs, but read them first): class to vtable, function NAME to code via the native registration table, constant hunting, caller census. See "Tools" |
 | `docs/IDA_WORKFLOW.md` | **Headless IDA**: staging the exe, the md5 provenance check, the one-question script shape for a 32-bit target, series, where IDA sits in the order of work, traps |
 | `docs/MODEL_WORKFLOW.md` | **UModel + headless Blender**: the model workspace, extract/inspect/export commands, what was verified, why the game's animations cannot be extracted, how a model gets back into the game, traps |
+| `docs/SDK_WORKFLOW.md` | **The generated UE3 SDK** (CodeRed-Generator, the dismod Dishonored SDK): any property offset by name offline, ProcessEvent parameter layouts, bitfield masks, what it cannot see, why its headers stay out of the proxy |
+| `docs/dishonored/CORVOBODY.md` | **CorvoBody (Nexus 453) and VR**: the body mod's hooks, the runtime AnimTree and its named hand IK controls, why its RigidCamera neck pivot must stay off in VR, the collision table, the shoulder-attach plan. Nothing of the author's is modified or redistributed |
 | `docs/VERIFICATION.md` | **Verification catalog**: intent -> tool -> command -> how to read the result; the simulator and its instruments, the seam, captures, what still needs a human |
 | `docs/INSTALLER.md` | **The installer** (VR-198): what `DishonoredVR-Launcher.exe` does step by step, the five ini keys it writes and why no others, the screens, elevation, every command-line word, the three verification lanes, the traps it paid for |
 | `docs/LINEAR_AND_GITHUB.md` | **The dev flow**: ticket -> branch -> PR -> review -> merge -> release. Statuses and what each means here, priority, labels, the ticket and PR templates, project updates, the release ritual, and what only the Linear UI can do |

@@ -7,7 +7,11 @@
 // No game memory is written (the retired camera-write path is gone).
 static void StereoUpdate()
 {
-    {
+    // CorvoBody (Nexus 453) hard-codes F6-F11 for its own toggles (F8 = body off, F9 =
+    // hide its arms, F10 = attach mode). While it is next to the exe our F7/F8/F9 debug
+    // toggles park (their seam words still work) and the overlay opens on Insert.
+    const bool park = CorvoParksDebugKeys();
+    if (!park) {
         static bool f9Was = false;
         bool f9 = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
         if (f9 && !f9Was) {
@@ -16,7 +20,7 @@ static void StereoUpdate()
         }
         f9Was = f9;
     }
-    {
+    if (!park) {
         static bool f7pWas = false;
         // SHIFT is excluded: SHIFT+F7 belongs to the VR-33 grip capture below,
         // and the same key family firing two features at once has already cost
@@ -43,7 +47,7 @@ static void StereoUpdate()
     // 31.5: F8 = the world-space pin test. On a KEY rather than in the panel,
     // because three separate attempts to add this checkbox silently failed to
     // match and never rendered - a hotkey cannot fail that way.
-    {
+    if (!park) {
         static bool f8Was = false;
         bool f8 = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
         if (f8 && !f8Was) {
@@ -56,13 +60,20 @@ static void StereoUpdate()
         f8Was = f8;
     }
 
-    // 30.38: F10 toggles the in-game settings overlay.
+    // 30.38: F10 toggles the in-game settings overlay. The key is [Overlay] Key when set,
+    // else F10, or Insert while CorvoBody is present (its F10 is hard-coded; see above).
     {
         static bool f10Was = false;
-        bool f10 = (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
+        static int  vkWas = 0;
+        const int vk = CorvoOverlayVk();
+        if (vk != vkWas) {
+            if (vkWas) Log("overlay: key is now 0x%02X (%s)", vk, vk == VK_F10 ? "F10" : vk == VK_INSERT ? "Insert, CorvoBody owns F10" : "[Overlay] Key");
+            vkWas = vk; f10Was = false;
+        }
+        bool f10 = (GetAsyncKeyState(vk) & 0x8000) != 0;
         if (f10 && !f10Was) {
             g_ovlVisible = !g_ovlVisible;
-            Log("overlay: %s (F10)", g_ovlVisible ? "OPEN" : "closed");
+            Log("overlay: %s (key 0x%02X)", g_ovlVisible ? "OPEN" : "closed", vk);
         }
         f10Was = f10;
     }

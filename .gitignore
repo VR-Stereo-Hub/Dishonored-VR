@@ -82,3 +82,24 @@ third_party/ffx/
 tools/ida/out/
 tools/ida/bin/
 dev-tools.json
+
+# Third-party mods we adapt to (CorvoBody, Nexus 453, and any other). Their binaries,
+# their ini/log, any decompile or string dump of them and the generated CodeRed SDK are
+# someone else's copyrighted work (and the SDK is game-derived): never in the tree.
+# The write-up in docs/dishonored/CORVOBODY.md is ours; the IDA scripts are ours.
+dinput8.dll
+dinput8_*.dll
+CorvoBody.ini
+CorvoBody.log
+CorvoBodyCamera.bin
+*CorvoBody*.c
+*CorvoBody*.txt
+*CorvoBody*_out.*
+*.strings.txt
+*_decomp_*.c
+*_core_named_*.c
+third_party/corvobody/
+third_party/sdk/
+third_party/dismod/
+third_party/CodeRed-Generator/
+build/corvobody/

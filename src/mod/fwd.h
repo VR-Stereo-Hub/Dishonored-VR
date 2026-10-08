@@ -860,3 +860,20 @@ static void UiSurfacePoll();
 static void UiSurfaceTick();
 static void UiSurfaceSet(bool on);
 static void UiSurfaceConfigure(const char* ini);
+
+// CorvoBody (Nexus 453) shoulder attach (game/dishonored/corvobody.cpp, docs/dishonored/CORVOBODY.md)
+static void CorvoConfigure(const char* ini);
+static void CorvoTick();                                   // script lane, after ApplyHandToMesh
+static void CorvoHandSample(int hand, const float v[3], uint8_t space);   // skelcontrol.cpp -> the hand point
+static void CorvoSet(bool on, const char* who);
+static void CorvoHideHandsSet(bool on, const char* who);
+static int  CorvoOverlayVk();                              // the overlay's key (F10, or Insert while CorvoBody is present)
+static bool CorvoParksDebugKeys();                         // F6-F9 debug toggles park while CorvoBody owns those keys
+static void CorvoStatus(dvr::status::Writer& w);
+static bool CorvoCommand(const char* args);
+static void CorvoArmModeSet(int mode, const char* who);
+static int  CbEffectiveMode();                             // 1 vr, 2 body (overlay)
+static void CorvoRewriteParms(void* fn, void* parms);      // ProcessEvent hook: their SetTranslation/SetRotation on the body carries our placement
+static bool BodyCutDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex, UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);   // hands/body_cut.cpp, render lane
+static void BodyCutStatus(dvr::status::Writer& w);
+static void BodyCutReset(const char* why);

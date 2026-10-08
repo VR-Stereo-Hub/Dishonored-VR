@@ -129,6 +129,60 @@ static void OvlTopRow()
 // ---- Hands ----------------------------------------------------------------------------------
 static void OvlTabHands()
 {
+    if (OvlSec("First-person body (CorvoBody mod)", kOvlB,
+               "The CorvoBody body mod's arms follow your VR hands. Needs the mod from Nexus (453) next to the game.")) {
+        if (!g_cbPresent) {
+            dvr::ovl::note("CorvoBody is not installed next to Dishonored.exe. Download it from Nexus (mod 453), copy "
+                           "its dinput8.dll and CorvoBody.ini into Binaries\\Win32, and set RigidCamera=0 and "
+                           "HideBodyArms=0 in CorvoBody.ini.");
+        } else {
+            if (g_cbTheirRigid)    dvr::ovl::note("CorvoBody.ini has RigidCamera=1: set it to 0 (its neck pivot fights the VR camera).");
+            if (g_cbTheirHideArms) dvr::ovl::note("CorvoBody.ini has HideBodyArms=1: set it to 0 (the shoulder must stay visible with gear out).");
+            bool on = g_cbEnabled;
+            if (dvr::ovl::checkbox("Attach the body to the VR hands and head", &on)) { CorvoSet(on, "F10"); OvlSaveBool("CorvoBody", "Enabled", on); }
+            OvlTip("Off leaves CorvoBody's body exactly as the mod ships it.");
+            int mode = g_cbArmMode;
+            if (dvr::ovl::radio_button("Arms: auto", &mode, 0)) { CorvoArmModeSet(0, "F10"); ConfigWriteKey("CorvoBody", "ArmMode", "auto", "F10"); }
+            ImGui::SameLine();
+            if (dvr::ovl::radio_button("VR arms", &mode, 1)) { CorvoArmModeSet(1, "F10"); ConfigWriteKey("CorvoBody", "ArmMode", "vr", "F10"); }
+            ImGui::SameLine();
+            if (dvr::ovl::radio_button("Body's arms", &mode, 2)) { CorvoArmModeSet(2, "F10"); ConfigWriteKey("CorvoBody", "ArmMode", "body", "F10"); }
+            OvlTip("VR arms: the body's own arms are hidden at the shoulder and the full-arm IK arms are yours. Body's arms: the body's own "
+                   "arm IK reaches your hands. Auto picks VR arms while full-arm IK is on.");
+            bool anchor = g_cbHeadAnchor;
+            if (dvr::ovl::checkbox("Body follows the head (shoulders under the IK shoulder centre)", &anchor)) { g_cbHeadAnchor = anchor; OvlSaveBool("CorvoBody", "HeadAnchor", anchor); }
+            OvlTip("Moves the body after CorvoBody places it, so the chest stays below your eyes and the body walks with you in room scale.");
+            bool torso = g_cbTorsoYaw;
+            if (dvr::ovl::checkbox("Body faces the torso, not the head", &torso)) { g_cbTorsoYaw = torso; OvlSaveBool("CorvoBody", "TorsoYaw", torso); }
+            OvlTip("Uses the arm IK's body yaw: glancing around does not turn the body, turning with your hands does.");
+            int az = g_cbAnchorZ;
+            if (dvr::ovl::radio_button("Height: CorvoBody's", &az, 0)) { g_cbAnchorZ = 0; OvlSaveInt("CorvoBody", "AnchorZ", 0); }
+            ImGui::SameLine();
+            if (dvr::ovl::radio_button("the head's", &az, 1)) { g_cbAnchorZ = 1; OvlSaveInt("CorvoBody", "AnchorZ", 1); }
+            ImGui::SameLine();
+            if (dvr::ovl::radio_button("CorvoBody's, corrected standing", &az, 2)) { g_cbAnchorZ = 2; g_cbDzOk = false; OvlSaveInt("CorvoBody", "AnchorZ", 2); }
+            OvlTip("The head's height drops the legs through the floor in a crouch; the corrected one keeps CorvoBody's crouch and feet and only fixes the standing shoulder height.");
+            dvr::ovl::slider_float("Body forward trim (cm)", &g_cbBodyFwdCm, -40.0f, 40.0f, "%.0f");
+            OvlSaveOnRelease("CorvoBody", "BodyForwardCm", g_cbBodyFwdCm, "%.0f");
+            dvr::ovl::slider_float("Body up trim (cm)", &g_cbBodyUpCm, -40.0f, 40.0f, "%.0f");
+            OvlSaveOnRelease("CorvoBody", "BodyUpCm", g_cbBodyUpCm, "%.0f");
+            if (CbEffectiveMode() == 2) {
+                bool hide = g_cbHideHands;
+                if (dvr::ovl::checkbox("Hide the body's own hands", &hide)) { CorvoHideHandsSet(hide, "F10"); OvlSaveBool("CorvoBody", "HideBodyHands", hide); }
+                dvr::ovl::slider_float("Arm strength", &g_cbStrength, 0.0f, 1.0f, "%.2f");
+                OvlSaveOnRelease("CorvoBody", "ArmStrength", g_cbStrength, "%.2f");
+                dvr::ovl::slider_float("Reach clamp (fraction of arm length, 0 = off)", &g_cbReach, 0.0f, 1.2f, "%.2f");
+                OvlSaveOnRelease("CorvoBody", "ReachClamp", g_cbReach, "%.2f");
+            }
+            char cbs[200];
+            _snprintf(cbs, sizeof(cbs), "%s. Body %s, mode %s, post-tick %s, %ld placements, body yaw %.0f (IK %+.0f), shoulders %.0f cm.",
+                      g_cbWhy, g_cbBody ? "found" : "not found", g_cbAppliedMode == 1 ? "vr" : g_cbAppliedMode == 2 ? "body" : "none",
+                      g_cbTickState == 2 ? "chained" : g_cbTickState == 1 ? "waiting" : g_cbTickState == 3 ? "refused" : "off",
+                      g_cbPlacements, g_cbLastYawDeg, g_cbLastDeltaDeg, g_cbShoulderCm);
+            cbs[sizeof(cbs) - 1] = 0;
+            dvr::ovl::note(cbs);
+        }
+    }
     if (OvlSec("Hand size, position and weapon FOV", kOvlB,
                "How big the hands are and where they sit on your controllers.")) {
         dvr::ovl::slider_float("Hand / weapon size", &g_mpModelScale, 0.4f, 1.6f, "%.2f");
