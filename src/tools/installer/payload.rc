@@ -28,3 +28,4 @@ IDR_CONTROLLER_GUIDE RCDATA "assets/ui/launcher/quest3-controls.png"
 
 IDR_RESHADE_BRIDGE RCDATA "DishonoredVR_ReShade.addon32"
 IDR_INSTALL_RESHADE RCDATA "install-reshade.ps1"
+IDR_IMPORT_PRESET RCDATA "import-reshade-preset.ps1"

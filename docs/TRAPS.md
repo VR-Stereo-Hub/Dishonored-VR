@@ -1,3 +1,215 @@
+## 2026-10-07: a "rendered FOV" sensor that only echoes the render in gameplay
+
+`camera+0x53c` (`m_fCurFOV`) was the projection layer's claim because in plain gameplay it reads
+back the lever's own write and so tracks the render. In a dialogue or a store it carries the
+look-at / lock-arms intent (50 deg) that the `cine/fov` scope's POV.FOV write overrides, and the
+render stays at 103 (`fgproj` WORLD 103.0, 100% of samples, measured 2026-10-07). Claiming it
+there squeezed a 103 deg image into a 50 deg layer: the small box when a conversation turns into a
+store, reported as long-standing. The claim now comes from the draws' own projection
+(`fgproj_frame_world_hfov_deg`). The rule: a value that agrees with the render in the common case
+is not a render readback; only something read from the draws is. ENGINE_NOTES, 2026-10-07.
+
+## 2026-10-05: TickCount64 is not there in Windows PowerShell 5.1
+
+`tools\net-ping-watch.ps1` stamped each sample with `[Environment]::TickCount64`, which exists on
+.NET Core 3.0+ only. Windows PowerShell 5.1 runs on .NET Framework, the property evaluated to
+nothing, and the first headset trace had an empty clock column - the one column it was written
+for. Recovered through the file name and the boot time (+-1 s), which also broke the first
+correlator's fixed-offset comparison until the offset was searched.
+- A script that must run under `powershell.exe` is written for .NET Framework 4.x: test it on
+  5.1, not on `pwsh`. The log's clock is GetTickCount: `[int64][Environment]::TickCount -band
+  [int64]4294967295`.
+- A smoke run must look at the column the tool exists for, not only at its summary.
+
+## 2026-10-05: six host suites that did not compile, counted as guards
+
+The flicker audit ran every `tools\*-host.ps1` on the staging tip. Six threw at the
+compiler (single-tag, camera-clamp, note-observer, zaccount, desktop-eye, objective-marker)
+and had done so for days to weeks: each production file had grown a call the harness had
+no stub for. Docs and PR bodies kept listing them as the guard for their rows.
+- A suite that does not build is not a passing suite. The matrix rule now: a row is guarded
+  only by a suite that RAN today and printed its last line.
+- A harness that slices production bodies by regex rots with the body. When a function gains
+  a call, grep `tools\*-tests.cpp` for its name and add the stub in the same commit.
+- `tools/default-profile-host.ps1` had been failing on the tip as well (the packaged ini
+  behind the writer after two merges); nobody ran it. Run the whole set before a release.
+
+## 2026-10-05: a proof that cannot fail, armed by a method and never by its key
+
+`depth_probe.cpp` proved every 5 s that D3D11 reads what the game wrote: a D3D9 readback,
+a fence busy-wait of up to 50 ms and a blocking Map on the present thread. `[Diagnostics]
+DepthShare` is off in every ini, so the proof looked switched off; afw arms the ring itself
+and the proof with it, for the whole session. It read IDENTICAL 62 of 62 times.
+- A diagnostic's cost is paid wherever it RUNS, not where its key says. List what a method
+  arms when it starts, not only what the ini turns on.
+- A consistency proof that has never failed since the thing it proves was built is a bound
+  on the number of checks, not a timer. Three after a rebuild, then none, and print the cost.
+
+## 2026-10-05: a draw-return baseline, again (the gameplay camera-silent gate)
+
+VR-229's entry below records that the draw RETURN is not a liveness baseline: the uploads
+inside the draw are discarded and a stall or a catch-up tick empties the interval being
+tested. The same defect sat in the gameplay camera-silent gate of `SceneDrawDecide` (F1 of
+the flicker audit), unnoticed because its rate was low (0.7 single-eye ticks a minute) and
+its consequence under afw (one eye a tick behind for one present) is a flicker the log only
+names as `pushed eye -1 TWICE`.
+- When a defect class is fixed in one gate, grep for every other place the same baseline is
+  taken (`g_sdLastDrawC5Serial`, `g_sdDrawEntryC5`) before closing the ticket.
+- The fix is the same policy (`camera_silent()` reuses the progress class) behind its own
+  lever, so the two gates can be A/B'd separately.
+
+## 2026-10-05: ten logs in one rotation, two of them from the simulator
+
+`dishonored_vr.prev5.log` and `prev6.log` were `dvr-xrsim` runs at 90 Hz sitting in the
+same rotation as eight VDXR headset runs. A stall census read across the rotation showed
+"two builds without the 5.66 s stall" until the startup lines were diffed.
+- Every per-log claim names its runtime (`instance created on runtime '...'`) and refresh
+  before it is compared with another log. A build tag is not a configuration.
+- The scan tool prints the runtime per file; a reader must not skip that column.
+
+## 2026-10-05: a typed sRGB swapchain image encodes on write
+
+The simulator creates its swapchain images `R8G8B8A8_UNORM_SRGB`; VDXR and the SteamVR shim
+hand out typeless ones. A render-target view of a typed sRGB image encodes what a shader
+writes; `CopyResource` does not. afw copies the fresh eye and renders the held one, so on the
+simulator the two eyes differed by a gamma step and the bright one swapped every present. It
+was filed as a possible engine per-eye exposure state.
+- A brightness difference between the simulator and a headset, or between a copied and a
+  rendered image, is a FORMAT question before it is a tonemapping one: print the image and
+  view formats once (`afw/warp: the rebuilt eye is written through a format-N view`).
+- The falsifiable check costs nothing: encode the dark eye and compare.
+
+## 2026-10-05: "empty or on a power" also meant "holding the Heart"
+
+The ready hand's open pose was sampled from the left hand whenever `g_rflSecondaryKind` read 0
+(nothing) or 1 (a power). With the Heart out the left hand reads 1 - the Heart sits in the power
+slot - so the Heart grip was taken for the open pose and shown on BOTH hands (the existing open
+right hand mirrors the same source). Reported from the headset as "sometimes the holding-the-Heart
+pose instead of the sheathed one".
+- `g_rflSecondaryKind == 1` is "something in the power slot", not "an open hand". A pose that must
+  look empty is sampled only with BOTH hands empty (`g_rflPrimaryKind == 0` and the left `== 0`).
+- A sampled pose that other features show should be saved and reloaded, not re-sampled from
+  whatever the hand happens to hold: `dishonored_vr_open_hand.bin`, keyed to the finger pairing,
+  with the mesh's reference pose as the fallback (VR-33-HANDS-AND-WEAPONS.md, "The ready hand").
+- Same day, second report: sampling only "when both hands read empty" was not enough, because the
+  read LAGS the hand animation - an item being drawn still reads empty for its first frames. A pose
+  taken from a state flag must be latched: committed only if the state still holds well after the
+  sample (`dvr::grab::PoseLatch`, 1.5 s). And a pose read live from another hand is that hand's
+  grip, whatever it holds (the fist came from the right hand's crossbow grip).
+
+## 2026-10-04: a setting written where its reader never looks again (ReShade)
+
+F10's ReShade "Performance mode" wrote the value with `ReShadeSetConfigValue` and queued an
+effect reload. ReShade reads its configuration once, when a runtime object is constructed, and
+writes its own copy back when the object is destroyed, so the value changed nothing during the
+session and was overwritten at exit. The checkbox still looked right, because it was read back
+from the same ini cache it had just been written to, and the host test asserted exactly that.
+- A read-back from the place you wrote is not evidence. Ask the consumer what it holds (here:
+  the rebuilt runtime's own configuration), or measure the effect.
+- For a third-party component, find WHEN it reads a setting before choosing how to change it.
+
+## 2026-10-04: an accepted lever that lived in one ini only
+
+`[Hud] SemanticOwnership=1` was accepted in a headset and merged with its code default at 0 and
+no line in the default ini. It worked on the one machine whose ini had the key. When the
+installer rewrote that ini from the packaged profile the key vanished, a later save wrote 0,
+and the regression (HUD widgets splitting, marker text changing layer) was looked for in the
+code for a week of builds. The code had not changed.
+- Accepting a lever is not finished until the default ini and the code default carry it. A key
+  that exists only in an installed ini does not survive the installer.
+- `save()` writes the current value of every key, so an old default is materialised in every
+  ini and a new compiled default reaches nobody (section 1). A default change needs a one-time
+  migration key.
+- When something that worked breaks, diff the INI against the last accepted one as well as the
+  code: `tools` keep every ini backup, and the answer here was one line of that diff.
+- 2026-10-05 census (the flicker audit): the same split exists today for `[Hud]
+  PauseSceneFreshness`, `MenuSceneFreshness`, `WheelCloseAnimation`, `MenuExitHeading`,
+  `[Hands] PaletteEyeMenuHalfStep` and `[Cine] PossessionStereo` (code 0, default ini 1), and
+  `PoseFromView`, `ArmIK`, `GrabAnim`, `GrabReadyOpen`, `GrabReadyHide` are accepted at 1 on the
+  dev rig and ship 0. Not changed by the audit (one behavioural change per build); listed so
+  the next acceptance closes them deliberately.
+## 2026-10-05: a per-object readability check that was assumed free
+
+The physical pickup's first build walked 2000 GObjects entries a frame and asked
+`RegionMemo::ok` about each. The memo holds ONE memory region, and consecutive GObjects
+entries almost never share one, so nearly every check was a VirtualQuery: about 2.4 ms of
+every game tick, estimated beforehand at 0.06 ms and not measured. It reached a headset and
+starved the right eye about once every two seconds (FLICKER_REFERENCE, 2026-10-05).
+- `RegionMemo` pays for itself only on reads that stay inside a region (an array, one
+  object's fields). Across objects it is a system call each.
+- Anything added to the script lane states its cost from a measurement before a headset run:
+  `pe/cost` before and after (us an event, mid ticks), or a timer of its own in its beat line.
+- For a walk over live objects on the game thread, read directly and guard the loop with a
+  structured exception handler between `crash::probe_begin` and `probe_end`.
+- **The mean was the wrong number.** The second build cost 0.32 ms a frame on average and still
+  starved the eye 17 times a minute; the third costs 16 us and never more than 0.3 ms, and does
+  not. Under AFW it is the occasional slow game frame that does the damage, so new script-lane
+  work needs a hard per-frame time budget and a count of the frames that exceeded it, in its
+  own log line, before it is called cheap.
+
+## 2026-10-04: a motion detector that measured the mod's own motion
+
+CinematicArms handed a cutscene's arms to the game when "the game's arm bones move", read from
+the native skin palette on the belief that the mod writes hand bones only. The mod's hand
+control moves palette bones behind the wrist as well, so the detector followed the player's
+controller: it opened on any hand movement, fell to exactly 0 the moment the mod stopped writing,
+and closed on its hold. Its per-second log line looked healthy (plausible speeds, a gate that
+opened and closed). What gave it away: the speed was exactly 0.0 in every second the other side
+owned the arms, every opening had the same length, and the speed tracked an unrelated signal
+(the controller's peak speed in `swing: beat`).
+- Before trusting "X moves, so the game is doing it", list everything of ours that can move X
+  and find a log window where only that moves.
+- A detector's line should carry a second, independent signal beside it (here: the old fastest
+  point next to the between-bones motion), so a reader can see which one a spike belongs to.
+- Equal-length episodes are a timer, not a measurement.
+
+## 2026-10-04: an invariant that holds within a tick, evaluated on every present
+
+The c5 pairing's "robust" arm (a -ipd step means pass 2 after pass 1) was robust only
+because a within-tick step crosses no world motion. It ran on every present; on a
+cross-tick one the step is walk + ipd, and a player moving sideways ~2 ipd per tick (likelier
+at ~30 ticks/s) produced exactly -ipd. The arm then relabelled correct left images as right:
+a rare single-eye flicker while moving, 4x more often on the GTX 1650 run than 1.0.1's. When
+a measurement is valid only under a condition, check the condition where it is used.
+FLICKER_REFERENCE 2026-10-03 entry, follow-up 2.
+
+## 2026-10-03: a safety hardening verified on a fast machine starved an eye on a slow one
+
+1.0.2 changed the capture waits to refuse a grab after 10 ms instead of delivering it, to
+keep unfinished data out of TAA history. Verified on the simulator, which is never
+GPU-bound. On a GTX 1650 the timeouts are routine, the eyes alternate, and every refusal
+lands on the same eye: 6-9 Hz in one eye, 23-30 in the other, flicker and "worse
+performance" since 1.0.2. A timeout policy is a behaviour change on the machines that
+time out; judge it there, or by its counters (`stereo: beat` none/s, the capture timeout
+lines) on a GPU-bound run. FLICKER_REFERENCE 2026-10-03.
+
+## 2026-10-03: a dev folder set up by hand hid a launcher install that could never start
+
+The Mods screen's Install ReShade wrote only `ReShade32.dll`. ReShade refuses LoadLibrary
+(error 1114) without a `ReShade.ini` for the exe, so on a clean folder it never started -
+and the launcher said "Installed and enabled" while F10 said a restart would load it. The
+dev PC passed every check because its ReShade.ini, shader packages and preset had been
+installed by hand for the preset test. Reproduced with the real 6.8.0 DLL in a 32-bit test
+program. Test an install path on an empty fixture folder, never only on the machine that
+was prepared by hand. Details: INSTALLER.md, ReShade that starts (2026-10-03).
+
+## 2026-10-03: a matching architecture is not a loadable API layer
+
+A remote Reverb G2 (SteamVR, the shim) never reached VR: xrCreateInstance -> -32 twice,
+runtime and session `none`. The API-layer guard had logged the only enabled 32-bit implicit
+layer, ReShade's global OpenXR layer, as "x86, loadable here" - but it had only read the PE
+header. The runtime had loaded (the shim logged its negotiation), and in the vendored loader
+-32 at create time after that has one source: LoadLibrary failing on an implicit layer
+(api_layer_interface.cpp:280), fatal when no other layer loads. ReShade's DllMain returns
+FALSE without a ReShade.ini beside the exe, or when another ReShade is already loaded
+(upstream source/dll_main.cpp). Reproduced on the dev PC with a fixture layer whose DllMain
+refuses: -32, loader message "error 1114: A dynamic link library (DLL) initialization routine
+failed". The guard now says what it checked, skips ReShade's layer through its manifest's
+disable_environment ([VR] DisableReShadeApiLayer=1), and the loader's own warnings reach the
+log as `xr/loader:` lines - before this they went to a stderr a GUI game does not have. The
+"is SteamVR installed?" hint no longer prints for -32. The tester reached VR on the candidate
+build (v1.0.1-271-ge6199622a), reported through the maintainer; that run's log is not yet read.
+
 ## 2026-10-03: native D3D9 state-block recording overwrites device hooks
 
 BeginStateBlock on the game's PURE device rewrites the native dispatch table, removing
@@ -1572,3 +1784,15 @@ interval where LEFT labels disappear. The remote flight recorder uses recurring
 rate limits and label-independent bursts, with all-frame populations and explicit
 missing-stage masks. Camera-side SWAPPED and low image difference are observations,
 not independent proof of swapped or mono imagery during moving/dark cinematics.
+
+## A saved world correction cannot be applied to current attachment bones (2026-10-05)
+
+Controller-motion acceptance did not establish body-motion acceptance for hand
+effects. Reusing the native arm origin from an earlier render snapshot adds a
+travel-dependent offset to the current bone result. Rebasing only through the
+current arm still fails if a held item updates later. Keep the correction in
+the attached parent's local frame, then use that parent's live native transform.
+The production host tests reproduce both failures with fixed controller poses.
+Do not change particle local-space flags to hide this mismatch: the Heart and
+Possession hand-cast modules already use local space. ENGINE_NOTES records the
+asset evidence, equations, negative controls and pending headset validation.

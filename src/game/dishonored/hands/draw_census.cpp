@@ -238,7 +238,21 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
                                        INT baseVertex, UINT minIndex, UINT numVertices,
                                        UINT startIndex, UINT primCount)
 {
-    if (dvr::anim::native_full_arms()) return dvr::frame::orig_draw_indexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+    if (dvr::anim::native_full_arms()) {
+        // CineHideStaticArms (2026-10-06): this exit is the only place a game-owned arm draw passes, so the
+        // still-arms-behind-the-camera hide runs here. The lock is kept alive as the normal path does; without
+        // it 301 native frames released it ("dc/auto: the locked mesh has not been drawn") mid-cutscene.
+        if (dvr::anim::cine_hide_static() && g_dcOn && self && g_dcHideVb && DcIsLocked(self, true)) {
+            g_msLockFrame = dvr::frame::count();
+            g_msLastArmDrawMs = GetTickCount64();
+            if (g_msOn && g_msReady &&
+                MsCineHideNative(self, type, baseVertex, minIndex, numVertices, startIndex, primCount)) {
+                g_msDraws++; g_dcDropIdx++;
+                return D3D_OK;
+            }
+        }
+        return dvr::frame::orig_draw_indexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+    }
     // VR-33 W1. Records the draw's identity against the phase the component
     // sweep is currently in. Behind its own flag AND the skinned-draw gate, so
     // it costs one branch when off. Read-only: it takes no reference it does
@@ -291,6 +305,7 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
     // residual arm is not this mesh at all and the hunt moves elsewhere.
     if (g_dcOn && self && g_dcHideVb && DcIsLocked(self, true)) {
         g_msLockFrame = dvr::frame::count();
+        g_msLastArmDrawMs = GetTickCount64();   // any draw of the arm buffers, whatever path serves it (cine/arms)
 
         // VR-31 STEP 2, ahead of the slice mask because it supersedes it.
         //

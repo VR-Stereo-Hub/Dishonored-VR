@@ -1,4 +1,7 @@
 // Compile the production writer and clamp functions with a small camera buffer.
+#include <windows.h>   // the production scope test compares thread ids
+#undef near             // windows.h's legacy macros; this file has a near() of its own
+#undef far
 #include <cmath>
 #include <cstdint>
 #include <cstdio>

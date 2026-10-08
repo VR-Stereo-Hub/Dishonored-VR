@@ -82,6 +82,14 @@ std::vector<XrSwapchainImageD3D11KHR> g_images[2];
 // `[VR] SubmitDepth=1` enables the extension at instance creation (it cannot be enabled later);
 // `vrpace depth on|off` is the live A/B once it is.
 std::atomic<bool> g_depthWanted{false};   // [VR] SubmitDepth (read before the instance is created)
+// Pre-release performance audit (Dishonored): THE HIDDEN-AREA PROBE (XR_KHR_visibility_mask). The runtime
+// can say which part of each eye image the lenses never show. Nothing is masked: with
+// [VR] VisibilityMaskProbe=1 the extension is enabled and the hidden share of each eye image is logged
+// once per session. That number decides whether drawing the mesh into the scene depth, so the game
+// shades nothing there, is worth building (PERFORMANCE.md, 2026-10-04). Default off: read-only when on.
+std::atomic<bool> g_visMaskWanted{false};
+bool g_visMaskExt = false, g_visMaskLogged = false;
+PFN_xrGetVisibilityMaskKHR g_pfnVisMask = nullptr;
 bool g_depthExt = false;                  // the extension is enabled on the live instance
 std::atomic<bool> g_depthLive{true};      // the live A/B (effective only with the extension)
 XrSwapchain g_depthSc[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};
@@ -710,6 +718,23 @@ std::atomic<uint64_t> g_pairIntSumUs{0};
 std::atomic<uint64_t> g_pairIntSumSqUs{0};
 std::atomic<uint32_t> g_pairIntMinUs{0xFFFFFFFFu};
 std::atomic<uint32_t> g_pairIntMaxUs{0};
+// 41.x (Dishonored, 2026-10-05): the SUBMIT cadence. The pair statistics above are sampled where a pair closes, so
+// a method that submits every present as its own frame (afw) recorded nothing and the rate line read "cadence n/a"
+// for the configuration that is actually played. These are sampled at every successful stereo xrEndFrame instead:
+// the wall-clock interval between two submits, and the step in the runtime's own predictedDisplayTime measured in
+// display periods (1 = the next slot, 2 = one slot went without a new frame and the runtime showed the previous
+// one again). Cumulative, read by deltas like the pair set; only the maximum is drained. Samples over 1 s are
+// dropped for the same reason as the pair set's, and a non-stereo submit breaks the chain so a menu is not an
+// interval.
+std::atomic<int64_t>  g_subLastQpc{0};
+std::atomic<int64_t>  g_subLastDisplayNs{0};
+std::atomic<uint32_t> g_subIntCount{0};
+std::atomic<uint64_t> g_subIntSumUs{0};
+std::atomic<uint64_t> g_subIntSumSqUs{0};
+std::atomic<uint32_t> g_subIntMaxUs{0};     // worst since the last probe read - DRAINED on read
+std::atomic<uint32_t> g_subStepCount{0};    // steps measured (needs the runtime's period)
+std::atomic<uint32_t> g_subStepTwo{0};      // one display slot refilled with the previous frame
+std::atomic<uint32_t> g_subStepMore{0};     // two or more
 // How long the present thread actually spent BLOCKED in the wait handoff, per
 // trace window. This is the gating discriminator the pairs/s number cannot
 // give: free-running pairs spend ~0 ms/s here; pairs gated by xrWaitFrame
@@ -2819,6 +2844,28 @@ bool shim_write_manifest(const wchar_t* shimDll, wchar_t* manifestOut /*MAX_PATH
     return true;
 }
 
+// Point the statically linked loader at a runtime manifest through its OWN property store
+// (XR_EXT_loader_init_properties via xrInitializeLoaderKHR). The loader reads XR_RUNTIME_JSON
+// with its "secure" getter, which returns nothing in an elevated process, so the environment
+// variable alone cannot select a runtime there; the property override is read first and is
+// honoured elevated or not (loader_properties.cpp, manifest_file.cpp). Each call replaces the
+// previous override (the loader clears its overrides before setting new ones).
+void loader_override_runtime_json(const char* manifestUtf8, const char* who) {
+    PFN_xrInitializeLoaderKHR initLoader = nullptr;
+    xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
+                          reinterpret_cast<PFN_xrVoidFunction*>(&initLoader));
+    if (!initLoader) {
+        XRLOG("xr: this loader has no xrInitializeLoaderKHR - the environment is the only route (%s)", who);
+        return;
+    }
+    XrLoaderInitPropertyValueEXT pv{"XR_RUNTIME_JSON", manifestUtf8};
+    XrLoaderInitInfoPropertiesEXT props{XR_TYPE_LOADER_INIT_INFO_PROPERTIES_EXT};
+    props.propertyValueCount = 1;
+    props.propertyValues = &pv;
+    const XrResult ir = initLoader(reinterpret_cast<const XrLoaderInitInfoBaseHeaderKHR*>(&props));
+    XRLOG("xr: loader property override XR_RUNTIME_JSON -> %s (%s)", XR_SUCCEEDED(ir) ? "set" : res_str(ir), who);
+}
+
 bool process_is_elevated() {
     HANDLE token = nullptr;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return false;
@@ -2863,6 +2910,46 @@ void log_active_runtime_expectation() {
         XRLOG("xr: 32-bit ActiveRuntime: '%s'", narrow);
 }
 
+void log_visibility_mask() {
+    if (!g_visMaskExt || g_visMaskLogged || !g_pfnVisMask || !g_viewsValid) return;
+    g_visMaskLogged = true;
+    for (uint32_t eye = 0; eye < 2; ++eye) {
+        XrVisibilityMaskKHR m{XR_TYPE_VISIBILITY_MASK_KHR};
+        XrResult r = g_pfnVisMask(g_session, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, eye,
+                                  XR_VISIBILITY_MASK_TYPE_HIDDEN_TRIANGLE_MESH_KHR, &m);
+        if (XR_FAILED(r) || !m.vertexCountOutput || !m.indexCountOutput || m.vertexCountOutput > 65536 || m.indexCountOutput > 262144) {
+            XRLOG("xr/vismask: eye %u - no hidden mesh from this runtime (%s, %u vertices, %u indices): nothing to mask on this headset",
+                  eye, res_str(r), m.vertexCountOutput, m.indexCountOutput);
+            continue;
+        }
+        std::vector<XrVector2f> v(m.vertexCountOutput); std::vector<uint32_t> idx(m.indexCountOutput);
+        m.vertexCapacityInput = m.vertexCountOutput; m.vertices = v.data();
+        m.indexCapacityInput = m.indexCountOutput; m.indices = idx.data();
+        r = g_pfnVisMask(g_session, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, eye,
+                         XR_VISIBILITY_MASK_TYPE_HIDDEN_TRIANGLE_MESH_KHR, &m);
+        if (XR_FAILED(r)) { XRLOG("xr/vismask: eye %u - mesh read failed (%s)", eye, res_str(r)); continue; }
+        // Vertices are view-space tangents (the plane z = -1). The eye image covers the FOV rectangle.
+        const XrFovf f = g_views[eye].fov;
+        const double l = tan(f.angleLeft), rr = tan(f.angleRight), u = tan(f.angleUp), d = tan(f.angleDown);
+        const double rect = (rr - l) * (u - d);
+        double area = 0, minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9; uint32_t bad = 0, outside = 0;
+        for (uint32_t i = 0; i + 2 < m.indexCountOutput; i += 3) {
+            const uint32_t a = idx[i], b = idx[i + 1], c = idx[i + 2];
+            if (a >= v.size() || b >= v.size() || c >= v.size()) { ++bad; continue; }
+            area += fabs((double)(v[b].x - v[a].x) * (v[c].y - v[a].y) - (double)(v[c].x - v[a].x) * (v[b].y - v[a].y)) * 0.5;
+        }
+        for (const auto& p : v) {
+            minX = fmin(minX, p.x); maxX = fmax(maxX, p.x); minY = fmin(minY, p.y); maxY = fmax(maxY, p.y);
+            if (p.x < l - 1e-3 || p.x > rr + 1e-3 || p.y < d - 1e-3 || p.y > u + 1e-3) ++outside;
+        }
+        XRLOG("xr/vismask: eye %u HIDDEN MESH %u triangles, %u vertices | hidden area %.4f of the eye image's %.4f (tangent units squared) = "
+              "%.1f %% of the pixels the lenses never show | mesh x %.3f..%.3f y %.3f..%.3f against the FOV rectangle x %.3f..%.3f y %.3f..%.3f | "
+              "%u vertices outside the rectangle (their share is over-counted), %u bad triangles | probe only: nothing is masked",
+              eye, m.indexCountOutput / 3, m.vertexCountOutput, area, rect, rect > 0 ? 100.0 * area / rect : 0.0,
+              minX, maxX, minY, maxY, l, rr, d, u, outside, bad);
+    }
+}
+
 // One native-or-shim instance attempt: enumerate -> D3D11 check -> create.
 // `label` names the attempt in every log line; `quietExplainer` suppresses
 // the SteamVR wall of text when a shim fallback is about to run anyway.
@@ -2899,8 +2986,20 @@ XrResult try_create_instance(const char* label, bool quietExplainer) {
         return XR_ERROR_EXTENSION_NOT_PRESENT;
     }
 
-    const char* enabled[3] = {XR_KHR_D3D11_ENABLE_EXTENSION_NAME, nullptr, nullptr};
+    bool hasVisMask = false;
+    {   // The hidden-area probe (pre-release audit): offered or not is always logged.
+        for (const auto& e : exts)
+            if (strcmp(e.extensionName, XR_KHR_VISIBILITY_MASK_EXTENSION_NAME) == 0) hasVisMask = true;
+        const bool want = g_visMaskWanted.load(std::memory_order_relaxed);
+        XRLOG("xr: [%s] %s %s - %s", label, XR_KHR_VISIBILITY_MASK_EXTENSION_NAME, hasVisMask ? "OFFERED" : "not offered",
+              !want ? "not enabled ([VR] VisibilityMaskProbe=0, the default)"
+                    : hasVisMask ? "ENABLED ([VR] VisibilityMaskProbe=1: the hidden share of each eye image is logged once, nothing is masked)"
+                                 : "WANTED but the runtime does not offer it");
+    }
+    const char* enabled[4] = {XR_KHR_D3D11_ENABLE_EXTENSION_NAME, nullptr, nullptr, nullptr};
     uint32_t nEnabled = 1;
+    const bool visMaskExt = hasVisMask && g_visMaskWanted.load(std::memory_order_relaxed);
+    if (visMaskExt) enabled[nEnabled++] = XR_KHR_VISIBILITY_MASK_EXTENSION_NAME;
     if (hasQpcTime) enabled[nEnabled++] = XR_KHR_WIN32_CONVERT_PERFORMANCE_COUNTER_TIME_EXTENSION_NAME;
     const bool depthExt = hasDepthLayer && g_depthWanted.load(std::memory_order_relaxed);
     if (depthExt) enabled[nEnabled++] = XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME;
@@ -2913,6 +3012,13 @@ XrResult try_create_instance(const char* label, bool quietExplainer) {
     ici.enabledExtensionNames = enabled;
     r = xrCreateInstance(&ici, &g_instance);
     g_depthExt = XR_SUCCEEDED(r) && depthExt;
+    g_visMaskExt = false; g_pfnVisMask = nullptr; g_visMaskLogged = false;
+    if (XR_SUCCEEDED(r) && visMaskExt) {
+        PFN_xrVoidFunction fn = nullptr;
+        xrGetInstanceProcAddr(g_instance, "xrGetVisibilityMaskKHR", &fn);
+        g_pfnVisMask = reinterpret_cast<PFN_xrGetVisibilityMaskKHR>(fn);
+        g_visMaskExt = g_pfnVisMask != nullptr;
+    }
     g_pfnQpcToXrTime = nullptr;
     if (XR_SUCCEEDED(r) && hasQpcTime) {
         PFN_xrVoidFunction fn = nullptr;
@@ -2932,6 +3038,16 @@ XrResult try_create_instance(const char* label, bool quietExplainer) {
                   "VDXR and Meta support 32-bit OpenXR: verify the selected manifest. "
                   "The optional SteamVR shim needs dvr_steamvr32.dll and openvr_api.dll "
                   "beside the game executable.");
+        }
+        // 41.x (Dishonored): -32 at CREATE time, after this runtime already
+        // enumerated, is the loader failing to LoadLibrary an implicit API
+        // layer (api_layer_interface.cpp:280) - not a missing runtime.
+        if (r == XR_ERROR_FILE_ACCESS_ERROR) {
+            XRLOG("xr: [%s] XR_ERROR_FILE_ACCESS_ERROR after the runtime enumerated: the "
+                  "loader could not load an enabled implicit API layer (a wrong-architecture "
+                  "DLL, a missing dependency, or one whose DllMain refused). The 'apilayer:' "
+                  "lines name the enabled layers; the 'xr/loader:' lines above name the one "
+                  "that failed and the Windows error.", label);
         }
         g_instance = XR_NULL_HANDLE;
         return r;
@@ -2977,19 +3093,7 @@ void init_instance() {
         // (xrEnumerateInstanceExtensionProperties -> RUNTIME_UNAVAILABLE), while
         // the same manifest inherited from a shell worked. XR_EXT_loader_init_
         // properties through xrInitializeLoaderKHR is the spec'd way to say it.
-        PFN_xrInitializeLoaderKHR initLoader = nullptr;
-        xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
-                              reinterpret_cast<PFN_xrVoidFunction*>(&initLoader));
-        if (initLoader) {
-            XrLoaderInitPropertyValueEXT pv{"XR_RUNTIME_JSON", g_runtimeJson};
-            XrLoaderInitInfoPropertiesEXT props{XR_TYPE_LOADER_INIT_INFO_PROPERTIES_EXT};
-            props.propertyValueCount = 1;
-            props.propertyValues = &pv;
-            const XrResult ir = initLoader(reinterpret_cast<const XrLoaderInitInfoBaseHeaderKHR*>(&props));
-            XRLOG("xr: loader property override XR_RUNTIME_JSON -> %s", XR_SUCCEEDED(ir) ? "set" : res_str(ir));
-        } else {
-            XRLOG("xr: this loader has no xrInitializeLoaderKHR - the environment is the only route");
-        }
+        loader_override_runtime_json(g_runtimeJson, "[VR] XrRuntimeJson");
         // And the two facts a manifest failure hides: is the file readable, and
         // does its library load from THIS process (a DLL search-path or CRT
         // dependency problem shows up here, with the Win32 error).
@@ -3029,6 +3133,7 @@ void init_instance() {
     const bool mayFallBack = shimPresent && _stricmp(mode, "native") != 0;
 
     XrResult r = XR_ERROR_RUNTIME_UNAVAILABLE;
+    bool askedShim = false;   // the shim branch ran: the instance must be the shim's
     if (wantNative) {
         if (_stricmp(mode, "auto") == 0) log_active_runtime_expectation();
         r = try_create_instance("native", /*quietExplainer=*/mayFallBack);
@@ -3039,10 +3144,14 @@ void init_instance() {
             XRLOG("xr: native runtime unavailable - falling back to the SteamVR shim");
         else
             XRLOG("xr: runtime mode 'steamvr' - using the SteamVR shim directly");
+        // Until 2026-10-05 the shim was selected by the environment variable alone, which the loader
+        // ignores in an elevated process: a game started as administrator (an elevated launcher or
+        // Steam, or "run as administrator" on the exe) silently got the registered runtime instead,
+        // and [VR] Runtime=steamvr reached Virtual Desktop. The property override below works either way.
         if (process_is_elevated())
-            XRLOG("xr: WARNING - game is running elevated; the shim cannot be "
-                    "selected (XR_RUNTIME_JSON is ignored for admin processes). "
-                    "Run the game non-elevated.");
+            XRLOG("xr: the game is running ELEVATED (as administrator) - the loader ignores the "
+                  "XR_RUNTIME_JSON environment variable here, so the shim is selected through the "
+                  "loader's property override instead. Running the game non-elevated is still better.");
         wchar_t manifest[MAX_PATH];
         if (!shim_write_manifest(shimDll, manifest)) {
             XRLOG("xr: could not write the shim manifest - VR disabled, game runs flat");
@@ -3053,10 +3162,15 @@ void init_instance() {
                             sizeof(manifestUtf8), nullptr, nullptr);
         XRLOG("xr: shim manifest: %s", manifestUtf8);
         SetEnvironmentVariableW(L"XR_RUNTIME_JSON", manifest);
+        loader_override_runtime_json(manifestUtf8, "the SteamVR shim");
+        askedShim = true;
         r = try_create_instance("steamvr shim", /*quietExplainer=*/true);
         if (XR_FAILED(r))
             XRLOG("xr: SteamVR shim also failed (%s) - VR disabled, game runs "
-                    "flat (is SteamVR installed?)", res_str(r));
+                    "flat (%s)", res_str(r),
+                    r == XR_ERROR_FILE_ACCESS_ERROR
+                        ? "an OpenXR API layer failed to load - see the apilayer: and xr/loader: lines"
+                        : "is SteamVR installed?");
     } else if (XR_FAILED(r) && !shimPresent && _stricmp(mode, "steamvr") == 0) {
         XRLOG("xr: runtime mode 'steamvr' but dvr_steamvr32.dll is not beside "
                 "the mod - VR disabled, game runs flat");
@@ -3074,6 +3188,14 @@ void init_instance() {
     XRLOG("xr: instance created on runtime '%s' %u.%u.%u", ip.runtimeName,
             XR_VERSION_MAJOR(ip.runtimeVersion), XR_VERSION_MINOR(ip.runtimeVersion),
             XR_VERSION_PATCH(ip.runtimeVersion));
+    // Name the mismatch: the shim was asked for and another runtime answered. Before 2026-10-05 an
+    // elevated game logged the shim's own extension lines and then this one with Virtual Desktop's
+    // name, and [VR] Runtime=steamvr looked ignored.
+    if (askedShim && !strstr(ip.runtimeName, "SteamVR shim"))
+        XRLOG("xr: WARNING - the SteamVR shim was ASKED FOR ([VR] Runtime=%s) but the loader created "
+              "'%s' instead: the manifest override did not reach the loader (elevated=%d). SteamVR "
+              "will not be used this session; start the game without administrator rights.",
+              mode, ip.runtimeName, process_is_elevated() ? 1 : 0);
 
     input_create(g_instance); // M5: action set + touch bindings (fail-soft)
 }
@@ -3479,6 +3601,7 @@ void on_present_begin() {
     g_viewsValid =
         XR_SUCCEEDED(xrLocateViews(g_session, &vli, &vs, 2, &viewCount, g_views)) &&
         viewCount == 2 && (vs.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT);
+    log_visibility_mask();   // pre-release audit: once per session, only with [VR] VisibilityMaskProbe=1
     {   // VR-39: the exact-pose history. This set is labelled g_viewsGen; a head sample read
         // after this locate carries locate_gen() == label + 1 (the lag audit's gen = lag + 1).
         ViewGen& h = g_viewHist[g_viewHistAt++ % kViewHist];
@@ -5785,6 +5908,36 @@ void on_present_end(ID3D11Texture2D* frame) {
         while (efUs > efMax &&
                !g_endFrameMaxUs.compare_exchange_weak(efMax, efUs, std::memory_order_relaxed)) {}
     }
+    {   // 41.x (Dishonored, 2026-10-05): the submit cadence (see g_subIntCount). Present thread only.
+        if (measuredStereo) {
+            LARGE_INTEGER nowQ; QueryPerformanceCounter(&nowQ);
+            const int64_t prevQ = g_subLastQpc.exchange(nowQ.QuadPart, std::memory_order_relaxed);
+            const int64_t prevD = g_subLastDisplayNs.exchange((int64_t)fei.displayTime, std::memory_order_relaxed);
+            static int64_t qpf = 0;
+            if (!qpf) { LARGE_INTEGER f; QueryPerformanceFrequency(&f); qpf = f.QuadPart ? f.QuadPart : 1; }
+            if (prevQ != 0) {
+                const int64_t us64 = (nowQ.QuadPart - prevQ) * 1000000 / qpf;
+                if (us64 > 0 && us64 < 1000000) {
+                    const uint32_t us = (uint32_t)us64;
+                    g_subIntCount.fetch_add(1, std::memory_order_relaxed);
+                    g_subIntSumUs.fetch_add(us, std::memory_order_relaxed);
+                    g_subIntSumSqUs.fetch_add((uint64_t)us * us, std::memory_order_relaxed);
+                    uint32_t m = g_subIntMaxUs.load(std::memory_order_relaxed);
+                    while (us > m && !g_subIntMaxUs.compare_exchange_weak(m, us, std::memory_order_relaxed)) {}
+                    const int64_t periodNs = (int64_t)g_frameState.predictedDisplayPeriod;
+                    if (periodNs > 0 && prevD != 0 && (int64_t)fei.displayTime > prevD) {
+                        const int64_t step = ((int64_t)fei.displayTime - prevD + periodNs / 2) / periodNs;
+                        g_subStepCount.fetch_add(1, std::memory_order_relaxed);
+                        if (step == 2) g_subStepTwo.fetch_add(1, std::memory_order_relaxed);
+                        else if (step > 2) g_subStepMore.fetch_add(1, std::memory_order_relaxed);
+                    }
+                }
+            }
+        } else {
+            g_subLastQpc.store(0, std::memory_order_relaxed);
+            g_subLastDisplayNs.store(0, std::memory_order_relaxed);
+        }
+    }
     if (XR_FAILED(r)) {
         XRLOG("xr: xrEndFrame failed: %s", res_str(r));
         teardown_session("endframe failed");
@@ -6681,6 +6834,13 @@ void set_submit_depth(bool on) {
              : "no depth layer (the default)");
 }
 bool submit_depth() { return g_depthWanted.load(std::memory_order_relaxed); }
+void set_visibility_mask_probe(bool on) {
+    g_visMaskWanted.store(on, std::memory_order_relaxed);
+    XRLOG("xr: [VR] VisibilityMaskProbe=%d - %s", on ? 1 : 0,
+          on ? "XR_KHR_visibility_mask is requested at instance creation and the hidden share of each eye image is logged once (probe only)"
+             : "the hidden-area probe is off (the default)");
+}
+bool visibility_mask_probe() { return g_visMaskWanted.load(std::memory_order_relaxed); }
 void set_depth_live(bool on) {
     if (g_depthLive.exchange(on) != on)
         XRLOG("xr: depth layer live switch %s%s", on ? "ON" : "off",
@@ -7613,6 +7773,15 @@ static void pair_probe_fill(PairProbe* out, bool drain) {
     out->intervalCount = g_pairIntCount.load(std::memory_order_relaxed);
     out->intervalSumUs = g_pairIntSumUs.load(std::memory_order_relaxed);
     out->intervalSumSqUs = g_pairIntSumSqUs.load(std::memory_order_relaxed);
+    // 2026-10-05: the submit cadence, for a method without pairs (see g_subIntCount).
+    out->submitIntCount = g_subIntCount.load(std::memory_order_relaxed);
+    out->submitIntSumUs = g_subIntSumUs.load(std::memory_order_relaxed);
+    out->submitIntSumSqUs = g_subIntSumSqUs.load(std::memory_order_relaxed);
+    out->submitIntMaxUs = drain ? g_subIntMaxUs.exchange(0, std::memory_order_relaxed)
+                                : g_subIntMaxUs.load(std::memory_order_relaxed);
+    out->submitSteps = g_subStepCount.load(std::memory_order_relaxed);
+    out->submitStepTwo = g_subStepTwo.load(std::memory_order_relaxed);
+    out->submitStepMore = g_subStepMore.load(std::memory_order_relaxed);
 }
 
 // 41.1 (Dishonored): cumulative, NOT drained - a per-present reader must not eat

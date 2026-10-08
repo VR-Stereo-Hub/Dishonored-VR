@@ -61,6 +61,10 @@ static bool LensFollowHead();
 static void LensRainPctSet(int pct);
 static int LensRainPct();
 static void LensFollowEye(int eye);
+static void HbConfigure(const char* ini);
+static void HbSet(bool on);
+static bool HbEnabled();
+static bool HbCommand(const char* args);
 static void WmConfigure(const char* ini);   // VR-138 (hands/weapon_mirror.cpp)
 static void WmSet(bool on);
 static bool WmEnabled();
@@ -79,6 +83,7 @@ static void DrawCallersApply();          // VR-80: the draw root's other callers
 static void DrawCallersSet(bool on);
 static void SceneDrawSetArmed(bool on);
 static void SceneDrawSetAlternate(int mode);   // VR-39: 0 reentry, 1 aer, 2 afw (scene_draw.cpp)
+static void SceneDrawSetSilentGrace(bool on, const char* who);   // [Stereo] CameraSilentGrace (scene_draw.cpp)
 static bool SceneDrawPoisoned();
 static uint32_t SceneDrawDraws();
 static void SceneDrawGates(uint32_t out[8]);   // 41.1: the pass-2 skip counters for the stale-eye line
@@ -121,6 +126,8 @@ static void FrameDumpRequest(const char* what);
 static void ConfigWriteKey(const char* section, const char* key, const char* value, const char* who);   // 41.1 (session 9)
 static void MpTrimPanel();   // F10 Hands: the numpad hand adjust as sliders (mesh_split)
 static void FrameDumpTick(IDirect3DDevice9* dev);
+static void FrameBurstRequest();
+static const char* FrameBurstStatus();
 
 static inline bool SkcAlive(int slot);
 static inline bool GraftDonorAlive(int u);
@@ -291,9 +298,12 @@ static void CinePitchEnd();
 static bool ProjectionFovScopeActive();
 static float ProjectionFovGet();
 static bool HandsWorldFovGet();
+static bool ZoomMagnifyGet();                                   // 2026-10-07: [Screen] ZoomMagnify (present_tick.cpp)
+static void ZoomMagnifySet(bool on, const char* who);
 static float AfwFgGainGet();
 static void AfwFgGainSet(float g, const char* who);
 static void ArmsLensResolve();
+static int  ArmsLensUse();
 static bool ArmsLensFind(bool slow);
 static void ArmsLensStatus(char* buf, size_t n);
 static void HandsWorldFovSet(bool on, const char* who);
@@ -310,6 +320,8 @@ static float CineFovScopeTarget();
 static bool CineHeadOwnsInput();
 static bool SpecialHeadEnabled();
 static void SpecialHeadSet(bool on);
+static float KeyholeForwardCm();
+static void KeyholeForwardSet(float cm);
 static bool SpecialHeadResumeYaw(int32_t& delta);
 static void CineHeadNoteDispatch();
 static bool CineHeadDispatchFresh();
@@ -561,6 +573,8 @@ static void MfMarker(void);
 static void MpOnReset(void);
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);
+static bool MsCineHideNative(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
+                             UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);
 static const char* MsModeName(int m);
 static void MsTick(void);
 static bool MsCommand(const char* args);
@@ -688,6 +702,43 @@ static void InteractAimSet(bool on, const char* who);
 static void InteractAimConfigure(const char* ini);
 static void InteractAimTick();
 static bool InteractAimCommand(const char* args);
+static void InteractAimInstall();
+// Loot picked up by reaching for it (physical_pickup.cpp).
+static bool PickupEnabled();
+static bool PickupRay(float* origin, float* dir);
+static void PhysicalPickupTick();
+static bool PickupPadFilter(dvr::vr::InputSnapshot& raw, bool blocked);
+// The grab animation (hands/mesh_split.cpp, THE GRAB).
+static void GrabAnimNotify(int hand, const char* who);
+static void GrabAnimGrip(int hand, bool down);
+static bool GrabAnimEnabled();
+static void GrabAnimSet(bool on, const char* who);
+static void GrabAnimConfigure(const char* ini);
+static bool GrabAnimCommand(const char* args);
+static void GrabAnimWriteTimes(const char* who);
+static void GrabAnimTimes(float* t5);
+// The ready hand (hands/mesh_split.cpp, THE READY HAND).
+static void GrabReadyPublish(uint32_t mask);
+static bool GrabHideHeld(int hand);
+static bool GrabReadyOpenEnabled();
+static bool GrabReadyHideEnabled();
+static void GrabReadySet(bool open, bool hide, const char* who);
+static void GrabAnimSetTimes(const float* t5);
+static void PickupSet(bool on, const char* who);
+static void PickupSetReachCm(float cm);
+static float PickupReachCm();
+static void PickupSetBookReachCm(float cm);
+static float PickupBookReachCm();
+static bool PickupDoorsEnabled();
+static void PickupSetDoors(bool on, const char* who);
+static void PickupSetDoorReachCm(float cm);
+static float PickupDoorReachCm();
+static bool PickupCarryEnabled();
+static void PickupSetCarry(bool on, const char* who);
+static bool PickupUsablesEnabled();
+static void PickupSetUsables(bool on, const char* who);
+static void PickupConfigure(const char* ini);
+static bool PickupCommand(const char* args);
 // VR-166: grenades and other throws aimed by hand (throw_aim.cpp).
 static bool ThrowAimEnabled();
 static void ThrowAimSet(bool on, const char* who);
@@ -724,6 +775,8 @@ static void CarryHoldSetRotate(bool on);
 static bool CarryThrowTriggersSwapped();                        // VR-181: the pad bridge
 static bool CarryThrowLeftEnabled();
 static void CarryThrowLeftSet(bool on, const char* who);
+static bool CarryInGrabHandEnabled();
+static void CarryInGrabHandSet(bool on, const char* who);
 static bool CarryThrowAimEnabled();                             // VR-181 (throw_aim.cpp)
 static void CarryThrowAimSet(bool on, const char* who);
 static void CarryThrowAimConfigure(const char* ini);
@@ -741,6 +794,12 @@ static void TrackHead(const float (*m)[4]);   // 3x4 device-to-tracking
 static inline SHORT PadStick(float v);
 static void MaimHaptic(int hand, float amp, float durSec);
 static void HealthElixirTick(bool held);
+static bool ZoomTapGet();                                      // 2026-10-07: [Controllers] ZoomTap (pad_bridge.cpp)
+static void ZoomTapSet(bool on, const char* who);
+static bool ZoomGestureGet();                                  // 2026-10-07: [Controllers] ZoomGesture (pad_bridge.cpp)
+static void ZoomGestureSet(bool on, const char* who);
+static void ZoomGestureRadiusSet(float cm, const char* who);
+static void ZoomGestureRightSet(float cm, const char* who);
 static void MeleeTick();
 static bool MeleeActive();
 static void UpdateVirtualPad();

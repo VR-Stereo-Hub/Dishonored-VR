@@ -1,3 +1,1155 @@
+## 2026-10-07: release 1.0.4
+
+**Current state.** `staging` carries #186-#191, #194 and #195 on top of 1.0.3; the owner declared
+1.0.4. `docs/RELEASE_NOTES.md` has the player-facing notes (full-arm IK first; fixes to features new
+in this release are not listed as fixes). The release PR #188 (staging -> VR-Main) is merged by the
+owner's instruction, the package is built from the VR-Main tip, tagged `v1.0.4` and published.
+Open after the release: the Heart desync after a wheel switch from the crossbow (contract never
+re-matched; see the keyhole entry below), and the Virtual Desktop decoder freeze (FLICKER_REFERENCE
+top entry). PR #192 (the grab-reticle brief) is superseded by #194.
+
+## 2026-10-07: keyhole view pushed through the door; a post-keyhole stall recorded (claude/keyhole-peek, stacked on #194, not merged)
+
+**Current state.** Two reports from one run (v1.0.3-140-gf67e46430). (1) While peeking through a
+keyhole the eyes sat inside the door. New `[Cine] KeyholeForwardCm` (default 15, F10 Comfort >
+Cutscenes and special cameras, a slider; 0 = the game's own spot): while
+`StatePlayerMasterHolePeeking` owns the camera, the eye is pushed that far along the DOOR's authored
+heading (expressed in the head-look scope's composed-yaw frame, so turning the head does not move the
+push sideways), on top of the head's own offset. 15 cm is a starting value, not a measured door
+depth. `camera/keyhole: peeking - eye pushed ...` logs it once per peek. (2) After a keyhole peek one
+eye froze and the other ran at a few fps: FLICKER_REFERENCE's top entry. Every `xrEndFrame` blocked
+about 85 ms from 2 s into the second peek until the game was quit; the pause menu, which rides stereo,
+went out untagged. Instrumented: `gpu/engines (gap): ...` (per-process GPU engine utilization from
+Windows' counters, on its own thread when a frame gap is reported, at most every 10 s, follows
+`[Perf] GpuMem`) and `afw/warp: GPU per rebuild ...`. Later the same evening it recurred without the
+grab gate and without a keyhole, and the VD overlay showed about 200 ms headset DECODING with normal
+network numbers: the stall is the headset's decoder falling behind (FLICKER_REFERENCE top entry).
+The keyhole push itself was seen working in a live log (`eye pushed 15.0 cm = 16.2 uu`).
+
+**Next.** In the headset: peek through a keyhole and set the slider until the door is behind the
+view; put the value in the ini default if 15 is wrong. If the stall recurs: reconnect the VD stream
+without restarting the game, or try another codec at the same refresh rate; copy the log out first.
+## 2026-10-07: the grip takes what the engine focuses (claude/grab-reticle, PR #194, not merged; the Linear ticket is owed)
+
+**Current state.** Reported: a grabbable the reticle is on cannot be taken by either grip. Read from
+the 1.0.3-137 log already on disk (no new run): the grip gate in `physical_pickup.cpp` required the
+engine's focus to be the mod's target, and the two were apart for seconds at a time - the target a
+usable whose box held the palm while the engine focused an elixir behind it, then the elixir dropped
+for 1 s after its own palm trace found nothing, while the pointing ray focused it again with no target.
+The gate now takes the grip for whatever listed thing the engine focuses within a palm's reach (one
+hand only), keeps a target while such a focus holds, and logs every refused grip with both pointers,
+their classes, the palm distance and the reason. The trace bridges are unchanged. ENGINE_NOTES
+("Physical pickup", 2026-10-07 bullet) has the measurement. Built (Release), NOT run.
+
+Installed on the dev PC over the 137 DLL the CorvoBody session had restored (its logs fill `.log` to
+`.prev6.log`; the 137 run is `.prev7.log`). The ini is byte-identical to the pre-CorvoBody backup
+(the 137 run's own, CRLF throughout) and this change adds no key, so it was kept as is. The DLSS
+helper in `dvr_dlss\` is still the 137 install's (this build was made without the NGX SDK).
+Backup of the DLL, ini and logs: `%LOCALAPPDATA%\DishonoredVR\backups\2026-10-07-pre-grab-reticle`.
+
+**Next.** In the headset with this build: the elixir-in-a-cabinet case or any coin under the reticle.
+Grip with the prompt showing; the line to read is `pickup: ... grip pressed with the target in reach
+and focused` (taken) or `pickup: ... grip NOT taken - <why>` (refused, with the values). The beat's
+`gate passes on a focus that is not the target` says how often the new path fired.
+
+## 2026-10-07: the layer's claim and the spyglass zoom (claude/fov-claim-zoom, stacked on #190, not merged)
+
+**Current state.** Two reports from the same run, one cause. (1) A conversation turning into Piero's
+store shrank the view into a box for 1.5 s: the store's screen flagged the menu before the store state
+arrived, `cine/fov` released, and the layer's claim fell to the camera FOV sensor (50 deg, the dialogue's
+look-at intent) while `fgproj` measured every world draw at 103. (2) The mask-on scene's "zoom" was not
+an FOV change (drawn 103, claimed 103, zoom-lens post-process off): authored camera motion, nothing the
+spyglass can borrow. The spyglass (the mask's zoom, `GBA_Zoom`, 30 on 75) was already drawn
+proportionally (47.4 on 103) and then claimed honestly, which in VR is a smaller picture, not a zoom.
+Shipped: the claim is the frame's own measured world projection (`fgproj_frame_world_hfov_deg`),
+`[Screen] ZoomMagnify` (default 1, F10 Display, `zoommagnify`) holds the claim at `ProjectionFov` when
+the scene is drawn narrower so the zoom magnifies like a scope, the lever keeps the arms' FOV field at
+the target during such a zoom, and `cine/fov` keeps its scope through the dialogue/store menu gate.
+ENGINE_NOTES, ARCHITECTURE and TRAPS have the measurements and the decision.
+
+Second run (v1.0.3-133-g04b8df581), three findings, all built into the second commit. (a) The claim
+held at 103 all run, yet the shop choice still showed a small picture, rectangular: it is the
+PRESENTATION falling back to the flat quad. Choosing the shop in the dialogue raises the menu flag
+for 1.2 s with no owner ever published (context Other, nothing rides), the 300 ms "open pending"
+stand-in expires, the ordinary terms refuse on the menu flag, and the mono quad shows until the flag
+drops (measured twice, gateAge 1187 / 1203 ms). The open gap is now 2.5 s in a cinematic state, still
+demanding the scene draw. (b) The zoom narrowed nothing (every world draw at 103): the right stick
+click never reaches the pad, the R3 D-pad modifier consumes it and the elixir takes the hold.
+`[Controllers] ZoomTap` (default 1): a tap under the elixir hold with no D-pad pick pulses the pad's
+right thumb button, the game's own zoom toggle. Asked for in the same session and built:
+`[Controllers] ZoomGesture` (default 1, radius 12 cm): the right trigger with the right controller
+held at the right eye (grip pose against the head pose moved half the IPD right) is the same pulse,
+and that press is swallowed as an attack, so clicking the mask's lens steps the zoom. (c) `ZoomMagnify` had magnified the second after
+each load (the world drawn at the game's 75 or 90 before the lever arms, no scope up); it now acts
+only on a draw the scene scope itself narrowed. Also reported: the eye a foot behind Piero's hands in
+the mask-on scene. The run's positional offset there was under 1 cm (heartbeat `lean=(-0.9,+5.6,0)uu`),
+so it is not the room; `eye/probe:` (every 5 s) now logs the camera against the pawn's eye in the
+pawn's yaw frame, so the next run says whether the eye sits behind the pawn's eye or the scene is
+staged short of the face for a flat frame. Installed with the player's settings kept, NOT run.
+
+Third run (v1.0.3-134-g0bca7d804): the tap zoom is HEADSET-CONFIRMED (world drawn at 41.2, claimed
+103, 3.3x; the lever's linear 41.2 rather than the authored 47.4, left as measured), the shop choice
+no longer drops to the quad (reported good). Two faults: (a) the left hand stuck forward in the zoom
+with a weapon out is the game's arm lens scaling the arm mesh's LocalToWorld during its lock-arms
+zoom (`m_bUseFOV=1`), which the placement refuses (`column is not unit`) and then drew the engine's
+own hand at its native pose; interim, a hand refused that way while the lens is on is not drawn, and
+the refusal logs the column norms for the real fix (placing through the scale); (b) the eye gesture
+never fired and logged nothing; every trigger press now logs grip and aim distances from the right
+eye, the nearer pose counts, radius 15 cm. Third commit, installed, NOT run.
+
+Fourth run (v1.0.3-135-g62bfd3c1d): the gesture FIRED (three pulses at 11 to 13 cm, logged) but the
+zoom was barely visible, so it read as not triggering. Cause: the save had been made while zoomed,
+the game loaded zoomed, and the lever's first base capture after the load read the zoom's 32.12 deg
+(`fovlever: natural base 32.1 deg ... first capture`); every zoom after it was scaled against 32 and
+drew at 96 (`fgproj` 96.2 at 81%). `rearm_natural` now refuses a FIRST capture under 50 deg
+(`kNaturalFloorDeg`; a kept base still treats a narrow reading as KeptNarrower) and the lever says so
+once; host test added. Fourth commit, installed, NOT run.
+
+Fifth run (v1.0.3-136-g5de0d92fd): the base floor held and the zoom worked from the same zoomed save.
+The gesture only worked with an empty hand and drew the weapons: the game acts on the trigger's first
+few percent before the 0.7 threshold decided it was the gesture. It is now decided at the trigger's
+first movement and swallowed from there; the anchor sits `ZoomGestureRightCm` (8) to the right of
+the right eye. Also audited for added overhead (reported 60 fps at Hound Pits, 100% reentry, no DLSS):
+none found, the mod's time inside the tick is under 1.2 ms and fell on the native side; the 60 is the
+GPU floor of two 7.84 MP draws (PERFORMANCE.md, 2026-10-07). Fifth commit, installed, NOT run.
+
+**Next.** In the headset: the eye gesture (read `zoom: right trigger ... cm from the right eye` on a
+press that did not fire; set `zoomgesture radius <cm>` from it); zoom with the crossbow out (no stuck
+hand; read the column norms in `ms/palette/world: ... NOT placed`); `eye/probe:` in a scene with the
+game's hands at the face. Then the owner merges #190 and #191 (retargeted to staging) so #188
+carries them.
+
+## 2026-10-07: game-owned arms with full-arm IK - takedowns, the boat, a scripted pickup (#190, not merged)
+
+**Current state.** Branch claude/ik-takedown-shoulder, three commits. (1) Takedown shoulders in front
+of the view: the game-arm re-seat's stretch cap (1.25) bound in 47 of 62 logged samples; it is now
+`[Hands] ArmIKGameArmMaxStretch`, default 1.9, F10 IK slider. HEADSET-CONFIRMED on takedowns.
+(2) The still boat-ride arms: `CineHideStaticArms` was dead code (the draw hook's native exit ran
+before it), then view-relative (released on head turns, the arms being fixed to the authored camera).
+It now runs at that exit and fingerprints the pose in the arm mesh's own space (`[Anim] CineHidePoses`,
+10 uu tolerance); HEADSET-CONFIRMED on the boat, so it ships ON with the boat's pose baked in and
+`DefaultsRev=3` turns it on for existing inis. (3) Found in the same session, built, NOT run: in a
+scripted pickup (sewer weapons) the arms sat too far forward whatever the IK shoulder slider said,
+because the re-seat targeted the IK shoulder AFTER its reach shift (15 to 37 uu forward, chasing the
+game's wrist); it now targets the nominal shoulder and logs the shift it excluded. ANIM-HANDOFF-PLAN.md
+and ARM_IK.md carry the measurements. Installed on the dev PC with the player's settings kept.
+
+**Next.** The sewer pickup (or any scripted scene with the game's arms) in the headset: shoulders on
+your own, the `ik/gamearm` line's `wanted` under 1.9 (above it the stretch slider is the lever). Then
+the owner merges #190 so #188 carries it, and the 1.0.4 package is rebuilt on the VR-Main tip.
+
+## 2026-10-06: the headset-tuned IK fit is the 1.0.4 default (#189, merged)
+
+**Current state.** #187 is merged into staging (`c07aa0c9b`); release PR #188 (staging -> VR-Main) is
+open. This branch makes the IK fit tuned in a headset the default: forward -16, up -25, width 38.1,
+arm length 1.27 (was -6, -20, 36, 1), in the code, the default and packaged ini, the F10 reset and
+ARM_IK.md. `[Meta] DefaultsRev=2` moves an existing ini once, and only the keys still at the old
+default; the `config: defaults revision 2` line says which moved and which were kept. Installed on
+the dev PC through the built launcher's `update` (fresh defaults), not yet run.
+
+**Next.** The owner merges this into staging so #188 carries it, then the release ritual below.
+
+## 2026-10-05: 1.0.4 release candidate on claude/steamvr-launch (PR #187, merged 2026-10-05)
+
+**Current state.** Version 1.0.4 (CMakeLists). #187 carries: the SteamVR shim when elevated, the capture
+AutoDepth threshold lever, field log noise, latched grab poses, carry in the grabbing hand (mirrored ray),
+the approved defaults with a one-time `[Meta] DefaultsRev` upgrade, the IK and Heart data shipped inside
+the DLL (`assets/vr/`, owner's decision in CLAUDE.md), the F10 Interact tab and clearer section names,
+and every host suite repaired and passing. The cutscene arm hide does not catch the boat ride; it is off
+by default and listed in KNOWN_ISSUES. RELEASE_NOTES has the 1.0.4 section.
+
+**Next.** The owner merges #187 into staging, then the release PR staging -> VR-Main (`release: v1.0.4`),
+then `tools\package.ps1` on the VR-Main tip, the v1.0.4 tag and the GitHub release with the zip, the
+setup exe and `DishonoredVR-Launcher-v1.0.4.exe` (LINEAR_AND_GITHUB.md, the release ritual and the
+launcher update contract).
+
+## 2026-10-05: SteamVR not selected when the game runs as administrator; field log noise
+
+Branch `claude/steamvr-launch` off staging `93785a460` (the flicker audit merged as #186).
+- A player's report: `[VR] Runtime=steamvr`, SteamVR picked in the launcher, and the game
+  still opened on VDXR. Their support bundle: every session logged `game is running elevated;
+  the shim cannot be selected` and then `instance created on runtime 'VirtualDesktopXR'`. The
+  mod chose the shim only through the `XR_RUNTIME_JSON` environment variable, which the
+  OpenXR loader ignores in an elevated process (its secure getter). The shim path now also
+  sets the loader's own property override (`xrInitializeLoaderKHR`, the route `[VR]
+  XrRuntimeJson` already used and measured through Steam on 2026-09-02), which the loader
+  reads first and honours elevated; a WARNING names both runtimes if the shim was asked for
+  and another answered. NOT verified elevated (needs a run as administrator with SteamVR):
+  the loader source is the evidence (`manifest_file.cpp` reads the manifest through
+  `LoaderProperty::GetSecure`, which returns the override before the environment).
+- The launcher already starts the game de-elevated; the elevation came from Steam or the exe.
+- The same bundle's VDXR session: 238 one-eye double pushes, tracking capture timeouts
+  minute by minute on the `v1.0.3` release, which lacks the 2026-10-03 capture fixes now on
+  staging (FLICKER_REFERENCE top entry).
+- Log noise found in field logs, fixed: `cmd: ... (err 2) - the seam is DEAF` (a missing
+  command file is normal for a player; now one Info line) and `hud/markers-sharp: REFUSED`
+  once a second (now on a change of reason).
+
+- Two more field bundles (a fast GPU at 120 Hz): afw flicker = capture timeouts at 2-4% of
+  grabs, under AutoDepth's 10% threshold (held presents and double pushes track them; reentry
+  barely times out). `[Capture] AutoDepthPercent` (default 10, F10 Display, `capture
+  autodepth <pct>`) lets 2 be tried. afw's frame rate on that machine reaches the 120 Hz cap
+  at 100% with DLSS to 2750x2850; at 150% the capture copy and per-present rebuild/DLSS make it
+  GPU-bound (PERFORMANCE).
+
+- Grab fix: the ready/grab hand started from (and closed into) another hand's grip - the open
+  pose was copied every frame both hands READ empty (the read lags an item draw) and the fist
+  was the right hand's live game pose. Both are latched now (`dvr::grab::PoseLatch`, 1.5 s).
+- `[Anim] CineHideStaticArms` (default 0): hides the game's cutscene arms while still with both
+  hands behind the camera. Check the sign of the `cine/hidearms:` depths on the first run.
+- ReShade field failure (error 1114 on 1.0.3) is fixed on staging by 758eb9124; the host suite
+  now covers a game folder with no ReShade.ini.
+
+- Grab poses headset-confirmed (2026-10-05). Reach defaults are now the headset-tuned 60 / 74 / 75 cm
+  (loot / books / doors, carried things and levers), were 45 / 55 / 35; an existing ini keeps its values.
+- `[Aim] CarryInGrabHand` (default 1): a carry started by a hand's grip stays in that hand - the aim ray
+  follows that hand for the carry (hold and throw ride it), the hold offsets are mirrored for the right
+  hand, and the right trigger throws a right-hand carry. The Interact button still carries in the left.
+  Not run. `carry/aim: carrying a movable in the RIGHT hand` and `crosshair: ray hand RIGHT for a carry`
+  are the lines to read.
+
+- Defaults revision 1 (2026-10-05, approved): CameraSilentGrace, GrabAnim, GrabReadyOpen/Hide,
+  HideTakedownArms, PoseFromView, ArmIK, HeartBack, CrouchToggle on; DlssModel 0 (K) again, in the code,
+  the default ini and the launcher. `[Meta] DefaultsRev` writes exactly these keys (and the reach values)
+  into an existing ini once; nothing else changes. Stereo method stays reentry.
+- ArmIK and HeartBack need game-derived files (the arm rig, the Heart rig/back/material) that the repo
+  rule forbids committing. Without them both fall back silently. Shipping them needs a per-machine
+  generation step; not decided.
+- Right-hand carry fixed: it now mirrors the left hand's measured ray (it waited for a bolt axis).
+
+- F10: a new Interact tab (reach, grab hand, held objects), Button mapping in Controls, Frame capture in Debug,
+  the cutscene arm hide works under full-arm IK (docs/dishonored/F10_AUDIT.md, 2026-10-05 pass).
+- IK and Heart data files ship in assets/vr/ and are embedded in the DLL (owner's decision, CLAUDE.md).
+
+**Next:** a SteamVR-rig check of the shim from an elevated game (Steam run as administrator):
+the log must say `loader property override XR_RUNTIME_JSON -> set (the SteamVR shim)` and
+`instance created on runtime 'DishonoredVR SteamVR shim (OpenVR)'`.
+
+## 2026-10-05: audit headset run 1 read
+
+Build `v1.0.3-103-g889315d37`, 877 s, afw, ping trace beside it (FLICKER_REFERENCE top entry).
+- F1 `CameraSilentGrace=1`: camera-silent gates 0 (baseline 7 in 10 min), double pushes 0,
+  stale eyes 0, held presents 0. It also keeps the pause menu and notes at full-rate stereo
+  (442 and 161 kept ticks there) instead of alternating single/double ticks: the perceptual
+  verdict, especially in pause and notes, is the open question before it becomes a default.
+- F9: the 5.66 s stall is the NETWORK PATH to the headset (94% of stalls coincide with a ping
+  spike, chance 28%; the fold agrees). The PC is wired, so the radio side is the suspect. Next
+  run: two traces at once, `net-ping-watch.ps1 -Target <router ip>` and `-FromStreamer`.
+- F8 checks cost 2.2/1.6/0.5 ms (small; bound kept). F11 raw bytes on VDXR as predicted. F3:
+  1.23 slots per frame; the skipped-slot percentage under-reports on VDXR.
+- Fixed: the ping tool's empty clock column (PowerShell 5.1), the correlator's null control.
+
+## 2026-10-05: full stereo/afw flicker and smoothness audit - four changes built, installed, not yet run
+
+**Current state.** Branch `claude/flicker-audit` off `staging` `6329ae552`, draft PR against
+`staging`, no merge. Every section 1 row of FLICKER_REFERENCE was re-derived from today's
+code, every section 4 elimination re-checked, 55 host suites run (6 repaired, 4 still
+stale, named in VERIFICATION), the ten logs on disk read (the installed `-96` build had
+never run; the newest headset log is build `-85`). The record is FLICKER_REFERENCE: the
+2026-10-05 entries, section 4.4 and appendix 9 (the matrix, the cases and invariants, the
+pipeline map, the headset risks in order). Findings, in the order they reach the headset:
+
+- F1, MEASURED cause, candidate built: the gameplay camera-silent gate's baseline is the
+  previous draw's RETURN, so a present stall or a catch-up tick makes a single-eye tick
+  (0.7/min in gameplay; under afw one eye a tick behind for one present). `[Stereo]
+  CameraSilentGrace` (default 0, host-verified 254,276 checks, armed =1 in the installed ini).
+- F9, MEASURED, OPEN: xrEndFrame blocks 5-6 display slots every 5.66 s of wall clock in
+  every VDXR 144 Hz session since 1.0.1-253 (never on the simulator; no mod timer has that
+  period). `tools\net-ping-watch.ps1 -FromStreamer` during one session decides link vs PC.
+- F8, fixed: the depth-share proof synced both devices on the present thread every 5 s all
+  afw session; bounded to three checks (`[Diagnostics] DepthShareChecks`), cost now logged.
+- F11, resolved: the simulator's per-eye exposure alternation was the afw rebuild through a
+  typed sRGB view; the compose decodes (`afw typedsrgb on|off`); no headset effect.
+- F3, filled: `stereo: rate` now prints the afw SUBMIT CADENCE (it read n/a for the played
+  method). Negatives and retractions: 4.4 (afw ring skew: measured zero; markers-sharp
+  flood: not current; six levers ship 1 in the ini with a code default of 0; the packaged
+  ini had fallen behind the writer and is regenerated).
+
+**Installed (2026-10-05):** the Release build of this branch's tip - the log banner names
+THIS commit (`v1.0.3-103-g<this hash>`; the DLL's sha256 and the exact tag are in
+`install-note.txt` of the backup folder below), byte-identical to the build; the previous
+`v1.0.3-96-g6329ae552` (never
+run), the whole ini and all ten logs are backed up together in the local log archive
+(`2026-10-05-flicker-audit-install-backup`). The installed ini equals the prepared expected
+ini byte for byte, CRLF verified (1718 lines, no bare LF); the only change against its backup
+is four added lines: `[Stereo] CameraSilentGrace=1` (ARMED for the run) and `[Diagnostics]
+DepthShareChecks=3`, each with a comment. Every other key keeps its value and its meaning
+(`Method=afw`, `DLAA=1`, `DlssModel=0`, `PoseFromView=1`, `ArmIK=1`, the grab keys at 1,
+`ModSpacewarp=0`, `Managed=paged`, 1832x1900, `DataDir=` empty). The DLSS helper in
+`dvr_dlss\` is the one already installed (this worktree has no NGX SDK). No launch.
+
+**Next steps.** One headset session, two questions in one run: (1) F1 - 5 minutes of
+ordinary play then 20 s standing still; `reentry: beat ... silentGrace=on N` must rise with
+movement while gameplay `gates -> SINGLE draw (camera silent` and `pushed eye -1 TWICE` fall
+to zero, and stay flat standing still (a still camera must still read SINGLE); any eye swap
+or new `STALE . EYE` retires the lever with `reentry silentgrace off`. (2) F9 - run
+`tools\net-ping-watch.ps1 -FromStreamer -Minutes 5` during the same session and lay its
+spike ticks against `perf: frame gap` ticks. Read without doing anything: the three
+`depthshare: check ... cost` lines, the `SUBMIT CADENCE` figures, the one-time `afw/warp:
+the rebuilt eye is written through a format-...` line (must say raw bytes on VDXR). After
+that: the lever census in TRAPS (six code defaults behind the shipped ini), F1b (afw
+alternation after a single tick) only if F1 leaves a residual, and VR-165's `popsmooth`
+that cannot act on this build.
+
+## 2026-10-05: Heart glow locomotion accepted for staging
+
+Headset testing confirms the Heart glow remains aligned during locomotion on
+v1.0.3-58-g3c61de512. The current log banner and installed DLL SHA-256 match
+the candidate; the run and previous logs are archived locally under
+effects-candidate/accepted-run. The log records the current-parent-frame path
+operating during travel, with the existing 120 uu rejection guard still active.
+This is acceptance of the Heart locomotion test; separate Possession casting
+coverage is not claimed. All 733 host checks and the optimized build passed.
+
+Heart backing PR #182 is merged into staging at e222f82a7. Integration into staging is explicitly authorized for the accepted Heart
+backing and shared hand-effect correction. Preserve both finalized feature
+branches. The release branch is outside this integration. The Heart assets
+remain local-only; packaging requires the prepared binary files described in
+the Heart PR. The installed accepted candidate remains unchanged.
+
+## 2026-10-05: Hand-effect locomotion correction installed
+
+Heart backing PR #182 is ready for review against staging and remains unmerged.
+Child branch codex/hand-effects-locomotion starts from its accepted tip. The
+reported follow-up is the Heart glow sliding out during walking; Possession
+has the same shared attachment route. No new Linear issue is created under the
+established workspace-limit exception.
+
+The old script writer applies a render snapshot's world correction to current
+bone positions. Reproduce the resulting travel-dependent displacement in the
+production-code host harness. Carry the correction through each parent's local
+frame, then through that parent's live native transform. This also handles an
+arm update preceding a held-item update. Apply it to the existing shared path
+for hand particle systems and light components, including Heart, Possession
+and Blink. Do not alter particle assets or engine bone animation.
+
+Runtime safety: coherent render publication, parent/component/FName/bone identity
+checks, a refreshed live-object table across menu/load boundaries, re-reading
+the attachment after engine calls, and restoration only while the relative is
+still ours. Fresh post-transition draws are required. The existing movement
+limit and once-per-frame/reentry guards remain.
+
+Validation: 733 production-code host checks pass. A fixed hand with 6/-2 uu
+body translation exposes 3.872011 uu error in the old formula versus 0.000275 uu
+corrected; staggered parent updates also pass. All 77 travel/turn poses remain
+below 0.001 uu position error. UModel and UE Explorer's library confirm the
+Heart required module and both Possession hand-cast required modules use local
+space. Details, rejected arm-only correction and limits: ENGINE_NOTES.
+
+Installed on subsequent user authorization: v1.0.3-58-g3c61de512, DLL SHA-256
+C0AD7618BEBE303209470A8565185D064CA03567C6F9B0F157FAAE0F7031CB18.
+The previous DLL, complete INI, current and previous logs, and Heart assets are
+backed up together under the local effects-candidate/install-20261005-075916.
+The entire installed INI matches both its backup and expected bytes; CRLF is
+verified and there are zero INI changes. Approved Heart assets match hashes.
+Compatibility: explicit DlssModel=0 retains its meaning; AbPlanOnce is empty.
+The newer combined build's physical pickup and VisibilityMaskProbe features
+are absent here; the retained probe key is ignored. Hand animation policy is
+unchanged. No game was launched; headset validation remains pending.
+
+Next launch asks one question: with the
+Heart held still relative to the body, does its glow remain inside while walking
+and strafing? Stable alignment supports the fix; continued drift requires the
+new parent-travel diagnostics before changing another mechanism. Possession
+casting while moving is a separate follow-up launch.
+
+## 2026-10-05: Heart backing accepted, PR ready for review
+
+The final natural-seam backing is headset-accepted on v1.0.3-55-gf8f2260ea.
+The archived previous-session log matches that build and confirms the five
+custom material channels loaded with exact native texture matches. The current
+log belongs to another combined test, v1.0.3-60-g35decd986, so it is not evidence
+for the backing. No new launch or installation was performed for this review.
+
+Finalize the Heart branch against staging without merging. The branch carries
+its existing HUD ownership, takedown defaults and ReShade prerequisite commits;
+the PR names those explicitly. Game-derived assets remain local and are not
+part of the PR. The backing requires the prepared model, rig and material files.
+
+Separate follow-up: the Heart's attached glow reportedly trails the mesh while
+walking. Inspect the shared particle/light follow path, including Possession
+and Blink, on a child branch. Hand motion alone was covered by the earlier
+attachment fix; locomotion alignment is not yet established.
+## 2026-10-05: Approved Heart material installed, awaiting in-game review
+
+The approved natural-seam Blender appearance now has a runtime material path.
+DVRHRT02 separates the 4,279 backing triangles from native-material details.
+The cap uses its own diffuse, normal, specular, specular-power and emissive
+maps, identified by exact BC1 content signatures for 24 native mip images
+(64 through 2048). Arbitrary sampler locations are supported. All bindings
+are restored before drawing the wires/details, preserving cap-first order.
+Unknown color passes refuse the addition instead of guessing a texture slot.
+
+Texture identity caches include a shadow-resource incarnation and successful
+upload count, and are cleared with weapon contracts on gameplay transitions.
+The code only owns D3D buffers/textures and adds no UObject or engine-memory
+writer. The shader, original Heart geometry and native body materials remain.
+The approved mesh retains 9,903 vertices, 19,439 triangles and its skin weights.
+
+Validation: optimized build passes; 17 model checks and 72 material checks
+pass. Real hidden D3D9 tests exercise five arbitrary sampler slots, duplicate
+bindings, full mip uploads and restoration after a deliberately failed draw.
+Paged D3D9Ex GPU tests pass, including new incarnation/write/read-only checks.
+A fuzzy mip-color matcher was rejected in favor of exact native compressed
+mips recovered with UModel from a reordered, isolated package copy. No game
+package is edited. Local material data and captures remain untracked under
+build/heart-backside-preview/seam-revision. Installed v1.0.3-55-gf8f2260ea
+with all three matching data files; SHA256 matches verified for every copy.
+The entire INI is byte-identical to its backup and expected configuration,
+with CRLF preserved and HeartBack=1 retained. DLL, INI, logs and previous Heart
+data are backed up together; latest-install.json records the installation.
+Exports (11) and lint pass. No game launch; in-game appearance remains unverified.
+Next launch: use the September 13 Hounds Pit save, equip the Heart and inspect
+the side seam for natural pink upper tissue and darker lower tissue continuity.
+
+## 2026-10-05: Heart seam material preview, original colors carried across join
+
+The v1.0.3-53 pale atlas remap is visually rejected and remains uninstalled.
+Side renders exposed a uniform peach backing against the original Heart's
+pink upper tissue and dark lower tissue. A new Blender-only material study
+uses dedicated 1024x1024 diffuse and tangent-normal textures. Original triangle
+UVs and tangent frames extend the adjacent tissue across all 65 boundary edges;
+a 14 mm transition joins a harmonic regional color field and subtle fine grain.
+The original mesh/material, camera and lighting are unchanged for comparison.
+Both sides and a rear three-quarter view have been rendered and inspected.
+Repeated mirrored source motifs were removed from the central backing texture.
+
+Local files: build/heart-backside-preview/seam-revision/Heart-natural-seam.blend,
+Heart_back_matched_D.png, Heart_back_matched_N.png, right-side.png, left-side.png,
+rear-three-quarter.png, side-comparison.png, and blend-seam.py. These remain
+untracked game-derived artifacts. This is a material preview, not an updated
+runtime build: the current Heart exporter/draw path only uses native textures
+and cannot reproduce this material yet. If approved for integration, implement
+and validate the custom texture path before claiming the build matches it.
+Installed build remains v1.0.3-50-g4cdd3b78d. No installation or game launch.
+
+## 2026-10-05: Lighter Heart backing candidate, build only
+
+The backing UVs now use a continuous pale flesh patch from the native Heart
+atlas instead of the dark lower patch. The exporter optionally matches native
+rim normals and feathers them into the backing over 12 mm, reducing the abrupt
+lighting seam. The local Blender material uses the same diffuse mapping as the
+export; its former preview-only vertex color blend is removed. The repeatable
+local authoring step is tools/heart-back-color.py followed by heart-back-export.py.
+
+Blender review used the actual exported mesh with its custom normals and native
+material. Attempts to fit boundary colors elsewhere in the atlas, including a
+continuous strip, produced mottled tangent-space normal detail and were rejected.
+The retained candidate improves the pale color match and seam shading; it does
+not add an independently baked diffuse texture or claim exact border color matching.
+All 9,903 positions and skin weights, 19,439 triangles and the rig are byte-identical
+to the installed asset. The model loader passes 14 checks with zero failures.
+Artifacts remain local under build/heart-backside-preview/color-revision.
+Build only: do not install this candidate without a subsequent instruction.
+
+## 2026-10-05: Heart backing deformation checked in Blender
+
+Blender 5.2 tested the installed-format backing geometry with its runtime
+8-bit skin weights on the original 22-bone Heart armature. Across 446 poses
+(rest, independent per-bone translations/rotations/scales, and an authored
+synthetic double pulse), all 65 rim vertices stayed attached: maximum separation
+0.0000167 mm. Boundary weight differences were below 0.00000003. The pulse moved
+the backing by up to 3.65 mm; its smallest cap triangle retained 73.9 percent of
+its rest area. Rendered rest/peak views show the rear details following the skin.
+
+This verifies skinning and rim continuity, not the native animation clip.
+The exported asset has no action, and UModel cannot decode the game's Edge
+animation data. The Blender action is explicitly labeled synthetic. Native
+heartbeat timing and deformation extremes remain unverified. Local artifacts
+are in build/heart-backside-preview/heartbeat: the saved blend, 24-frame GIF,
+rest/peak comparison, script and numeric report. No runtime or INI changes.
+The simulator opened before the Blender-only correction was closed without
+loading a save. The installed candidate remains v1.0.3-50-g4cdd3b78d.
+
+## 2026-10-04: Heart backing implemented and exercised in the simulator
+
+The approved local model now draws through the Heart's validated weapon passes,
+with its own vertex/index buffers and the game's current skin palette/materials.
+The branch preserves the installed arm, HUD and ReShade changes from 175cceda1.
+`[Hands] HeartBack=0` is the shipping default; the local installation has it ON.
+F10 Advanced > Hands and `heartback on|off|reload|status` control it live.
+
+Simulator validation used the September 13, 09:02 Hound Pits Pub save. All 2,583
+native vertices mapped to the local 22-bone reference within the 75-slot palette;
+the maximum relative weight error was 0.0000074. The added 9,903 vertices and
+19,439 triangles rendered successfully through wrist turns and a live OFF/ON
+comparison. The first candidate refused the extra constant-color stream; the
+revised candidate supports it and reported 14,755 draws with zero failures at
+the sampled status. The runtime fit reduces the new bulge near the gripping
+fingers while preserving all 65 original boundary positions and weights.
+
+The model-loader suite passes 14 checks, including malformed files and the local
+authored asset. Actual compositor screenshots and build/INI/log backups remain
+local under build/heart-backside-preview. The installation changed only
+HeartBack=1; later candidate installs preserved the entire INI byte for byte.
+CRLF is verified. Assets and captures are game-derived and remain untracked.
+
+Final candidate: `v1.0.3-50-g4cdd3b78d`, optimized, legacy off, installed and
+verified against its own log banner. Exports (11) and lint pass. The final run
+reported 30,714 successful backing draws and zero failures before the last
+angle capture. `final-rear`, `final-original` and `final-three-quarter` are the
+actual compositor captures. The selected save matches its backup hash.
+Next: review the delivered in-game screenshots.
+Headset perception, extreme animated grip poses and content distribution remain
+unverified. This is a local installed candidate, not a release. AFW stays shelved.
+Details: [Heart runtime evidence](dishonored/ENGINE_NOTES.md).
+
+## 2026-10-04: Heart backside model preview, awaiting visual review
+
+Created codex/heart-backside-preview directly from staging cc5feaca6.
+Located the shipped Heart skeletal mesh and textures in Startup.upk. A local
+Blender proposal closes the largest 65-edge rear opening with a rounded flesh
+wall, shallow vessels, sutures and retaining wires. Revised the material after
+visual feedback: source texture's darker flesh region, correct linear rim color,
+and matching roughness. Original front vertex positions and faces are exact.
+
+Rear before/after and front/three-quarter renders plus a packed Blender file are
+local under build/heart-backside-preview in the primary checkout. No game assets,
+DLL, INI or runtime code changed. Added geometry is a static visual proposal;
+skinning, animation and integration are pending explicit review of screenshots.
+The AFW cutscene candidate remains shelved on codex/performance-audit, with its
+build retained separately. See ENGINE_NOTES for asset discovery and validation.
+## 2026-10-04: ReShade - F10 lists the preset's effects; settings that apply; ini prepared at start
+
+Branch `claude/reshade-f10-audit`, stacked on `claude/hud-recouple` (PR #178, HUD test pending).
+Detail: INSTALLER.md, top entry.
+- F10 > ReShade listed every installed effect because ReShade loaded them all: an existing
+  ReShade.ini is never rewritten by the launcher and the dev PC's had
+  `SkipLoadingDisabledEffects=0`. The proxy now prepares ReShade.ini before ReShade loads
+  (preset-only loading, the mod's shader folders in the search paths) and F10 lists the preset's
+  effects, with "Show all installed effects" to add one.
+- "Performance mode" could not take effect from F10 (ReShade reads its config only when a runtime
+  is built). It and show-all now rebuild the runtime and verify what the new one read.
+- Host-verified against the real ReShade 6.8.0 DLL (817 checks). Not run in the game.
+- Installed on the dev PC: v1.0.3-47-g175cceda1, dishonored_vr.ini unchanged byte for byte (no
+  key of this build needs a stored value). The proxy will edit ReShade.ini on the next launch
+  (preset-only loading on, the custom shader folders added and created). Backup of the previous
+  DLL, both inis, the preset and the logs:
+  `build/playtest-candidates/hud-recouple/replaced-20261004-230947/`.
+- No Linear ticket: this session has no Linear access.
+
+- 2026-10-05, first headset log with the change: ReShade.ini needed no edit, but the ini had
+  `LoadAllEffects=1`, so the preset-only list and the Performance mode rebuild were not
+  exercised. 62 effects compiled per runtime, 0 errors. Detail in INSTALLER.md, top entry.
+
+## 2026-10-04: HUD widgets splitting and marker flicker - native ownership restored
+
+Branch `claude/hud-recouple`. Detail: dishonored/HUD_ANCHORS.md and FLICKER_REFERENCE.md, top
+entries; TRAPS.md, top entry.
+- Cause, measured from the ini backups and logs: `[Hud] SemanticOwnership` (the accepted widget
+  grouping of 2026-09-26) was default 0 and absent from the default ini; the dev PC's ini lost
+  the key when the installer rewrote it on 2026-09-27, and no session since armed the hooks.
+  HUD code is close to unchanged since v1.0.2.
+- Change: default 1, written in the default ini, one-time 0 -> 1 migration. No routing code
+  changed. Host suites pass. NOT yet run in a headset.
+- Next run: `hud/semantic: hooks=1` at startup, widgets in one piece, objective titles steady.
+- Installed on the dev PC: v1.0.3-45-g16881bd46; ini = the previous ini with
+  `SemanticOwnership=1` and `SemanticOwnershipRev=1` only, byte for byte (73882 bytes, 1701
+  CRLF). Backup pair and logs: `build/playtest-candidates/hud-recouple/replaced-20261004-224724/`.
+- No Linear ticket: this session has no Linear access.
+
+- 2026-10-05, first headset log with the change (build v1.0.3-54-gd0c57b1b9): hooks armed
+  (`hud/semantic: hooks=1`), no owner change (`hud/why ... CHANGED`) in 15 minutes, no ambiguity.
+  One view only and no perceptual report yet: still headset-pending. Detail in HUD_ANCHORS.md
+  and FLICKER_REFERENCE.md, top entries.
+
+## 2026-10-04: accepted takedown arm levers on by default
+
+Branch `claude/hud-recouple`. `[Anim] SmoothBlend`, `[Hands] ArmIKGameArmInAnim` and `[Hands]
+ArmIKGameArmShoulder` (1 = not the choke) now default ON in the code and the default ini: all
+three were headset-confirmed in run 4. The two IK keys do nothing unless `[Hands] ArmIK=1`,
+which still defaults 0. `[Anim] CinematicArms` stays 0.
+- No release carries these keys, so an upgrade from 1.0.3 takes the new defaults. An ini that ran
+  a staging build after #177 has `SmoothBlend=0` and `ArmIKGameArmInAnim=0` written and keeps
+  them (TRAPS section 1): set them in F10 or delete the lines.
+- Default writer = packaged = golden ini; animation host checks pass.
+## 2026-10-05: the unattended audit run, read (nothing built, no default changed)
+
+Branch `claude/performance-audit`. Detail: dishonored/PERFORMANCE.md, top entry (sections 1-9).
+- The plan completed (40 of 41 segments) on build v1.0.3-54-gd0c57b1b9, but **not in the played
+  configuration**: the F10 panel was opened in the lead-in and its Display tab wrote
+  `Method=reentry` and `DLAA=0` before the first segment. Every row is reentry, native
+  2750x2850, DLSS off; the two DLSS rows and `hud sharp off` were no-ops.
+- Hidden area: 10.9 % of each eye image (the extension is offered).
+- Rows: nothing our own costs more than its noise except the ReShade preset (about 0.7-0.9 ms
+  a pair, one unbracketed step) and the HUD redirect, which is 0.5 ms a pair CHEAPER than no
+  redirect under reentry. Engine switches reach the SCALE handler; the best are the shadow
+  ones at 1.5-3 %.
+- Stage profile: the scene is 8.0 of the render thread's 10.6 ms a pair (BasePass 3.4, shadowed
+  lights 2.5); on the GPU depth of field is 1.9 ms and MLAA 0.8 ms a pair although both
+  settings read off.
+- DLSS from the helper's own timer: K 3.3-3.9 ms against fast 0.85-1.1 ms per eye image; Ultra
+  Quality with K ran 2.6-3.2 ms a pair slower than native at the same spot (indicative).
+- Script lane named: four statements are 0.97 ms of a 1.6-1.8 ms tick.
+
+**Next steps:** the six go / no-go answers are the maintainer's (PERFORMANCE.md section 9 has
+the evidence for each). If a second run is wanted it must be in the played configuration, with
+the plan's restore words fixed first and the panel left closed. Faults to file: the once-a-
+second `hud/markers-sharp: REFUSED` Warn, the plan's fixed restore words, the stage profile's
+timestamp ring (half the intervals skipped) and 28-row cut. The installed ini now reads
+`Method=reentry`, `DLAA=0` (written by F10 in that session) with a 2114x2192 render ask.
+- Later the same day: run 2 prepared (`tools/perf-plans/audit-run2.txt`, about 9.5 minutes): the
+  open rows in the played configuration, plus two rows that size shadow sharing by dropping the
+  `Shadow Depths` stage in one eye and in both (`stages skip odd|all <stage>`, new, default off).
+  The plan now sets and checks its configuration and holds the F10 panel closed. Built, not run.
+  PERFORMANCE.md, top entry, section 10.
+- Run 2 read (afw, DLSS Ultra Quality, fast model; PERFORMANCE.md section 11). Three bursts of an
+  outside load spoiled the plan's own percentiles, so the rows are read from clean 3 s windows.
+  Transformer K costs 1.1 ms a present (14 %) over the fast model; DLSS Ultra Quality is no faster
+  than native; the ReShade preset is about 6 % of the rate; the HUD hand-off wait is backpressure;
+  MLAA still runs under DLSS (the option write at launch never reaches the renderer); no shadow
+  depth stage exists to share in the measured scene (the skip rows dropped nothing).
+  Decided: the fast model becomes the default (#181); MLAA under DLSS stays as it is. The audit
+  is closed; this branch holds the record and the tools.
+No game launched by the session. No Linear ticket (no Linear access).
+
+## 2026-10-04: pre-release performance audit (analysis; probe and plan built, nothing run)
+
+Branch `claude/performance-audit` (off staging). Detail: dishonored/PERFORMANCE.md, top entry.
+- From the 2026-10-04 headset logs: the played configuration (DLSS model K, mostly `stereo afw`)
+  runs 9.6 ms a present under AFW (102-104/s against a 144 Hz budget of 6.94 ms) and 12.6-15.8 ms
+  a pair under reentry, against 8.6 ms native without DLSS on 2026-09-27. The render thread is
+  saturated; DLSS K is the largest single cost; the mod's script hook takes 2.7-3.4 ms of every
+  game tick but is not the limit yet.
+- New: under AFW 2.0-3.5 ms of every present is a wait at the HUD hand-off, and every HUD sink
+  does its full copy every present even when empty (three of five were).
+- New lever candidate: the hidden-area mask (XR_KHR_visibility_mask; the Virtual Desktop runtime
+  offers it). Built: a probe only, `[VR] VisibilityMaskProbe=1`, logging the hidden share of each
+  eye image. Built: seam word `reshade effects on|off` and `tools/perf-plans/audit-1.txt`, a
+  six-minute A/B plan that sizes DLSS model/off, the HUD sinks, ReShade, the texture filter,
+  sharpen and names the script lane's statements.
+- Later the same night, from the IDA database (series `tools/ida/pf1..pf5`): the engine brackets
+  every render stage with named events that pass through our d3d9.dll, gated by one dword; the
+  stock `SCALE` console command and its whole switch table are in the image. Built: the stage
+  profile (`stages on|off`, `stages gpu on|off`: CPU, GPU and draws per engine stage) and
+  `tools/perf-plans/audit-2-engine.txt` (the engine's own switches as live A/B rows). Neither
+  has run.
+- 2026-10-05: `tools/perf-plans/audit-all.txt` runs all of it unattended in one launch (about
+  14 minutes); the planner gained `delay`, `atend` and the one-shot `[Perf] AbPlanOnce` key.
+- Release builds. No game launched. No Linear ticket (no Linear access).
+## 2026-10-05: fast DLSS model as the default; physical loot pickup (built, not run)
+
+Branch `claude/fast-dlss-physical-pickup` (off staging), two commits.
+- `DlssModel` defaults to 1 (the fast CNN presets) in the code, the default ini and the
+  launcher. Evidence: the performance audit's matched headset row, 14 percent of the frame rate
+  (dishonored/PERFORMANCE.md 2026-10-05 on `claude/performance-audit`). Existing inis are not
+  migrated. Launcher UI tests (256) and model tests (86) pass.
+- Physical pickup: a lootable item within 30 cm of a hand becomes what the game's own
+  interaction trace looks at, and that hand's grip picks it up (the grip's bound action is
+  suppressed for that press). `[Aim] PhysicalPickup`, `PhysicalPickupReachCm`, F10 > Aim, seam
+  `pickup`. Detail: dishonored/ENGINE_NOTES.md "Physical pickup", CONTROLLER_BINDS.md.
+- **Not verified:** nothing here has run in the game, the simulator or a headset; it compiles
+  and the default-ini check passes. First run, read: `pickup: first sweep done` (how many
+  lootables), `pickup: target ...` when a hand nears loot, whether the highlight appears,
+  `pickup: ... grip swallowed, Interact pressed`, and any `target released (the game did not
+  focus it ...)` line, which is the unproven part (the trace reaching the item's origin).
+- First headset session (2026-10-05, pickup merged into the local test build): the pickup
+  worked from both hands, and it caused a right-eye flicker on the hands and weapons: the scan
+  cost 2.4 ms of every game tick and the camera-silent gate starved the right eye about once
+  every two seconds. Rewritten to guarded direct reads with its own cost in the log; that fix
+  is built and not yet run. FLICKER_REFERENCE and TRAPS, top entries.
+- Second headset session on that fix: the flicker remained. Script cost was back to normal but
+  the camera-silent rate only halved (16.7 a minute against 0.2 to 0.7 without the pickup code).
+  OPEN. A third build bounds the scan to 60 us a frame and logs the frames before every
+  camera-silent draw (`pickup/silent`); toggling the F10 checkbox in one session is the A/B.
+- Third headset session (v1.0.3-64): no flicker reported; 1.1 camera-silent draws a minute, the
+  module at 16 us a frame. HEADSET-CONFIRMED fixed. Reported in the same session: items are
+  comfortable to take, books needed the hand almost touching them.
+- Built after it, not run: books and notes get their own reach (`PhysicalPickupBookReachCm`,
+  45), and a note opened by a grip attaches to the hand that opened it (the right-hand page
+  pose is the left one mirrored: derived and host-tested, not measured). Not installed.
+- Fourth headset session (v1.0.3-66): accepted as good. Reported: of two stacked books only the
+  upper one could be opened by hand; the right-hand page needs about 45 degrees more tilt.
+  0.8 camera-silent draws a minute, the module at 16-20 us a frame.
+- Built after it, not run: the game's own focus is taken as the target, a grip-opened book is
+  left out for 15 s after reading, the trace tries twelve aims at an unfocused target;
+  `NoteRightHandTilt` (45); doors by grabbing (`PhysicalDoors`, `PhysicalDoorReachCm`).
+- Fifth headset session (v1.0.3-68): doors accepted. The stacked-book changes and the right-hand
+  tilt were reported worse and are REMOVED (the code is in commit 111b93de2 if it is ever
+  wanted). What stands: loot, books with their own reach, the page on the opening hand, doors.
+- **Next session:** dishonored/PLAN-physical-interaction.md. The grip for carried and thrown
+  objects and the other interaction prompts (never a pawn: no talking, no takedowns), the
+  held weapon hidden and the hand opened while a hand is eligible. Not started.
+- No Linear ticket (no Linear access in this session). MLAA under DLSS is left as it is by
+  decision. Not installed.
+
+**Next steps:** a headset or simulator pass of the pickup; tune the reach; decide whether the
+grip should be ignored while a weapon is being blocked with.
+
+## 2026-10-04: run 4 - takedown arms accepted; cutscene arms left as an opt-in
+
+Branch `claude/anim-blend-ik`, PR #177. Detail: dishonored/ANIM-HANDOFF-PLAN.md, top section.
+- Headset-confirmed on v1.0.3-38-ga206226b7: smooth hand-backs, the game's own arm in game
+  animations, and that arm re-seated on the IK shoulder (not in the choke).
+- `[Anim] CinematicArms` (tracked arms in cutscenes) was not accepted. It stays default 0,
+  labelled experimental in F10 Advanced > Hands, and with it off nothing of it runs (the arm
+  motion sampler is now gated on it too). The gate's open fault is recorded: it measured
+  nothing while the game owned the arms, so every opening closed on the hold.
+- Shipped defaults are unchanged: SmoothBlend, ArmIKGameArmInAnim and ArmIKGameArmShoulder
+  are still 0 in the default ini (on in the dev PC's ini). Turning them on for players is a
+  separate decision.
+- Installed: v1.0.3-40-gb6a256aca; ini = the run-4 ini with `CinematicArms=0` only, byte for
+  byte (73858 bytes, 1700 CRLF). Settings changed in F10 during run 4 are kept (`Method=afw`,
+  DLSS quality 5 at 2114x2192). Backup of the run-4 pair and its logs:
+  `build/playtest-candidates/anim-blend-ik/run4-replaced-20261004-222443/`.
+
+## 2026-10-04: run 3 read - the cutscene gate followed the player; game arm re-seated
+
+Branch `claude/anim-blend-ik`, draft PR #177 (stacked on #176), not merged. Detail, numbers and
+the next run's four questions: dishonored/ANIM-HANDOFF-PLAN.md, top section.
+- **Found in the run-3 log:** the CinematicArms motion gate measured the player's own hand (it
+  tracked the controller's speed; exactly 0.0 uu/s whenever the game owned the arms in a
+  conversation; all 15 openings closed on the hold after 1.8..2.2 s). The mod's hand control
+  moves palette bones behind the wrist too. This is the conversation reset AND the short hold.
+- **Changed:** the game's arm motion is measured between the bones of an arm with the mod's
+  single rigid write excluded (host-tested); an opening needs 3 different measurements; arms in
+  the reference pose are never handed over (1.0 uu, a guess, logged); hold 1500 -> 5000 ms. All
+  six values are in F10 Hands > Your arms in cutscenes with a live readout.
+- **New lever `[Hands] ArmIKGameArmShoulder`** (default 0; 1 = not the choke; 2 = always): the
+  game's arm is re-seated on the IK shoulder about the game's own wrist. `ik/gamearm:` logs the
+  shoulder offset in body axes whether it is on or off.
+- Host: animation 138 catalog checks plus the new gate/estimator cases, arm IK 1085, default
+  writer = packaged = golden ini, lint, 11 exports. Release builds. No game launched.
+- **Not known yet:** the start/stop speeds in the new instrument's units; whether the default
+  stance is the reference pose; the size and direction of the shoulder offset per takedown.
+- TRAPS: an instrument that measured its own side's motion.
+- **Installed for the fourth run:** v1.0.3-38-ga206226b7 (clean banner). The game folder held a
+  different candidate, v1.0.3-46-g4c34beb46 (`codex/afw-character-test`), with `[Stereo]
+  Method=afw` and `AfwDepthMotion=0`; that DLL, its whole ini and all ten logs are backed up with
+  a hash manifest in `build/playtest-candidates/anim-blend-ik/replaced-afw46-20261004-211103/`
+  and restore as a pair. The installed ini is the run-3 ini plus `ArmIKGameArmShoulder=1`, byte
+  for byte (73856 bytes, 1700 CRLF, no bare LF or CR): so `Method=reentry` again, as in run 3,
+  and no `AfwDepthMotion` (this build does not read it). No `CinematicMotion*` key is in the
+  ini, so the compiled 5000 ms hold and the other gate defaults apply. Check on the next run:
+  the banner, and `config: [Anim] CinematicMotionStart=20.0 ... HoldMs=5000`,
+  `config: [Hands] ArmIKGameArmShoulder=1`.
+
+## 2026-10-04: smooth hand-backs, IK arm rules, cutscene arms (built, not run)
+
+Branch `claude/anim-blend-ik` (off `claude/tools-workflows`). Two default-off levers with F10
+toggles; detail and launch questions in dishonored/ANIM-HANDOFF-PLAN.md (top section).
+- `[Anim] SmoothBlend`: eased entry/return with their own durations (250/350 ms), palm on a
+  straight path, hands held through the return. Found in the code: the return blend was
+  never shown, because the hand mask dropped on the tick the return began (an instant snap).
+- Full-arm IK already draws whole arms past every hide/split rule; F10 now says so and greys
+  the takedown hide option while IK is on.
+- `[Anim] CinematicArms`: tracked arms in cinematics, the game takes them only while it
+  animates them (upper/left action or matinee blend). Static IDA reading (cm1..cm4,
+  ENGINE_NOTES): a hide-player cinematic hides the whole pawn through Actor.bHidden; the
+  lever unhides an arms-only pawn through the game's own setter after reflection agrees
+  with the static offset. Whether conversations use that hide is not established; the
+  `cine/arms:` line answers it on the first run.
+- Host: 138 animation checks (24 new, with a negative control), golden/release/default
+  writer byte-identical, 11 exports, lint, Release build. No game launch.
+- Installed d3d9.dll sha256 3dd87455... over the performance candidate v1.0.3-34-g63a890a76,
+  at the maintainer's request. Its banner reads v1.0.3-33-gdb8d3ced4-dirty: it was built
+  from the uncommitted tree before df42ff55d, whose code it matches.
+- First run: transitions reported right. Choke right hand twisted (open-hand mirroring ran
+  on a game-owned hand) and no arm control in conversations (matinee flag on for the whole
+  scene): both fixed in the next commit; detail in ANIM-HANDOFF-PLAN.
+- Second run (v1.0.3-36): choke arm still twisted (IK arm under the game's wrist), no arms in
+  the boat ride (full-body pawn left hidden), no hand-back for scripted arm clips. Next build:
+  `ArmIKGameArmInAnim` (game's own arm while it animates a hand), full-body unhide, and a
+  motion gate on the game's own arm bones (the BioShock Remastered approach), with its
+  thresholds logged per second for tuning. Backup of DLL, addon, shim, loader, whole ini and all ten logs with
+  a hash manifest: `build/playtest-candidates/anim-blend-ik/replaced-perf-20261004-191254/`
+  (anim-blend worktree). Whole-ini diff is exactly SmoothBlend=1, HandBackBlendInMs=250,
+  HandBackBlendOutMs=350, CinematicArms=1; CRLF throughout; DLSS helper kept.
+  Not carried by this build: `[Stereo] AfwFreshWorld=1` stays in the ini but is not read
+  (that lever lives only on codex/performance-audit), nor its ReShade fix that keeps
+  disabled effects loaded (saving a ReShade preset from F10 here can drop disabled effects
+  from it) or its HUD transfer savings.
+- Headless IDA (previous commit's workflow) verified on the dev PC: first analysis of
+  Dishonored.exe 38 min, 63,921 functions, x86 decompiler licensed, the ProcessEvent
+  known-good matches and decompiles; each later script opens the saved .i64 in 4 s.
+
+## 2026-10-04: headless IDA and Blender workflows, local tool file
+
+Branch `claude/tools-workflows` (off staging). Tools only; no mod code, no game launch.
+- `tools\tool-paths.ps1` writes and reads a per-user tool file,
+  `%LOCALAPPDATA%\DishonoredVR\dev-tools.json`. Created on the dev PC: 16 of 19 catalog
+  entries found (x32dbg, RenderDoc, Ghidra absent; none needed).
+- Headless IDA: `tools\ida-run.ps1` stages `Dishonored.exe` (md5 204f3c1a...) into the
+  IDA workspace, runs one-question IDAPython scripts, stamps each output with the md5 and
+  whether it still equals the deployed exe. `tools\ida\template.py` is the 32-bit
+  skeleton; it refuses unless `kProcessEvent` 0x00470640 still has its published prologue.
+  Guide: `docs/IDA_WORKFLOW.md`.
+- UModel + headless Blender: `tools\model-export.ps1`, `tools\blender-run.ps1`,
+  `tools\blender\inspect_model.py`, `export_model.py`. Verified: `Skm_Player` PSK round
+  trip (2,264 points, 4,448 triangles, 79 bones), OBJ/GLB export, and an authored action
+  exported to PSA and re-imported (30 frames). The PSK/PSA add-on was NOT installed in the
+  real Blender profile despite the earlier setup report (its probe could not fail); it is
+  now, and `-Setup` checks it properly. Guide: `docs/MODEL_WORKFLOW.md`.
+- The game's own animations cannot be extracted: every player AnimSet loads with all
+  tracks removed (Sony Edge Animation compression, unsupported by UModel).
+- CLAUDE.md: a Tools section that every prompt checks first, the tool-file rules, and a
+  rule that any CLAUDE.md change needs a yes naming repo or local.
+
+## 2026-10-04: combined PR candidate prepared locally, staging unchanged
+
+Finalized full-arm IK as PR #174 against staging (branch codex/ik-full-arms,
+7537d883b). Local codex/staging-combined-test starts at staging 957322031 and
+contains merge commits for these exact heads:
+- #168 f61a703cc: Basic Stereo/AFW settings and Debug gates.
+- #172 758eb9124: ReShade installation, preset import and Mods UI.
+- #173 f035d8a8f: timeout delivery, adaptive capture depth and same-eye guard.
+- #174 7537d883b: full-arm IK, menu/roll/history corrections and frame capture.
+
+Staging/VR-Main and all four PR branches remain unmerged and unchanged by
+this test branch. Conflicting additive documentation is retained from both
+sides. Basic Display keeps Stereo rendering first, then accessible frame
+capture; the IK capture remains directly on its tab. Installer UI tests now
+explicitly set unsupported capability for their disabled-install case, since
+#172's updated Mods fixture represents a supported build. No product logic
+was altered to satisfy that old fixture assumption.
+
+Validation: full optimized Win32 build including launcher; 1,083 IK checks;
+1,723 pairing checks; capture BMP/PNG and failure cleanup; 86 installer model
+checks; 256 native UI interaction checks; ReShade install/import fixtures;
+manual ReShade 791 enabled / 759 disabled checks and default-off refusal.
+Golden/release INIs, 11 exports and lint pass. Blender evidence from #174 is
+unchanged. No game launch or staging push. Combined headset acceptance is
+pending. The same-location sustained FPS regression remains open in PERFORMANCE.
+Installed combined candidate v1.0.3-30-g65af4e61f, proxy SHA256
+2065d556568ca6e943077ea7503a05eed0318fb64507470cb56480146202509f.
+Snapshot DLL, matching launcher and exact PR-head manifest are under
+build/combined-pr-test/168-172-173-174/. The launcher is named
+DishonoredVR-Combined-168-172-173-174.exe; it embeds this candidate proxy.
+Existing installed DLSS/helper, ReShade runtime/presets and local rig retained.
+Backup pair, both logs, ReShade INI and rig: before-20261004-171416/ there.
+Expected INI and full diff verify exactly ArmIK=0 -> 1 for combined testing;
+all other current user values remain byte-identical. 73,714 bytes, 1,693
+CRLF, no lone endings. New #173 absent-key semantics are intentional:
+TimeoutRefuse=0, AutoDepth=1 (unless SharedDepth explicit), C5SameEyeGuard=1.
+First combined launch question: in the same save/location, is sustained FPS
+still about 110 or back toward 125-135? A recovery implicates the combined
+changes but does not isolate a PR; unchanged leaves the baseline regression
+open, and lower FPS is a combined-candidate regression to investigate.
+## 2026-10-04: finalize IK PR; prepare combined staging-based test
+
+Full-arm activation and basic behavior are headset-accepted. The corrected
+roll distribution, pose-history identity, restored frame burst and menu
+visibility gate are included; their individual visual acceptance remains
+pending. Finalize this feature branch as a PR against staging, then combine
+it with #168, #172 and #173 on a separate local test branch. Staging and
+VR-Main must remain untouched until explicitly authorized.
+
+The sustained same-location FPS regression is reported at about 110 versus
+125-135 previously, possibly since 1.0.3; IK off has no reported effect.
+The largest spikes are now suspected to be networking. This replaces the
+proposed IK isolation test. Maintain investigation in PERFORMANCE.md.
+The local reference remains a prototype preparation requirement; no extracted
+asset, binary rig, capture or Blender file is committed or distributed.
+## 2026-10-04: menu fix installed; recurring frame-drop investigation
+
+Installed v1.0.3-15-gca50a5602, SHA256
+35e91c4c51dd6e1e258bc475e055c9fa433e4e244f1fac781c3ec6e72604f8da.
+Backup DLL/INI/current and previous logs/rig, expected INI and complete empty
+diff: build/arm-ik-install/20261004-150657-menu-visibility/. All 73,708 INI
+bytes preserved, 1,693 CRLF and zero lone endings. Current user AFW and
+2114x2192 rendering settings retained. Win32 build, 11 exports and lint pass.
+
+Last run's banner/hash match build 13. No frame burst occurred. A 233-second
+post-transition interval has 110 itemized submission-tail hitches plus 27
+summarized; explicit endFrame cost 28.4..95.6 ms. Prior build 11 has the same
+pattern. Typical game GPU cost is 4.3 ms, excluding DLSS and later GPU work.
+No VRAM exhaustion evidence; some hitches have no recent streaming uploads.
+Runtime/driver/GPU-wait origin remains unproven. Full record and next test:
+[PERFORMANCE.md](dishonored/PERFORMANCE.md). No speculative performance fix.
+
+Next launch's ONE question supersedes the menu/roll test: do hitches stop
+with Full-arm IK OFF and return ON in one stationary scene (ON/OFF/ON,
+about 45 seconds each, no capture or other settings changes)? Menu/roll/
+flicker acceptance remains pending. No game launch, push, PR, merge or agents.
+## 2026-10-04: retain full-arm IK in weapon-wheel and pause menus
+
+Follow-up report: arms disappear in the weapon wheel, possibly also pause.
+Code confirms an IK-only gate rejected every input-owning menu and selected
+the clipped-hands fallback. Remove that broad gate; keep the title-screen
+block and all current draw, source-generation, palette and tracking checks.
+No engine-object identities or engine writes are introduced. Active IK logs
+now identify menu context. This includes the preceding roll/history/capture
+changes; their headset verdict remains pending.
+
+Next launch has one question: do full arms remain visible while opening,
+using and closing the weapon wheel? Remaining disappearance means another
+draw/placement guard or engine visibility path needs diagnosis. Pause-menu
+acceptance is a separate later test. Details: [ARM_IK.md](dishonored/ARM_IK.md).
+
+## 2026-10-04: full arms accepted; roll shape/history correction and capture control
+
+On matching v1.0.3-11-g8eee77252, all 2,771 vertices/48 palette slots mapped
+exactly and full articulated arms were accepted. Remaining issues: minor arm
+flicker (surface vs pose subtype unclear) and rolled-forearm collapse. Accepted
+DLL/INI/logs/rig preserved in `build/arm-ik-test/live-working/`.
+
+Candidate: correct mixed locate/publication generations in IK history; retain
+the existing hands' view/eye guards. Share forearm axial roll so the shaft's
+minimum radius in the 1.2-length Blender sweep improves 44.5% -> 88.1%.
+Hands/fingers and endpoints remain exact. Capture 16 frames (5 second delay)
+is now directly on IK and Basic Display; native stereo records eye BMPs and
+frame metadata, AFW reuses its existing diagnostic capture. 96 MiB queue,
+counted omissions, 15-second deadline, no idle readback. Capture can hitch.
+
+1,083 host checks, x86 D3D11 image-writer tests and a new 260-frame Blender
+sweep pass. One extreme crossed-pose triangle still compresses below 1% area.
+In-game capture and perceptual fixes remain unverified. Next launch's sole
+question: does the forearm keep its shape while slowly rolling through the
+previous pinch angle, using the IK capture button to preserve the sequence?
+Details: [ARM_IK.md](dishonored/ARM_IK.md), [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md).
+No game launch, subagents, push, PR, ticket or merge. Local work only.
+
+Installed `v1.0.3-13-g1c9252b4e`; proxy SHA256
+`a77743de9903a5d0806919516d12c4333315b1e4832a260c2bdb6691252780ea`.
+Backup DLL/whole INI/both logs/rig, expected INI, empty complete INI diff and
+manifest: `build/arm-ik-install/20261004-145613-roll-history-capture/`.
+All 73,706 INI bytes preserved exactly: 1,693 CRLF, zero lone endings.
+User tuning stays forward 0, up -23 cm, width 36 cm, length 1.2; ArmIK=1.
+No rig or setting-semantics changes. Optimized Win32 build, exports and lint pass.
+Local commit credited to BioVRDev; live capture and headset verdict pending.
+
+## 2026-10-04: first IK run refused the exported coordinate convention
+
+The installed v1.0.3-9-g012ddce9a banner and hash match. Log: zero IK solves;
+all seven build attempts refused runtime positions absent from the reference.
+Observed clipped arms were the original floating-hand fallback, including
+sleeve-control changes. The initial Blender test did not cover the engine/PSK
+boundary. Reference preparation now undoes UModel's export Y reflection on
+vertices AND joint heads, uses DVRIK002, and rejects old files. Corrected
+bounds match the runtime log on every axis. Full arms automatically bypass
+sleeve cuts when IK activates; sleeve controls are disabled while IK is on.
+Activation/refusal status persists in the menu; failures include coordinates.
+
+Independent conversion regression, 1,052 host checks and repeated 260-frame
+Blender sweep pass. Zero solve failures, wrist error below 0.000034 units;
+extreme compression remains in two transition frames. Corrected live mapping
+is still unverified. Next launch asks only whether complete arms appear and
+bend with a slow left-hand reach. Details: [ARM_IK.md](dishonored/ARM_IK.md).
+Local branch only; no game launch, ticket, push, PR or merge.
+
+Installed `v1.0.3-11-g8eee77252` with corrected DVRIK002 local reference.
+Proxy SHA256 `ffc809ce94b00dc3a40a2546d6123b15677fb3b0320fd24d4dab09c3f7588bc2`.
+Backup pair, both logs, old rig, expected INI, complete empty INI diff and
+manifest: `build/arm-ik-install/20261004-140727-coordinate-fix/`.
+No configuration change: all 73,696 bytes match backup and expected INI,
+1,693 CRLF and zero lone line endings. ArmIK remains enabled. Win32 build,
+proxy exports and lint pass; commits are credited to BioVRDev.
+
+## 2026-10-04: IK candidate installed for the first live reach test
+
+Installed optimized Win32 `v1.0.3-9-g012ddce9a`, proxy SHA256
+`f68c61b2e8a99c032d33d1e8ab7451980fd48f391fe3cea07f9da5f8411a42e8`.
+Code commit `012ddce9a`; local only, credited to BioVRDev. No game launch.
+Local rig prepared and installed in the resolved data directory; runtime must
+still validate its geometry/weight mapping before the full-arm draw can run.
+
+DLL, complete INI, current and previous logs backed up together under
+`build/arm-ik-install/20261004-134025/`, with manifest and whole-INI diff.
+Exactly seven keys plus one comment added: ArmIK=1, shoulder forward/right/up
+-6/0/-20 cm, width 36 cm, arm length 1, elbow-out 0.6. Existing animation,
+hand-scale (0.85) and other settings unchanged. INI exactly matches expected:
+73,696 bytes, 1,693 CRLF, no lone line endings. The staging baseline also contains
+the default-on ReShade implicit OpenXR layer opt-out; existing INI values remain
+compatible with its configuration semantics.
+
+One launch question: with body/right hand still, does the left arm remain
+connected through a slow close-to-far reach without moving the right arm?
+Own-shoulder reach movement is expected. Only floating hands means inspect the
+explicit mapping/tracking refusal before judging IK. Check the log banner for
+this build first; then read ik/map and ik: ACTIVE/fallback. Host/Blender evidence
+and later independent tests are in [ARM_IK.md](dishonored/ARM_IK.md).
+
+## 2026-10-04: full-arm IK implemented locally; host and Blender verified
+
+`codex/ik-full-arms` now contains the fork-style independent shoulder reach
+solver, complete weighted arm mesh/palette replacement, dedicated L3+R3/F10
+IK tab and persisted shared baseline/arm tuning. Native hands/fingers and
+weapon corrections remain; IK replaces arm/sleeve animation. Default off.
+The candidate uses locally prepared reference data and validates the complete
+vertex/weight mapping before drawing. No engine-object memory writes.
+
+1,049 host checks, the existing frame suite and proxy exports pass. A 260-frame
+Blender simulation uses the exact production solver and source weights, including
+0.85 hand size. Zero failed solves; max wrist-join error 0.0000324 model units.
+Extreme sleeve compression remains: two transition frames compress one triangle
+each below 1% area. No collision/torso constraint. See
+[ARM_IK.md](dishonored/ARM_IK.md) for evidence, controls, limits and the first
+one-question headset test. Runtime mapping and headset acceptance are pending.
+No game launch, remote push, PR or merge. Candidate installation follows the
+matching DLL/INI/log backup and whole-INI verification gate.
+
+## 2026-10-04: IK design revision - independent reach, dedicated tab, hand animation
+
+Updated [ARM_IK.md](dishonored/ARM_IK.md) to follow the BioShock fork's independent
+shoulder reach correction. Shared XYZ and width define nominal shoulders;
+each shoulder can move separately when its wrist is too near or far. This
+supersedes the prior fixed-anchor reach refusal proposal. Add a dedicated IK
+tab beside Hands in the L3+R3/F10 menu when implementing runtime consumers.
+
+Confirmed `RigidWrist=1` protects clipped wrist geometry by remapping forearm
+influences while fingers still animate. Full-arm IK instead needs preserved
+weights and explicit arm/hand pose ownership: native hand animation stays,
+IK controls upper arm/forearm, and the endpoint is the final animated wrist.
+The existing native-full-arms draw bypass must not override active IK. This
+revision changes the design only; no runtime tab, solver or install yet.
+
+## 2026-10-04: local full-arm IK branch and reference design
+
+Local branch `codex/ik-full-arms` starts at staging `957322031`. Reviewed both
+BioShock references at pinned revisions and recorded the implementation design
+in [ARM_IK.md](dishonored/ARM_IK.md). One shared forward/right/up center plus a
+total width keeps shoulders aligned. Independent shoulder sliding at reach
+limits is excluded; preserve existing controller endpoints and fail back to
+floating hands until an explicit reach policy can render them correctly.
+
+The current weighted-centroid hand splitter does not establish named joint
+origins or a reference-skeleton-to-palette map. Next: engine-independent solver
+and host tests, then a read-only runtime map before arm palette writes. Native
+action ownership, per-eye pose ownership and menu/load identity must survive.
+This is a design/research checkpoint: no runtime IK, no new supported settings,
+no build/install or headset test. Work stays local without a Linear ticket per
+maintainer instruction; existing checkout changes remain in their checkout.
+
+## 2026-10-04: GTX 1650 - auto depth confirmed; c5 same-eye guard for the last flicker
+
+Auto depth measured at parity with 1.0.1 (30.2 vs 29.7 ticks/s, capture wait 0). Remaining
+reports: rare single left-eye flicker while moving (cause: the c5 within-tick arm relabels on
+a cross-tick step when walking ~2 ipd per tick; ledger-confirmed) and slightly more black at
+the edges on fast turns (no FOV margin: 103 rendered vs 102.2 headset, plus one present of
+image age at depth 2). New on `claude/capture-timeout-deliver`: `[Stereo] C5SameEyeGuard`
+(default on), host model 599 -> 0 wrong eyes, 1723 checks. Black-edge A/B for the tester:
+`[Pace] Ahead=2`. Note: `tools/single-tag-host.ps1` does not compile on the unchanged tree.
+
+## 2026-10-03 (later): GTX 1650 follow-up - strong flicker gone; auto depth for the residual hitch
+
+The player ran the TimeoutRefuse=0 build: strong flicker gone, eyes balanced (27/27, none 0),
+but a small left-eye hitch when moving. 43-50% of capture grabs time out and are delivered
+unfinished; with two slots each slot is one eye, so that eye repeats a frame. New on the same
+branch: `[Capture] AutoDepth` (default on) steps to a 3-slot ring once when >=10% of grabs
+time out two windows running; replayed over his logs it never fires on his 1.0.1 runs. Lower
+sampler settings felt smoother but did not change the timeout rate. Built only.
+
+## 2026-10-03: GTX 1650 eye starvation since 1.0.2 - capture timeouts refuse
+
+A remote player on a GTX 1650 laptop reported left-eye flicker (world and weapon, to the
+left) and worse performance since 1.0.2; 1.0.1 good. Eight logs across 1.0.1/1.0.2/1.0.3:
+from 1.0.2 one eye gets 4-9 tagged presents/s against 23-30, with ~25 untagged/s, where
+1.0.1 is balanced. Cause: 1d2ee24a5 made capture waits refuse on timeout; on this GPU they
+time out routinely and the refusals land on one eye. Candidate on
+`claude/capture-timeout-deliver`: `[Capture] TimeoutRefuse=0` (deliver, as 1.0.1) and
+`capture timeout deliver|refuse`. Built only; not run on the simulator (not GPU-bound) or a
+headset. GPU-cost additions since 1.0.1 are recorded in PERFORMANCE.md for the next A/B.
+No Linear ticket (workspace issue limit).
+
+## 2026-10-03: launcher ReShade install fixed, preset drop zone, Mods audit
+
+A remote player (Quest 3, VDXR, v1.0.3) installed ReShade from the launcher and it never
+ran: `reshade: load failed error=1114` on every launch, no shader folder, F10 always saying
+to restart. Cause: the launcher installed only `ReShade32.dll`, and ReShade refuses to load
+without a `ReShade.ini` beside the exe; the dev PC's hand-built setup hid it (TRAPS). The
+same player also had ReShade's global OpenXR layer installed; the 41.x guard already skipped
+it and VR worked.
+
+Install ReShade now also installs the three pinned shader packages, `custom` folders and a
+`ReShade.ini` (never over the player's); the proxy loads ReShade with its loading check
+skipped and records why a load failed, which F10 shows. New: a preset drop zone on the Mods
+screen that refuses DLLs. Mods audit fixes: incomplete/Repair state, last-launch result from
+the game log, copy, Back to Mods. Tests and evidence: INSTALLER.md (2026-10-03 section).
+Not run in game yet. No Linear ticket (workspace issue limit).
+
+
+## 2026-10-03: remote Reverb G2 never reached VR - ReShade's OpenXR layer refused (-32)
+
+Remote tester, HP Reverb G2 on SteamVR (WMR driver replacement), RTX 5080, v1.0.3 with the
+repair package's matching DLL hashes. Two support bundles. The first was a stale build 38.74
+DXVK-era proxy (launcher saw sha 8c7c32f6 against an embedded 727e7ac6) - not diagnosed further.
+The second, on the correct v1.0.3 DLL: `[steamvr shim] xrCreateInstance failed: XrResult(-32)`
+twice, status runtime/session `none`, zero stereo pairs. The tester reported a small flat window
+in the SteamVR space, green-tinted with skewed perspective in its left fifth - that is the flat
+fallback in the desktop theatre; the tint and skew are NOT explained and are not addressed here.
+
+Cause, from source rather than inference: the shim negotiated (runtime loaded), and in the
+vendored loader -32 after that has one source, LoadLibrary failing on an implicit layer
+(api_layer_interface.cpp:280). The only enabled 32-bit implicit layer was ReShade's global
+OpenXR layer (C:\ProgramData\ReShade\ReShade32.dll), whose DllMain returns FALSE when no
+ReShade.ini sits beside the exe or another ReShade is loaded (upstream source/dll_main.cpp).
+The guard had called it "loadable here" after reading only the PE header. Also on that machine:
+a vorpX virtual display adapter (not in the log's DXGI list; no evidence it is involved).
+
+Change (TRAPS 2026-10-03, TROUBLESHOOTING -32 section, ARCHITECTURE decision log):
+`[VR] DisableReShadeApiLayer=1` (default ON) skips that layer for this process through its
+manifest's disable_environment; the guard's wording now says only the architecture was checked;
+`core/vr/xr_loader_log.cpp` records the loader's warnings, errors and layer lines as `xr/loader:`
+lines; the "is SteamVR installed?" hint is replaced for -32. Dev-PC validation with a 32-bit
+harness on the statically linked loader and the simulator runtime: a fixture layer whose DllMain
+refuses gives -32 and `error 1114` in the log; the dev PC's real 64-bit OBS implicit layer gives
+-32 with `error 193`; its manifest opt-out gives `Implicit layer ... is disabled` and a created
+instance. The guard's ReShade branch itself has not run in a game - the next tester log decides.
+
+Result: the tester ran the candidate zip (v1.0.1-271-ge6199622a) and reached VR - reported
+through the maintainer; that run's log has not been reviewed here, so the `apilayer: DISABLED`
+and `xr/loader: ... is disabled` lines are expected, not yet read. Whether the green/skewed
+image survives in a working session is not reported; it gets its own investigation if it does.
+Merged to staging with the launcher fixes on codex/launcher-fixes (PR 171), on the maintainer's
+instruction. No Linear ticket: the workspace issue limit blocked creation (see the entry below).
+
+## 2026-10-03: launcher upscaler controls and ReShade management across builds
+
+Follow-up on `codex/launcher-fixes`, PR #171. Settings > Display now exposes
+Off/DLSS/FSR, all six upscaler quality modes, and the six F10 DLSS model/preset
+choices from one shared table. Unknown custom presets remain untouched unless
+explicitly changed. Choices survive the elevated-worker argument path. The launcher
+shows saved upscaler output dimensions instead of treating F10's reduced render
+size as the output; unchanged settings preserve both, and Off restores full size.
+
+The ReShade buttons were gated on exact equality between the installed DLL and the
+launcher's payload. A launcher-only update therefore blocked an otherwise compatible
+1.0.3 installation. Detection now recognizes the installed manual-ReShade capability
+marker. Install/enable require support; disable/remove do not require a matching or
+recognized proxy. All writes still refuse a running game. Runtime removal retains
+its backup, shaders, presets and ReShade.ini.
+
+Validation: 256 native UI checks at 100%, 150% and minimum size; full scratch lifecycle
+passes, including every preset/quality mapping, old INIs without an Upscaler key,
+custom preset preservation, reduced render/output round-trip, different compatible
+DLL hashes, and unsupported-DLL disable/removal. DLSS, FSR and enabled-ReShade screens
+were rendered and inspected. The shared preset-table move changes no rendering values.
+Installed and reopened `v1.0.3-3-g7237fbae9` behind the desktop shortcut. Launcher
+SHA256 `d726d2dce2359b482caab519b9f2d3e8a38e466587ec6c8fcf1831c9adfde8d1`.
+The installed 1.0.3 proxy is recognized as ReShade-capable. Game DLL, game logs,
+ReShade DLL/config/bridge and the complete VR INI remain byte-identical to backup.
+INI: 73,497 bytes, 1,685 CRLF, zero lone CR/LF, zero whole-file diff lines. Backups,
+verification JSON and candidate ZIP are under main `build/launcher-upscaler/`.
+No game launch, merge or release. The existing Linear workspace issue-limit block
+still prevents creating a dedicated issue. Next: review the expanded PR #171.
+
+## 2026-10-03: launcher legacy cleanup and updater dialog
+
+Branch `codex/launcher-fixes` starts at release `VR-Main` commit `7c1cb8a32`,
+as explicitly requested. Installation and update now clean the six exact retired
+pre-41.0 files before writing payloads. Recovery copies are retained; a cleanup
+failure stops the operation and restores files removed earlier in that cleanup.
+Update rollback includes all six legacy files. Unrelated DLLs, JSON, logs,
+shader files and compatible retained INI preferences survive.
+
+The updater progress modal now has an explicit DPI-scaled, viewport-bounded width
+and stays centered. Native preview inspected at 100% and 150%; 190 UI interaction
+checks pass, including minimum window size. Installer host 86/86, updater host
+57/57, scratch install/settings/update/rollback and launcher handoff smoke pass;
+lint is clean. The scratch test verifies locked legacy cleanup refuses before
+replacing d3d9.dll and a later payload failure restores all six legacy files.
+No game launch or rendering change is involved.
+
+Installed candidate `v1.0.3-1-g8bc403e9a` behind the existing desktop shortcut.
+Launcher SHA256 `148877b9b4b72ad1446dd128328a075ebb20ea92d936b49250f2f18a7e50781c`.
+Game DLL, current/previous logs and complete INI are byte-identical to their backups.
+INI: 73,497 bytes, 1,685 CRLF, zero lone LF/CR, zero whole-file diff lines;
+SHA256 `6d3e82969765de54327eb40deb8fb3a890037fd8a5c6b23bfe597ccbcf1d5885`.
+Evidence and candidate ZIP: main `build/launcher-fixes/`. PR #171 targets staging.
+Next: review the launcher-only PR against staging. No merge or release is authorized.
+Linear creation was attempted but blocked by the workspace free issue limit;
+no new ticket number is invented. Details: [INSTALLER.md](INSTALLER.md).
+
 ## 2026-10-03: 1.0.3 release preparation authorized
 
 The maintainer authorized integration of the accepted runtime and audited launcher into
@@ -222,6 +1374,34 @@ and quickloading it three times, does every load return to gameplay without cras
 Verify the new log banner before interpreting it. Do not combine ReShade or subtitle tests
 with this loading question. VR-133's unrelated camera acceptance remains open; new issue
 creation was blocked by Linear's free issue limit.
+
+## 2026-10-02: build 253 integrated; stereo settings prepared for the next patch
+
+Current state: PR #167 merged into staging at `1c47937a6` on explicit instruction. Its
+source is the installed `v1.0.1-253-ga964c2ab4`; the branch tip adds installation notes only.
+Installed build 253 was identified by banner and DLL SHA256
+`05488F5D05EEA99BC9DDA60D982CB9A4C1CD869AFC849979DA7020F786451249`. Source branches retained.
+Further spacewarp work is shelved; its record remains in `dishonored/PERFORMANCE.md`.
+
+Patch candidate: `codex/vr-39-stereo-settings` starts from that staging merge. Basic >
+Display > Stereo rendering is first in the tab and offers Stereo and Alternate frame warping (AFW) (experimental).
+AFW's tooltip recommends DLSS or DLAA. AER, delta clamp, AFW tuning, depth/SSW, mod-spacewarp
+including the build-253 guards, and captures require Debug. Rendering and defaults unchanged.
+New Linear ticket creation hit the workspace free issue limit; the verified VR-39 parent
+tracks this limited UI follow-up. No new ticket number was created.
+
+Installed `v1.0.1-258-g949e1ea8b`, optimized, legacy off. Build, lint, golden INI and nine
+exports pass. DLL SHA256 `F77062FF999036C398C4C09143663D9AD9292F37995F9FCA957205EE17A6DE20`
+matches the built DLL. Entire 73,349-byte INI equals backup and expected bytes; zero changes,
+CRLF verified. ModSpacewarp=0, SubmitDepth=0, Method=afw and Level=debug retained. Existing
+DLSS helper retained. DLL/INI/log backup and install record: main checkout
+`build/stereo-settings-install/pre-install-basic/`; verification `installed-258.json` in its parent. No game launch or new runtime banner yet.
+
+Next single-launch question: does F10 Display's Stereo rendering show only Stereo and
+experimental AFW in Basic, with the other controls returning in Debug? Hover AFW to check
+the DLSS/DLAA guidance. Correct separation accepts the UI gate; visible experiments in Basic
+or missing Debug controls reject it. Confirm build 258's banner before reading that run.
+The UI patch needs review and separate merge authorization; VR-Main remains untouched.
 
 ## 2026-10-02: MSW guards built (Cyberpunk VR frame-generation review); host-verified
 

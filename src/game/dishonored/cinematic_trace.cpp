@@ -5,6 +5,10 @@
 // VR-70: camera ownership trace and draw-scoped head rotation; after reflection in the unity TU.
 namespace {
 std::atomic<bool> g_cineTrace{false}, g_cineHead{false}, g_specialHead{false};
+// [Cine] KeyholeForwardCm (2026-10-07): while peeking through a keyhole the eye is pushed this far
+// along the DOOR's camera heading (the authored yaw, not the head's), so a stereo pair and the
+// player's own lean do not leave the eyes inside the door. Physical cm, scaled like the head offset.
+std::atomic<float> g_keyholeFwdCm{15.0f};
 uint32_t g_ctPcCamera, g_ctPawn, g_ctActorRot, g_ctCache, g_ctPov;
 uint32_t g_ctLoc, g_ctRot, g_ctStyle, g_ctInfluence[3], g_ctWeight;
 bool g_ctResolved = false, g_ctLayout = false;
@@ -30,6 +34,12 @@ float CtWeight(uint8_t* cam, int index) {
 static void CineTraceConfigure(const char* ini) {
     g_specialHead.store(GetPrivateProfileIntA("Cine","SpecialHeadLook",0,ini)!=0);
     Log("camera/special: SpecialHeadLook=%d (lean/keyhole final-camera head look)",int(g_specialHead.load()));
+    {
+        char buf[32]; GetPrivateProfileStringA("Cine","KeyholeForwardCm","15",buf,sizeof(buf),ini);
+        float cm=(float)atof(buf); if(!std::isfinite(cm) || cm<0.0f) cm=0.0f; if(cm>60.0f) cm=60.0f;
+        g_keyholeFwdCm.store(cm);
+        Log("camera/keyhole: KeyholeForwardCm=%.1f (the eye pushed along the door's camera heading while peeking; 0 = the game's own spot)",cm);
+    }
     g_cineHead.store(GetPrivateProfileIntA("Cine", "HeadLook", 1, ini) != 0);
     Log("cine/head: %s ([Cine] HeadLook), draw-scoped authored rotation", g_cineHead.load() ? "ON" : "off");
     g_cineTrace.store(GetPrivateProfileIntA("Cine", "Trace", 0, ini) != 0);
@@ -242,6 +252,11 @@ static void CineHeadSet(bool on) {
     g_cineHead.store(on); Log("cine/head: %s (live)",on ? "ON" : "off");
 }
 static bool SpecialHeadEnabled(){return g_specialHead.load();}
+static float KeyholeForwardCm(){return g_keyholeFwdCm.load();}
+static void KeyholeForwardSet(float cm){
+    if(!std::isfinite(cm) || cm<0.0f) cm=0.0f; if(cm>60.0f) cm=60.0f;
+    g_keyholeFwdCm.store(cm); Log("camera/keyhole: KeyholeForwardCm=%.1f (live)",cm);
+}
 static void SpecialHeadSet(bool on){g_specialHead.store(on);Log("camera/special: SpecialHeadLook=%d (live)",int(on));}
 static bool SpecialHeadResumeYaw(int32_t& delta) {
     delta=0;
@@ -287,6 +302,8 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
     float animWeight=CtWeight(cam,0), playerWeight=CtWeight(cam,1), lookWeight=CtWeight(cam,2);
     const auto state=dvr::anim::snapshot();
     const int special=state.valid && g_specialHead.load()?dvr::cine::special_camera(state.state[0]):0;
+    static bool keyholeLogged=false;                // one push line per peek: re-armed by any tick outside one
+    if(special!=2) keyholeLogged=false;
     const bool scripted=state.valid && (dvr::scene_state::cinematic(state.state[0]) || special);
     const int kind=special?special:scripted?3:0;
     if(state.valid && g_chReference && (special || g_chKind==1 || g_chKind==2) && kind!=g_chKind)
@@ -344,7 +361,24 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
     }
     const float right[3]={(float)composed.m[0][1],(float)composed.m[1][1],(float)composed.m[2][1]};
     g_chHead=head;
-    g_chScope=dvr::camera::begin_view_scope(cam,g_ctCache+g_ctPov+g_ctRot,g_chWritten,right,doubleDraw ? -1 : 0,ChValidate,true,head.rawPosition);
+    // The keyhole push. The scope applies the position in the COMPOSED yaw's frame (right, up,
+    // forward), so the door's heading is expressed in it: a head turned 30 deg away from the door
+    // still moves the eye straight through the keyhole, not off to one side.
+    float pos[3]={head.rawPosition[0],head.rawPosition[1],head.rawPosition[2]};
+    if(special==2 && g_keyholeFwdCm.load()>0.0f) {
+        const float kRad=6.2831853071795864769f/65536.0f;
+        const float d=(float)(int16_t)(uint16_t)(authored[1]-g_chWritten[1])*kRad;
+        const float push=g_keyholeFwdCm.load()*0.01f*g_posScaleUU;
+        pos[0]+=push*sinf(d); pos[2]+=push*cosf(d);
+        if(!keyholeLogged) {
+            keyholeLogged=true;
+            Log("camera/keyhole: peeking - eye pushed %.1f cm = %.1f uu along the door's heading (authored yaw %.1f deg, the head %.1f deg off it) "
+                "on top of the head's own offset r/u/f=(%.1f %.1f %.1f) uu; [Cine] KeyholeForwardCm, F10 Comfort > Cutscenes and special cameras (Advanced)",
+                g_keyholeFwdCm.load(),push,authored[1]*360.0f/65536,-d*57.29578f,
+                head.rawPosition[0],head.rawPosition[1],head.rawPosition[2]);
+        }
+    }
+    g_chScope=dvr::camera::begin_view_scope(cam,g_ctCache+g_ctPov+g_ctRot,g_chWritten,right,doubleDraw ? -1 : 0,ChValidate,true,pos);
     if (!g_chScope) { ++g_chRefused; ChReason("hold: scope write refused"); return; }
     g_chInputUntil=scripted ? now+100 : 0;
     if(special){g_chExitPending=true;g_chExitReferenceYaw=g_chReferenceHead.yaw*g_flipYaw;g_chExitScopeMs=now;}

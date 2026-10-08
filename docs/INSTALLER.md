@@ -1,3 +1,115 @@
+## 2026-10-04: ReShade audit - F10 lists the preset's effects, ReShade.ini is prepared at game start
+
+Reported: F10 > ReShade lists every installed effect instead of the selected preset's.
+
+**Findings.**
+1. *Every effect was loaded.* The launcher writes `SkipLoadingDisabledEffects=1` only into a
+   ReShade.ini it creates. An existing ReShade.ini is kept as it is, and the dev PC's (older
+   than that rule) had `SkipLoadingDisabledEffects=0`: ReShade compiled all 62 shader files for a
+   preset that uses three techniques, and F10 listed every technique.
+2. *An existing ReShade.ini never got the mod's shader folders.* The same ini had no
+   `dvr-reshade-shaders\custom` search path (and the folder did not exist), so a shader brought
+   in by a preset import would not have been found.
+3. *F10 "Performance mode" could not take effect.* ReShade 6.8.0 reads its configuration when a
+   runtime object is constructed and writes its own copy back when it is destroyed
+   (`source/runtime.cpp`: `load_config` in the constructor, `save_config` in the destructor).
+   The toggle called `ReShadeSetConfigValue` on the live runtime and queued an effect reload,
+   which does not re-read the configuration. Read from the source; the old build was not run
+   to observe it. The host test only checked the value in the ini cache.
+
+**Changes (proxy; the launcher scripts' behaviour is unchanged).**
+- Before `ReShade32.dll` is loaded, the proxy prepares ReShade.ini (`reshade: ReShade.ini
+  updated ...` names every change): `SkipLoadingDisabledEffects` from `[ReShade] LoadAllEffects`
+  (default 0 = only the selected preset's effects), `PerformanceMode` when
+  `[ReShade] PerformanceMode` has been set from F10, and the mod's shader and texture folders
+  that exist on disk are appended to the search paths (the player's own stay first; the custom
+  folders are created). Byte-exact edits (`core/gfx/reshade_ini.h`), UTF-8 kept, nothing else in
+  the file touched, one backup `ReShade.ini.before-dvr.bak` the first time.
+- F10 > ReShade lists the preset's effects (its `Techniques=` line plus anything switched on
+  since) and shows shader settings only for those. "Show all installed effects" loads and lists
+  everything so an effect can be added. A preset technique that ReShade did not load is named
+  ("Not loaded: ...") with what to do.
+- "Performance mode" and "Show all installed effects" rebuild the effect runtime between two
+  frames: destroy (ReShade writes its copy), edit ReShade.ini, create (ReShade reads it). The
+  new runtime is asked what it read and the log says HONOURED or not; if not, F10 says it
+  applies at the next start, which the start-up preparation guarantees.
+
+**Verified on the host with the real ReShade 6.8.0 DLL and a D3D9 device, no game**
+(`tools\reshade-manual-host.ps1`, 817 checks): an installed effect outside the preset is neither
+loaded nor listed by default; show-all loads and lists it and turning it off unloads it; the
+preset's effect stays on across each rebuild; performance mode is honoured live in both
+directions; the ini edits (case, sections, escaped commas, line endings, non-ASCII bytes).
+The preset-import script test passes. `tools\reshade-install-tests.ps1` was NOT run: it needs
+offline copies of the downloads.
+
+**Not run in the game or a headset.** First launch should log `reshade: ReShade.ini updated
+(before ReShade loads): SkipLoadingDisabledEffects=1 (changed) ...` once, then F10 should list
+the three techniques of the bundled preset.
+
+**2026-10-05, first headset log with the change (build v1.0.3-54-gd0c57b1b9, a local merge
+that carries this branch; log only).** `reshade: ReShade.ini already as asked (before ReShade
+loads): every installed effect is loaded, search paths complete`: this machine's
+`dishonored_vr.ini` carried `[ReShade] LoadAllEffects=1`, so the run exercised the show-all
+path, NOT the preset-only default. ReShade.log: 62 effects compiled for each of three runtimes
+(start, and two device resets from a DLSS resize), 0 errors; `PerformanceMode=0` throughout,
+so the F10 Performance mode rebuild was not exercised either. The proxy log has no line for
+what the F10 tab listed, so that check needs eyes. The seam words `reshade effects off|on`
+(from the performance branch) were honoured: the proxy's CPU share of the effects pass went
+85 -> 154 us a present when they came on, and the pair time rose about 0.7-0.9 ms at native
+2750x2850 (one unbracketed step, PERFORMANCE.md 2026-10-05). The effects were NOT being drawn
+when that session's plan began, 40 s after a device reset had recreated the runtime; whether a
+recreated runtime comes up with its effects off is not established and is worth one look.
+
+## 2026-10-03: Display upscaler settings and ReShade compatibility
+
+Display now offers Off, NVIDIA DLSS and AMD FSR; Native AA/DLAA, Ultra Quality,
+Quality, Balanced, Performance and Ultra Performance; and the same six DLSS presets
+as F10. `core/gfx/upscaler_options.h` is the shared model/preset table. FSR does not
+use NVIDIA preset numbers; available FSR versions remain runtime-discovered in F10.
+
+Only explicit edits write DLAA/Upscaler, DlssQuality or DlssModel/DlssPreset. Unknown
+custom values display as kept. CLI/elevated-worker flags are `--upscaler 0|1|2`,
+`--upscaler-quality 0..5` (persisted INI order: Ultra Quality is 5), and
+`--upscaler-preset 0..5` (shared F10 model-choice index).
+
+F10 stores the reduced render dimensions in Screen and full resolution in
+Clarity/DlssOutputWidth/Height. Detection preselects the full output. Applying an
+unchanged output preserves the reduced render, and disabling upscaling restores
+full resolution and clears the output latch. This avoids double downscaling and
+prevents a later runtime resize from undoing a launcher resolution selection.
+
+ReShade support no longer means an exact DLL hash match. The installed proxy must
+contain the released manual-runtime-ready marker for install/enable; this covers
+1.0.3 even when the launcher carries a newer build. Disable/removal require the
+runtime and settings file, not support recognition. Running-game guards, settings
+backup and retained shader/preset files are unchanged. Native UI and scratch tests
+exercise both a different compatible proxy and an unrecognized proxy.
+
+## 2026-10-03 maintenance verification
+
+A support bundle identified launcher 1.0.3 with actual game `BUILD 38.74`, the old
+DXVK SBS path and no current SteamVR shim. Changing settings had not installed the
+new binaries. Treat the game log banner and actual DLL hash as authoritative;
+launcher version alone is not the installed mod version. The repair ZIP uses the
+existing 1.0.3 release DLLs; remote headset confirmation remains pending.
+
+Installation and update now remove the exact retired runtime artifacts before
+writing the new payload, retaining recovery copies. Do not remove stock
+`dbghelp.dll`, third-party `dxgi.dll`, arbitrary JSON, user shader files or support
+logs. Tests seed these unrelated files and assert their contents survive.
+
+The download-progress modal previously combined `AlwaysAutoResize` with text wrapped
+to the available width and no initial width. It collapsed to a narrow column. It
+now sets a 520 logical-pixel width capped to the viewport minus margins each frame,
+auto-sizes its height and centers on the working viewport. `update-downloading` is
+a render fixture. UI checks verify readable dimensions, no vertical scrolling,
+viewport containment and closure on completion/failure at 100%, 150% and minimum
+supported window size. Native PNGs were visually inspected at both DPI scales.
+
+Validation: installer host 86/86, updater host 57/57, native UI 190/190, full scratch
+installer lifecycle including cleanup lock/rollback cases, executable handoff smoke,
+and lint. No game launch is needed for these launcher changes.
+
 ## Candidate additions: texture packs and ReShade (2026-10-02)
 
 Setup/Change settings > Texture packs offers **Reduce texture address space use**.
@@ -96,7 +208,15 @@ found. A failed step stops the list; nothing below it runs.
 4. **Writes `d3d9.dll`, `dvr_steamvr32.dll` and `openvr_api.dll`** from the embedded
    copies. Every write is atomic (a `.tmp` beside the target, then a replace), so a
    half-written DLL can never be the one the game loads.
-5. **Deletes `dxvk_d3d9.dll` and `dxvk_stereo.txt`** if a release before 41.0 left them.
+5. **Cleans the known pre-41.0 artifacts before writing replacement payloads:**
+   `dxvk_d3d9.dll`, `dxvk_stereo.txt`, `vr_actions.json`, `vr_bindings_knuckles.json`,
+   `vr_bindings_touch.json` and `vr_bindings_native.json`. Exact names come from
+   original proxy source `824e08d8b`; no wildcard removal is used. Copies go to a
+   timestamped `dvr-legacy-backup-*` folder. Unexpected directories/reparse points
+   and inspection, backup or removal failures stop the operation. A partial cleanup
+   restores already removed members; a later update failure restores all six through
+   the update transaction. Current runtime DLLs are replaced by the payload, and the
+   existing INI migration/preservation policy still applies.
 6. **Writes `dishonored_vr.ini`** as a byte copy of `release/dishonored_vr.ini`, the ini
    this build was tuned and tested with (HANDOFF rule 6), but only when there is none.
    An existing ini at the build's `[Meta] Version` is kept: the F10 settings in it
@@ -599,3 +719,71 @@ Texture setup says to choose the downloaded pack, let the launcher unpack/find t
 then click Update All in the window that opens. That automated preparation remains a
 proposal; the final TFC step and verified restore are still required before enable/off
 management can ship. No texture pack was installed for this ReShade experiment.
+
+## ReShade that starts, a preset drop zone, and a Mods audit (2026-10-03)
+
+A remote 1.0.3 player installed ReShade from the Mods screen, turned it on, and it never
+ran: every launch logged `reshade: load failed error=1114`, no shader folder ever appeared,
+and F10 kept saying a restart would load it. The launcher had installed `ReShade32.dll` and
+nothing else. ReShade's own DllMain refuses to load (error 1114) when it is not loaded under
+a proxy name and no `ReShade.ini` exists beside the exe (upstream `source/dll_main.cpp`, the
+"not enabled for" check). The setup that worked on the dev PC had been laid down by hand
+(the section above) and carried its own `ReShade.ini`, so the launcher path was never tried
+on a clean folder. Reproduced with the real 6.8.0 DLL in a 32-bit test program: no
+`ReShade.ini` gives 1114; the launcher's `ReShade.ini`, or `RESHADE_DISABLE_LOADING_CHECK`,
+loads it.
+
+What Install ReShade does now (`tools/install-reshade.ps1`):
+
+- the pinned runtime as before; an identical runtime is no longer replaced, so a repeat
+  install adds no backup;
+- the three packages of the table above, from the same pinned commits and hashes (checked
+  live on 2026-10-03), each into `Win32\dvr-reshade-shaders\<name>`, staged and moved into
+  place, never over an existing folder;
+- `dvr-reshade-shaders\custom\Shaders` and `\Textures` for the player's own files, searched
+  recursively (`\**`, ReShade `runtime.cpp`);
+- `ReShade.ini` with those search paths, PerformanceMode=1, SkipLoadingDisabledEffects=1,
+  Scroll Lock / Home, and PresetPath only when the Carinth preset is already present - and
+  only when no `ReShade.ini` exists. A player's own file is never rewritten.
+
+A package that fails its hash or download is reported and the rest still installs; the
+operation then reads as incomplete and Repair ReShade retries only what is missing.
+
+The proxy (`core/gfx/reshade_runtime.cpp`) now sets `RESHADE_DISABLE_LOADING_CHECK` for the
+duration of its own `LoadLibrary` - `[ReShade] Enabled=1` is the opt-in that check exists to
+require - and a failed load records why: another ReShade already in the process (it names
+the module), a refusal with whether `ReShade.ini` is present, or a missing dependency. F10 >
+ReShade shows that reason instead of "Restart Dishonored to load", which was the message a
+player saw on every launch while nothing a restart could change was wrong.
+
+**The drop zone.** The ReShade section has a box: drag a preset `.ini`, a preset download
+(`.zip`) or its folder anywhere onto the window, or use Choose files. `tools/import-reshade-
+preset.ps1` copies only preset `.ini` files (a `Techniques=` line) beside the exe, `.fx`/`.fxh`
+below the archive's own `Shaders` folder into `custom\Shaders`, and images from a `Textures`
+folder into `custom\Textures`. It refuses every program file by extension, so the old ReShade
+proxy `d3d9.dll` that preset downloads carry can never replace the VR mod, and says so. A
+download's own `ReShade.ini` is refused. A replaced file is kept as `.dvr-backup`. It names
+the shaders an imported preset uses that no installed package provides, and selects the
+preset when `ReShade.ini` names none yet. The import never elevates (an elevated child cannot
+be handed dropped paths); the window accepts drops from a non-elevated Explorer either way.
+
+**The Mods audit.** Rendered every state (`tools\installer-render.ps1 -State mods-*`):
+
+| Found | Now |
+|---|---|
+| A runtime with no `ReShade.ini` read "Installed and enabled" | "Incomplete: ... Click Repair ReShade", the button becomes Repair (primary) |
+| Nothing said whether ReShade ran | `Last game launch: ReShade ran / was off / did not start (reason)`, read from the head of the game log |
+| The install message pointed at F10 to enable | Points at Turn ReShade on, the button beside it |
+| "Carinth shaders already installed" shown with no ReShade | Install / Repair ReShade first |
+| Copy said to download the preset and keep d3d9.dll | The drop zone does the copying and refuses DLLs |
+| A result's pipe-separated detail was one run-on line | One line per part |
+| A ReShade result returned to Overview | Returns to Mods |
+| A 180 s limit for ~25 MB of downloads | 600 s for the install |
+
+Tests: `tools\reshade-install-tests.ps1 -DownloadFile <setup exe> -PackageDir <folder with
+the three zips>` (existing preservation cases, fresh install, repeat install, Carinth
+selection, tampered package) and `tools\reshade-import-tests.ps1` (zip and folder drops,
+DLL and foreign ReShade.ini refusal, missing shaders, backups, empty drop) both pass. The
+built launcher's `--apply --op reshade` installed everything from the live sources into a
+fixture folder. `tools\reshade-manual-host.ps1` (production runtime on a D3D9Ex device)
+passes 759 checks. Not yet run: a game launch with the new layout.

@@ -329,6 +329,10 @@ void cycle_enter();
 void cycle_leave();
 void msw_tick();   // the Present hook, each present: starts or stops the MSW thread
 bool submit_depth();
+// Pre-release audit: [VR] VisibilityMaskProbe. Read before the instance is created. Probe only: logs the
+// share of each eye image the lenses never show (XR_KHR_visibility_mask); nothing is masked.
+void set_visibility_mask_probe(bool on);
+bool visibility_mask_probe();
 void set_depth_live(bool on);
 bool depth_live();
 bool depth_active();
@@ -568,6 +572,16 @@ struct PairProbe {
     uint32_t intervalCount = 0;
     uint64_t intervalSumUs = 0;
     uint64_t intervalSumSqUs = 0;
+    // 41.x (Dishonored, 2026-10-05): the SUBMIT cadence, sampled at every successful stereo xrEndFrame, for a
+    // method that has no pairs (afw: every present is its own frame, and the pair set above stays at zero).
+    // Cumulative like the pair set; the maximum is drained on read. submitStep* count the step in the runtime's
+    // predictedDisplayTime between two submits in display periods: Two = one slot was refilled with the previous
+    // frame, More = two or more slots were.
+    uint32_t submitIntCount = 0;
+    uint64_t submitIntSumUs = 0;
+    uint64_t submitIntSumSqUs = 0;
+    uint32_t submitIntMaxUs = 0;
+    uint32_t submitSteps = 0, submitStepTwo = 0, submitStepMore = 0;
     bool mirrorOn = false;       // desktop mirror pin state (vrmirror)
 };
 // 41.2 (Dishonored): the desktop eye pin. This file owns no D3D9 device, so

@@ -55,6 +55,12 @@ struct Detection {
     InstallRecord record;
     bool reshadeInstalled = false;
     bool reshadeEnabled = false;
+    bool reshadeSupported = false; // installed proxy implements the manual ReShade integration
+    // ReShade will not start without ReShade.ini beside the exe (its own DllMain check, in
+    // builds before the mod skips it), and has nothing to draw without the shader packages.
+    bool reshadeIniPresent = false;
+    bool reshadeShadersPresent = false;
+    std::string reshadeLastRun;    // what the last game log says ReShade did, "" when it says nothing
     bool disabled = false;           // disable_vr.txt
     bool iniExists = false; int iniVersion = 0;
     Runtime iniRuntime = Runtime::Auto; std::wstring iniJson; Size iniSize; std::wstring iniDataDir;
@@ -85,6 +91,9 @@ struct Report {
 Detection detect(const Env& env);
 Report do_reshade(const Env& env, const Detection& det);
 Report do_reshade_manage(const Env& env, const Detection& det, bool enabled, bool removeRuntime);
+// The Mods screen's drop zone: copy ReShade presets, shaders and textures out of the
+// dropped files, folders and archives; never a program file (tools/import-reshade-preset.ps1).
+Report do_import_presets(const Env& env, const Detection& det, const std::vector<std::wstring>& paths);
 Report do_install(const Env& env, const Detection& det, const Choices& choices);
 Report do_update(const Env& env, const Detection& det, bool overwriteSettings = true);
 Report do_change(const Env& env, const Detection& det, const Choices& choices);   // the five keys only

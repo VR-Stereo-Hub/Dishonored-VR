@@ -20,4 +20,23 @@ struct DrawPresentProgress {
     }
     void complete(uint32_t present) { previousReturn = present; }
 };
+
+// The camera-silent gate (scene_draw.cpp): does this draw entry see a scene being drawn?
+// `cameraEntries` is the same progress record fed with the c5 upload serial at each entry.
+//
+// Grace off (the shipped rule): an upload must have arrived since the previous draw
+// RETURNED. That is the baseline VR-229 retired for the present guard: uploads made
+// while the previous draw call ran are discarded, and when the render thread spends the
+// whole idle interval inside Present the tick goes SINGLE with the scene still drawing.
+// Measured 2026-10-05 in gameplay: one such tick after a 36 ms xrEndFrame stall, and one
+// after a 1 ms catch-up tick; under afw each costs a held present and a stale right eye.
+//
+// Grace on ([Stereo] CameraSilentGrace): the entry-to-entry baseline as well, and one
+// quiet interval allowed after observed uploads. It only ever ADDS permission: a tick the
+// shipped rule passes is passed. A load screen is silent on every interval and is still
+// refused from its second one.
+inline bool camera_silent(bool grace, bool uploadSinceReturn, const DrawPresentProgress& cameraEntries) {
+    if (uploadSinceReturn) return false;
+    return !(grace && cameraEntries.allowed);
+}
 }

@@ -1,3 +1,48 @@
+## Heart backside preview (2026-10-04)
+
+- [x] Branch from staging and locate the shipped Heart mesh and textures.
+- [x] Build a local rear-wall proposal and verify the main opening closes.
+- [x] Preserve original front geometry and prepare before/after screenshots.
+- [x] Revise the overly pale material using the original darker flesh palette.
+- [x] Receive visual approval before skinning or game integration.
+- [x] Transfer skin weights and draw the backing with the native Heart material.
+- [x] Exercise the 9/13 Hound Pits save in the simulator, including live OFF/ON.
+- [x] Accept the final natural-seam backing in the headset; locomotion effects are a separate follow-up.
+
+Evidence: [ENGINE_NOTES](dishonored/ENGINE_NOTES.md), Heart rear shell entry.
+Runtime integration is now a default-off local candidate; prepared game-derived files remain untracked.
+## Full-arm IK (2026-10-04)
+
+- [x] Fork-style independent shoulder reach with shared nominal XYZ/width.
+- [x] Dedicated L3+R3/F10 IK tab and default-off persisted controls.
+- [x] Preserve native hands/fingers while IK replaces arm/sleeve animation.
+- [x] Validated local reference-to-palette mapper and owned complete arm geometry.
+- [x] 1,083 host checks and 260-frame Blender production-solver skin simulation.
+- [x] Confirm all 2,771 runtime vertices/48 slots map and full arms activate in the headset.
+- [ ] Confirm the latest roll, menu visibility and flicker corrections in the combined candidate.
+- [ ] Confirm animation handoff, menu persistence, rapid turns and reload lifetime.
+
+Evidence and deformation limits: [ARM_IK.md](dishonored/ARM_IK.md).
+
+## Launcher Display and ReShade follow-up (2026-10-03)
+
+- [x] Add explicit upscaler, quality and shared F10 preset controls to Display.
+- [x] Preserve custom values and distinguish saved render size from output size.
+- [x] Recognize ReShade capability across builds; always permit safe disable/removal while game is closed.
+- [x] Verify normal/high DPI, minimum window size and whole-INI persistence in scratch fixtures.
+- [ ] Review expanded PR #171; staging integration still requires explicit authorization.
+
+## Launcher maintenance (2026-10-03)
+
+- [x] Clean exact legacy artifacts before install/update, with recovery copies and failure reporting.
+- [x] Restore legacy artifacts when a later update step fails.
+- [x] Bound and center update-progress dialog; verify normal/high DPI and minimum size.
+- [x] Installer, updater, native UI, scratch lifecycle and self-update handoff checks.
+- [ ] Create dedicated Linear issue once the workspace issue limit permits it.
+- [ ] Review and explicitly authorize staging integration; no release published.
+
+Evidence: [INSTALLER.md](INSTALLER.md) and latest STATUS entry.
+
 ## Community texture-pack compatibility and ReShade (2026-10-02, VR-133)
 
 - [x] Audit supplied v1.0.2 source and port onto staging without using donated binaries.
@@ -12,6 +57,17 @@
 - [ ] Separate subtitle region/readability acceptance.
 
 Evidence and next test: [PERFORMANCE.md](dishonored/PERFORMANCE.md), community integration.
+
+## Stereo settings patch preparation (2026-10-02)
+
+- [x] Merge the verified installed build 253 into staging on explicit instruction.
+- [x] Keep Stereo and experimental AFW in Basic; move all other section controls to Debug.
+- [x] Add AFW tooltip guidance for DLSS/DLAA; preserve rendering and configuration defaults.
+- [x] Optimized build, lint, nine exports, golden INI and full installed INI/CRLF verification.
+- [ ] User-launched Basic/Debug panel visibility acceptance on build 258.
+- [ ] Merge the UI follow-up after review and explicit authorization.
+
+Further SSW/mod-spacewarp research is shelved; see `dishonored/PERFORMANCE.md`.
 
 ## AFW wall stale-test and hand timing follow-up (2026-09-30)
 

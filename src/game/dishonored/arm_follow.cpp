@@ -460,6 +460,7 @@ static const unsigned kAfChangeLines = 8;   // change lines per field; the count
 // Found without any search: the pawn's own Mesh (Pawn.Mesh by name; 0x3dc per ENGINE_NOTES as the fallback), and the
 // weapons from the hands' view-model list (FpCollect). Slow path only.
 static std::atomic<int> g_armsLensUse{-1};   // m_bUseFOV as the game holds it (-1 unknown)
+static int ArmsLensUse() { return g_armsLensUse.load(); }   // 1 while the game holds a lock-arms zoom (mesh_split.cpp)
 static float g_armsLensGame = 0.0f;
 static uint32_t g_armsMeshOff = 0;           // Pawn.Mesh
 static const char* g_armsMeshRoute = "unresolved";

@@ -60,7 +60,14 @@ static bool DvrSceneVerdict() {
     // screen exactly that way).
     if (rides || UiSurfaceBlocks() || !menu) pendingSince=0;
     else if (!pendingSince && ridePossible) pendingSince=(double)now;
-    const bool pending=pendingSince>0 && (double)now-pendingSince<300.0;
+    // 2026-10-07: choosing the shop in a merchant's dialogue raises the menu flag for about 1.2 s with no
+    // owner ever published (context Other, not blocked, nothing rides) while the dialogue scene keeps
+    // drawing; after the 300 ms gap the ordinary terms refused on the menu flag and the view fell to the
+    // mono quad until the flag dropped (measured twice, gateAge 1187 and 1203 ms on recovery). In a
+    // cinematic state the open gap is 2.5 s; the stand-in still demands the scene drawing or a tagged
+    // projection present, so a real pause that stops the world still falls back.
+    const double openMs=state.valid && dvr::scene_state::cinematic(state.state[0]) ? 2500.0 : 300.0;
+    const bool pending=pendingSince>0 && (double)now-pendingSince<openMs;
     const int standIn=rides?1:inGrace?2:pending?3:0;
     const bool uiClear=UiSurfaceEnabled() && !UiSurfaceBlocks();
     const bool result=standIn ? dvr::ui_ride::ride_eligible(pawn || possessed,sceneFreshRaw,gateFresh)

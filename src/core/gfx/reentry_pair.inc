@@ -46,6 +46,17 @@ uint32_t g_c5Agree = 0, g_c5Disagree = 0, g_c5Realigned = 0, g_c5Verdicts = 0, g
 // lag and no inference: if the stale line's owner is right, this moves with it.
 uint32_t g_c5Took = 0, g_c5Held = 0, g_c5Refused = 0, g_pushSameEye = 0;
 int      g_lastPushedEye = 0;
+// [Stereo] C5SameEyeGuard (default on). The "robust" arm (inv=+1, a -ipd step) is only
+// robust WITHIN a tick. Evaluated on every present, a cross-tick step reads
+// walk + ipd, and a player moving sideways about 2*ipd per tick makes that read -ipd:
+// the arm then relabels a correct LEFT as RIGHT. Field ledger, GTX 1650, 2026-10-03:
+// `pop D5554(-1) ... c5 along -6.61 ... TOOK | out +1` right after `out +1 D5553`, then
+// `pushed eye +1 TWICE` - one left image in the right eye and a stale left eye, worse when
+// moving and more often at ~30 ticks/s (more travel per tick). A pass 2 always follows
+// its own pass 1, so the arm may never label two images in a row the same eye; the
+// disagreement streak still realigns a genuinely skewed ring.
+bool     g_c5Guard = true;
+uint32_t g_c5Guarded = 0;
 // VR-80 ledger accounting: every tag that enters or leaves the ring, by how.
 uint32_t g_pushAccepted = 0, g_pushRejected = 0, g_lastRejectedDraw = 0;
 uint32_t g_popNormal = 0, g_popRepair = 0, g_popClearRemoved = 0, g_popClears = 0, g_popEmpty = 0, g_lifecycleRemoved = 0;
@@ -164,6 +175,7 @@ struct ArbState {
     uint32_t c5Streak = 0;
     int      owedEye = 0;         // F-late: the eye an empty pop's image showed without a tag (0 = none owed)
     bool     inStream = false;    // F-late: the previous present popped a tag, or owed one
+    int      prevEye = 0;         // the eye the previous present's image was finally labelled (0 = none)
 };
 
 // What the arbitration reads about THIS present.
@@ -283,7 +295,11 @@ bool pop_and_arbitrate(ArbState& st, const ArbView& v, Tag& t, int& ringEye, int
     // run pass 2 and DID push its +1. The fragile arm must therefore agree
     // with the ring, or defer to it and let the streak realign.
     if (g_c5Pair && inv != 0) {
-        const bool robust = (inv == +1);   // within-tick: no world tick to cross
+        // within-tick: no world tick to cross - unless the previous image already went out
+        // as this eye, in which case this step crossed a tick (C5SameEyeGuard, above)
+        const bool repeat = g_c5Guard && inv == st.prevEye;
+        if (repeat) ++g_c5Guarded;
+        const bool robust = (inv == +1) && !repeat;
         if (tagged && t.eye != 0) {
             ++g_c5Verdicts;
             if (t.eye == inv) { ++g_c5Agree; st.c5Streak = 0; t.eye = inv; if (tr) tr->action |= ACT_AGREE; }
@@ -345,6 +361,7 @@ bool pop_and_arbitrate(ArbState& st, const ArbView& v, Tag& t, int& ringEye, int
         }
     } else if (inv == 0 && tagged && t.eye != 0) { ++g_c5Unknown; if (tr) tr->action |= ACT_UNKNOWN; }
     if (tr) tr->streakAfter = st.c5Streak;
+    st.prevEye = tagged ? t.eye : 0;
     return tagged;
 }
 

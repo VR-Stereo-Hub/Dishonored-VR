@@ -11,7 +11,7 @@
 namespace dvr::log { uint8_t g_levels[(int)Cat::COUNT]={};void write(Cat,Level,const char*,...){} }
 static std::map<ImGuiID,ImRect> bounds;
 static std::map<std::string,ImRect> labels;
-void ImGuiTestEngineHook_ItemAdd(ImGuiContext* ctx,ImGuiID id,const ImRect& box,const ImGuiLastItemData*){bounds[id]=box;for(const char* name:{"##stereo-mode","##runtime","##modifier"})if(ctx->CurrentWindow && ctx->CurrentWindow->IDStack.Size && id==ctx->CurrentWindow->GetID(name))labels[name]=box;}
+void ImGuiTestEngineHook_ItemAdd(ImGuiContext* ctx,ImGuiID id,const ImRect& box,const ImGuiLastItemData*){bounds[id]=box;for(const char* name:{"##stereo-mode","##runtime","##modifier","##upscaler","##upscaler-quality","##upscaler-preset"})if(ctx->CurrentWindow && ctx->CurrentWindow->IDStack.Size && id==ctx->CurrentWindow->GetID(name))labels[name]=box;}
 void ImGuiTestEngineHook_ItemInfo(ImGuiContext*,ImGuiID id,const char* label,ImGuiItemStatusFlags){if(label && bounds.count(id))labels[label]=bounds[id];}
 void ImGuiTestEngineHook_Log(ImGuiContext*,const char*,...){}
 const char* ImGuiTestEngine_FindItemDebugLabel(ImGuiContext*,ImGuiID){return nullptr;}
@@ -21,6 +21,19 @@ static ViewState v;
 static int count=0;
 static void check(bool ok,const char* text){++count;if(!ok){fprintf(stderr,"FAIL: %s\n",text);exit(1);}}
 static UiAction frame(){labels.clear();bounds.clear();ImGui::NewFrame();auto a=ui::draw(v);ImGui::Render();return a;}
+static void reveal(const char* name){
+ for(int attempt=0;attempt<8;++attempt){
+  if(labels.count(name)) {
+   const auto box=labels[name];
+   auto& ctx=*ImGui::GetCurrentContext();
+   for(auto* win:ctx.Windows)if(strstr(win->Name,"/##page_") && win->Active){
+    if(box.Min.y>=win->InnerRect.Min.y && box.Max.y<=win->InnerRect.Max.y)return;
+    ImGui::SetScrollY(win,win->Scroll.y+box.Min.y-win->InnerRect.Min.y-40*ImGui::GetStyle().FontScaleDpi);
+   }
+  }
+  frame();frame();
+ }
+}
 static UiAction click(const char* name){
  if(!labels.count(name)){for(const auto& p:labels)fprintf(stderr,"label: %s\n",p.first.c_str());}
  check(labels.count(name)!=0,name);auto box=labels[name];auto& io=ImGui::GetIO();
@@ -53,13 +66,37 @@ static void suite(float dpi,float width,float height){
  check(v.settingsDirty,"AFW edit marks draft unsaved");
  check(click("Play")==UiAction::None && v.confirmPlay,"unsaved Play opens confirmation");frame();frame();
  check(click("Back to settings")==UiAction::ChangeSettings && !v.confirmPlay && v.settingsDirty,"return from Play guard retains draft");
- state("mods");check(click("Install ReShade 6.8")==UiAction::None,"runtime download waits for compatible installed build");
- v.det.installedSha=v.det.embeddedSha;frame();check(click("Install ReShade 6.8")==UiAction::InstallReShade,"runtime download wired after compatible build");
+ state("setup-change");
+ reveal("##upscaler");click("##upscaler");frame();frame();click("NVIDIA DLSS");frame();frame();
+ check(v.choices.upscalerEdit==1 && v.settingsDirty,"DLSS selection marks draft dirty");
+ reveal("##upscaler-quality");click("##upscaler-quality");frame();frame();click("Ultra Quality");
+ check(v.choices.upscalerQualityEdit==5,"Ultra Quality retains saved value 5");
+ reveal("##upscaler-preset");click("##upscaler-preset");frame();frame();click("Fast (default)");
+ check(v.choices.upscalerPresetEdit==5,"DLSS preset selection uses shared F10 model choice");
+ reveal("##upscaler");click("##upscaler");frame();frame();click("AMD FSR");frame();frame();
+ check(v.choices.upscalerEdit==2 && !labels.count("##upscaler-preset"),"FSR hides NVIDIA-only presets");
+ reveal("##upscaler");click("##upscaler");frame();frame();click("Off");frame();frame();
+ check(v.choices.upscalerEdit==0 && !labels.count("##upscaler-quality"),"Off hides inactive upscaler options");
+ state("mods");v.det.reshadeSupported=false;frame();check(click("Install ReShade 6.8")==UiAction::None,"runtime download waits for compatible installed build");
+ v.det.reshadeSupported=true;frame();check(click("Install ReShade 6.8")==UiAction::InstallReShade,"compatible runtime download works across build hashes");
  v.det.reshadeInstalled=true;frame();check(click("Turn ReShade on")==UiAction::ToggleReShade,"ReShade enable action wired");
  check(click("Uninstall ReShade runtime")==UiAction::RemoveReShade,"ReShade remove action wired");
+ v.det.reshadeSupported=false;v.det.reshadeEnabled=true;frame();
+ check(click("Turn ReShade off")==UiAction::ToggleReShade,"disable remains available for an unsupported/different runtime");
+ check(click("Uninstall ReShade runtime")==UiAction::RemoveReShade,"uninstall remains available for an unsupported/different runtime");
+ v.det.reshadeEnabled=false;frame();check(click("Turn ReShade on")==UiAction::None,"enable refuses an unsupported runtime");
+ v.det.reshadeSupported=true;
  v.det.running=process::Running::Yes;frame();check(click("Turn ReShade on")==UiAction::None,"ReShade mutation blocked while running");
  state("about-updates");check(click("Check for updates")==UiAction::CheckUpdates,"update check wired");
- v.updateDownloading=true;frame();check(click("Overview")==UiAction::None,"update modal prevents navigation");
+ v.updateDownloading=true;frame();frame();frame();
+ auto* modal=ImGui::FindWindowByName("Updating Dishonored VR");
+ check(modal && modal->Active,"download progress modal is visible");
+ check(modal->Size.x>=400*dpi && modal->Size.x<io.DisplaySize.x,"progress dialog has readable width within viewport");
+ check(modal->Size.y<200*dpi && modal->ScrollMax.y==0,"progress text fits without vertical scrolling");
+ check(modal->Pos.x>=0 && modal->Pos.y>=0 && modal->Pos.x+modal->Size.x<=io.DisplaySize.x && modal->Pos.y+modal->Size.y<=io.DisplaySize.y,"progress modal remains entirely visible");
+ check(click("Overview")==UiAction::None,"update modal prevents navigation");
+ v.updateDownloading=false;frame();frame();
+ check(!modal->Active,"progress dialog closes on completion or failure");
  ImGui::DestroyContext(ctx);
 }
 int main(){suite(1,960,850);suite(1.5f,960,850);suite(1,760,640);printf("PASS: %d native launcher interaction checks\n",count);}

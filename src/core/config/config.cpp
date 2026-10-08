@@ -18,6 +18,7 @@ static bool WriteDefaultIni(const char* ini)
         "; (auto-refreshed when the mod's defaults change)\n"
         "[Meta]\n"
         "Version=%d\n"
+        "DefaultsRev=4\n"
         "[Tracking]\n"
         "; head tracking drives the game camera via mouse emulation.\n"
         "; Calibrate: pick a landmark, turn your head 90 degrees; if the\n"
@@ -39,6 +40,14 @@ static bool WriteDefaultIni(const char* ini)
         "DrawCallerTrace=1\n"
         "RingLedger=1\n"
         "LateTagRepair=1\n"
+        "; CameraSilentGrace=1: the second draw's camera-silent gate counts camera uploads from\n"
+        "; draw to draw and forgives ONE quiet interval, so a stall on the present thread (a long\n"
+        "; xrEndFrame) or a catch-up game tick no longer costs a single-eye tick: under afw that\n"
+        "; was a held frame and a stale right eye about once a minute, more with a slow script\n"
+        "; frame. A load screen is quiet on every interval and still drops to mono. 0 = the\n"
+        "; shipped rule. Live: `reentry silentgrace on|off`, F10 Display. The `reentry: beat`\n"
+        "; line's silentGrace= counts the ticks it kept.\n"
+        "CameraSilentGrace=1\n"
         "; Occlusion (VR-79): native = the engine's culling as shipped, both eyes share one\n"
         "; history and an object hidden from one eye can vanish from both; pereye = the right\n"
         "; eye gets its own view state, so each eye culls only what IT cannot see; off = no\n"
@@ -200,8 +209,9 @@ static bool WriteDefaultIni(const char* ini)
         "; taken from the current resolution when SR is first turned on; the F10 resolution sets it while SR is\n"
         "; on). [Screen] RenderWidth/Height then hold the reduced size. Live: dlss quality <n>, dlss output <w> <h>.\n"
         "DlssQuality=0\n"
-        "; DlssModel: 0 transformer (preset K, best image, ~2 ms per eye at 2750x2850), 1 fast (CNN presets\n"
-        "; E/F, ~0.9 ms per eye). DlssPreset nonzero overrides it: 10 J, 11 K, 12 L, 13 M (NVIDIA presets),\n"
+        "; DlssModel: 0 transformer (preset K, the default again 2026-10-05: the sharpest image), 1 fast (CNN\n"
+        "; presets E/F, about 2 ms per eye image against K's 4: measured 14 percent faster at Ultra Quality on an RTX 4070\n"
+        "; Ti SUPER, 2026-10-05). DlssPreset nonzero overrides it: 10 J, 11 K, 12 L, 13 M (NVIDIA presets),\n"
         "; 16 NVIDIA's pick per mode (K, M for Performance, L for Ultra Performance). F10: the DLSS model list.\n"
         "DlssModel=0\n"
         "DlssOutputWidth=0\n"
@@ -286,6 +296,10 @@ static bool WriteDefaultIni(const char* ini)
         "; 0 = legacy hooks, 1 = manual runtime (restart required). Depth effects need legacy hooks.\n"
         "; Scroll Lock toggles effects live. F10 > ReShade adjusts presets and shader settings.\n"
         "ManualRuntime=1\n"
+        "; LoadAllEffects=0: ReShade loads only the effects the selected preset has switched on, so\n"
+        "; F10 > ReShade lists those, effects load faster and less memory is used. 1 = every\n"
+        "; effect in the shader folders is compiled and listed (F10: Show all installed effects).\n"
+        "LoadAllEffects=0\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -327,6 +341,11 @@ static bool WriteDefaultIni(const char* ini)
         "[Screen]\n"
         "; Gameplay horizontal FOV; 0 restores headset-derived. Live: projectionfov 60..120|off.\n"
         "ProjectionFov=103.00\n"
+        "; ZoomMagnify=1: when the game narrows its FOV (the mask's zoom, the spyglass upgrade), the view\n"
+        "; magnifies like a scope: the scene is drawn narrower and the headset keeps showing it across\n"
+        "; ProjectionFov. 0 = the narrower view at its true size, a small box. Live: zoommagnify on|off,\n"
+        "; F10 Display > Field of view.\n"
+        "ZoomMagnify=1\n"
         "AnchorCinematic=1\n"
         "AnchorMissionStats=1\n"
         "AnchorStore=1\n"
@@ -406,6 +425,10 @@ static bool WriteDefaultIni(const char* ini)
         "; Live A/B: desktopeye draw|tag. tag is the legacy pin, which leaks the other eye under shared capture.\n"
         "DesktopEyeSource=draw\n"
         "DisableBadApiLayers=1\n"
+        "; DisableReShadeApiLayer=1 skips ReShade's global OpenXR layer for this game only\n"
+        "; (ReShade refuses to load without a ReShade.ini beside the exe, and that refusal\n"
+        "; stops VR starting at all). 0 leaves it to ReShade. The registry is never touched.\n"
+        "DisableReShadeApiLayer=1\n"
         "[Paths]\n"
         "; DataDir= where the harness files go (command.txt, status.json, dumps, the\n"
         "; shim manifest). Empty = %%LOCALAPPDATA%%\\DishonoredVR. Set it to a folder the\n"
@@ -419,6 +442,18 @@ static bool WriteDefaultIni(const char* ini)
         "DpadModifier=1\n"
         "DpadFlip=0\n"
         "PauseChord=1\n"
+        "; ZoomTap=1: a tap of the right stick click (released before the health elixir's hold, no\n"
+        "; D-pad pick) is the game's own zoom, the mask lens. 0 = a tap does nothing. Live: zoomtap\n"
+        "; on|off, F10 Controls.\n"
+        "ZoomTap=1\n"
+        "; ZoomGesture=1: the right trigger pressed with the right controller held at your right eye\n"
+        "; (within ZoomGestureRadiusCm) is the zoom too - click your mask's lens. That press is not an\n"
+        "; attack. Live: zoomgesture on|off, zoomgesture radius <cm>, F10 Controls.\n"
+        "ZoomGesture=1\n"
+        "ZoomGestureRadiusCm=25\n"
+        "; ZoomGestureRightCm: the gesture's anchor sits this far to the right of the right eye (the temple),\n"
+        "; so the hand need not come fully in front of the face.\n"
+        "ZoomGestureRightCm=8\n"
         "Enabled=1\n"
         "Deadzone=0.12\n"
         "Haptics=1\n"
@@ -593,6 +628,27 @@ static bool WriteDefaultIni(const char* ini)
         "; InteractFromHand=1 (VR-166): what you can pick up, open or use is chosen along the\n"
         "; weapon ray instead of your view. The engine still traces and validates; 0 = head.\n"
         "InteractFromHand=1\n"
+        "; PhysicalPickup=1: reach a hand to a lootable item (coins, elixirs, keys, ammunition, bone\n"
+        "; charms, notes, bolts) and squeeze that hand's grip to pick it up. Within PhysicalPickupReachCm\n"
+        "; of your palm (measured to the item's surface) the game highlights it, wherever you look;\n"
+        "; pointing works as before and so does the Interact button. Each hand takes its own nearest.\n"
+        "; A grip pressed there does not also open the power wheel or block. Live: pickup on|off, pickup reach <cm>.\n"
+        "; Books, notes and audio logs have their own, longer reach, and one opened by a grip shows its\n"
+        "; page on the hand that opened it.\n"
+        "PhysicalPickup=1\n"
+        "PhysicalPickupReachCm=60\n"
+        "PhysicalPickupBookReachCm=74\n"
+        "; PhysicalDoors=1: with PhysicalPickup on, a palm within PhysicalDoorReachCm of a door and a grip\n"
+        "; opens or closes it (carried things and levers use the same reach). Live: pickup doors on|off,\n"
+        "; pickup doorreach <cm>.\n"
+        "PhysicalDoors=1\n"
+        "PhysicalDoorReachCm=75\n"
+        "; PhysicalCarry=1: the same grip picks up things you can carry and throw (bottles, tanks, grenades,\n"
+        "; limbs). PhysicalUsables=1: levers, switches, valves, chains and placed traps; a held grip holds\n"
+        "; Interact. Both use PhysicalDoorReachCm from the object's collision box, never act on people,\n"
+        "; and the Interact button works on all of them as before. Live: pickup carry|usables on|off.\n"
+        "PhysicalCarry=1\n"
+        "PhysicalUsables=1\n"
         "; ThrowFromHand=1 (VR-166): grenades leave along the weapon ray instead of your view.\n"
         "; The spawn point, speed and arc stay the game's; 0 = head.\n"
         "ThrowFromHand=1\n"
@@ -604,6 +660,11 @@ static bool WriteDefaultIni(const char* ini)
         "; CarryThrowLeftTrigger=1 (VR-181): while carrying, the LEFT trigger throws and the right\n"
         "; trigger does the left's job; 0 = the game's layout (the right trigger throws).\n"
         "CarryThrowLeftTrigger=1\n"
+        "; CarryInGrabHand=1: an object picked up by a hand's grip (PhysicalCarry) is carried in THAT\n"
+        "; hand, and the right trigger throws it when it is the right hand; the hold offsets below are\n"
+        "; tuned on the left hand and mirrored for the right. 0 = always the left hand. Live: carryaim\n"
+        "; grabhand on|off, F10 Interact.\n"
+        "CarryInGrabHand=1\n"
         "; CarryHoldAtHand=1 (VR-181): a carried object is held at your hand instead of in front of\n"
         "; your view, CarryHoldForwardCm ahead of it along the weapon ray (negative pulls it in,\n"
         "; -40..60); 0 = the game's hold. CarryHoldRotate=1 turns it with your wrist.\n"
@@ -625,7 +686,7 @@ static bool WriteDefaultIni(const char* ini)
         "CarryHoldAnchor=1\n"
         "; CarryHoldReticleAnchor=1: the hold stays put when [Crosshair] OtherItemsX/Y is re-tuned. It\n"
         "; is built on the reticle it was tuned at, CarryHoldReticleX/Y (degrees); 0 = it rides the live\n"
-        "; reticle and moves with every reticle change. Live: F10 Aim.\n"
+        "; reticle and moves with every reticle change. Live: F10 Interact.\n"
         "CarryHoldReticleAnchor=1\n"
         "CarryHoldReticleX=-3.60\n"
         "CarryHoldReticleY=-37.20\n"
@@ -824,6 +885,7 @@ static bool WriteDefaultIni(const char* ini)
         "RouteByDrawOrder=0\n"
         "DrawOrderHands=-1,-1,-1,-1,-1,-1,-1,-1\n"
         "[Hands]\n"
+        "HeartBack=1\n"
         "RoundedWrist=1\n"
         "RoundedWristDepth=0.570\n"
         "PaletteEyeMenuHalfStep=1\n"
@@ -873,7 +935,7 @@ static bool WriteDefaultIni(const char* ini)
         "CrouchDropUU=20\n"
         "CrouchHoldMs=250\n"
         "CrouchDiag=0\n"
-        "CrouchToggle=0\n"
+        "CrouchToggle=1\n"
         "CrouchButtonMask=8192\n"
         "CrouchMaskVer=2\n"
         "GraftRotation=0\n"
@@ -924,7 +986,7 @@ static bool WriteDefaultIni(const char* ini)
         "; (found by its camera position) instead of a sample two presents back and an eye\n"
         "; guessed from a jump. Aimed at the slight hand/weapon flicker on fast head turns.\n"
         "; 0 = the previous path. F10 Advanced > Hands > Head-turn smoothing.\n"
-        "PoseFromView=0\n"
+        "PoseFromView=1\n"
         "PaletteEyeAlternate=0\n"
         "PaletteEyeFromMeasured=0\n"
         "PaletteEyeHunt=0\n"
@@ -940,9 +1002,49 @@ static bool WriteDefaultIni(const char* ini)
         "; RigidWrist=1 (VR-184): the wrist cut and cap stay rigid with the hand, so arm animation\n"
         "; cannot bend them; the fingers still animate. 0 = the game's own weights.\n"
         "RigidWrist=1\n"
+        "; Full-arm IK (experimental). Shared resting shoulders, independent reach correction.\n"
+        "; Requires locally prepared dishonored_vr_arm_rig.bin in Paths/DataDir.\n"
+        "; Native hands/fingers still animate; IK replaces the arm pose. L3+R3 / F10: IK tab.\n"
+        "ArmIK=1\n"
+        "; The fit (2026-10-06) was tuned in a headset; F10 Reset IK adjustments returns to it.\n"
+        "ArmShoulderForwardCm=-16\n"
+        "ArmShoulderRightCm=0\n"
+        "ArmShoulderUpCm=-25\n"
+        "ArmShoulderWidthCm=38.1\n"
+        "ArmLengthScale=1.27\n"
+        "ArmElbowOut=0.6\n"
+        "; ArmIKGameArmInAnim=1: while a game animation owns a hand, that arm becomes the game's\n"
+        "; own arm, blended in and out with the hand. 0 = the IK arm follows the animated wrist.\n"
+        "ArmIKGameArmInAnim=1\n"
+        "; ArmIKGameArmShoulder: that game arm re-seated so its shoulder sits on your IK shoulder,\n"
+        "; its wrist staying where the animation put it. 0 = off (the arm as the game draws it for\n"
+        "; its own camera), 1 = every game animation except the choke, 2 = the choke as well.\n"
+        "ArmIKGameArmShoulder=1\n"
+        "; ArmIKGameArmMaxStretch: how far that re-seat may lengthen the game's arm to reach your\n"
+        "; shoulder (1.0..2.5). Below what a takedown needs, its shoulder stays in front where you can\n"
+        "; see it (the ik/gamearm line's left over). Takedowns measured needing up to 1.84.\n"
+        "ArmIKGameArmMaxStretch=1.9\n"
         "; OpenEmptyRightHand=1: with nothing in the right hand (the sword holstered) its fingers\n"
         "; take the left hand's open pose, mirrored, instead of the game's loose fist. 0 = the fist.\n"
         "OpenEmptyRightHand=1\n"
+        "; GrabAnim=1: a grip that picks something up or uses it (PhysicalPickup) plays a grab on that\n"
+        "; hand: the fingers shape flat, close into a fist, stay closed while the grip is held and\n"
+        "; return. On by default (accepted in a headset 2026-10-05). The times are in ms: shape (to\n"
+        "; flat, scaled by how closed the hand is: none when it is already open), close (flat to\n"
+        "; fist), hold (the least time closed), release, and lag (how far the fingertips trail the\n"
+        "; knuckles). Live: grab on|off, grab test left|right, grab time ...\n"
+        "GrabAnim=1\n"
+        "GrabAnimShapeMs=75\n"
+        "GrabAnimCloseMs=110\n"
+        "GrabAnimHoldMs=90\n"
+        "GrabAnimReleaseMs=130\n"
+        "GrabAnimLagMs=20\n"
+        "; GrabReadyOpen=1 / GrabReadyHide=1: while a hand is close enough that its grip would pick\n"
+        "; something up or use it, that hand opens like the sheathed hand and what it holds is not\n"
+        "; drawn, until it leaves reach (or a grab ends). On by default (accepted 2026-10-05).\n"
+        "; Live: grab ready open|hide on|off.\n"
+        "GrabReadyOpen=1\n"
+        "GrabReadyHide=1\n"
         "WeaponId=0\n"
         "WeaponIdMs=1500\n"
         "PaletteFrameTol=0.0200\n"
@@ -1189,6 +1291,11 @@ static bool WriteDefaultIni(const char* ini)
         "; DepthShare=1 (motion vectors, step 2): copy that depth to the mod's D3D11 device every\n"
         "; present and prove every 5 s that D3D11 reads what the game wrote. `depthprobe share on|off`.\n"
         "DepthShare=0\n"
+        "; DepthShareChecks=N: how many of those proofs run after the shared ring is built (5 s apart).\n"
+        "; Each one reads the game's target back and maps a D3D11 texture on the present thread, a\n"
+        "; hitch of about a frame, and afw keeps the ring on: so 3, then none. -1 = one every 5 s for\n"
+        "; the whole session (the behaviour before 2026-10-05). `depthprobe share check [n|always]`.\n"
+        "DepthShareChecks=3\n"
         "; MotionCalib=1 (motion vectors, step 3; needs DepthShare=1): whenever the camera moves\n"
         "; between two frames of one eye, measure which depth scale explains the change and log it.\n"
         "MotionCalib=0\n"
@@ -1204,6 +1311,10 @@ static bool WriteDefaultIni(const char* ini)
         "HideBorders=1\n"
         "HeadLook=1\n"
         "SpecialHeadLook=1\n"
+        "; KeyholeForwardCm: while peeking through a keyhole, the eyes move this far forward along the\n"
+        "; door's view (physical cm), so they do not sit inside the door. 0 = the game's own spot.\n"
+        "; F10 Comfort > Cutscenes and special cameras (Advanced).\n"
+        "KeyholeForwardCm=15\n"
         "Trace=0\n"
         "LockRoll=1\n"
         "; SkipHoldMs (VR-165): during a cutscene the pad is parked - sticks and triggers to\n"
@@ -1293,7 +1404,17 @@ static bool WriteDefaultIni(const char* ini)
         "; HideTakedownArms (VR-283): takedowns (ground and aerial), chokes and combat kills\n"
         "; show the game-animated hands without forearms, cut at the F10 Sleeve length, like\n"
         "; mantling. 0 = the game's full arms. F10 Advanced > Hands > Game arms during actions.\n"
-        "HideTakedownArms=0\n"
+        "HideTakedownArms=1\n"
+        "; CineHideStaticArms=1: in a cutscene that shows the game's arms, hide them while they hold\n"
+        "; still with both hands behind the camera (the opening cutscene leaves them pointing back past\n"
+        "; your head). On by default since the boat was confirmed in a headset (2026-10-07). Live:\n"
+        "; cinehidearms on|off, F10 Advanced > Hands.\n"
+        "CineHideStaticArms=1\n"
+        "; CineHidePoses: the still poses the hide knows (each hand's position in the arm mesh's own\n"
+        "; space, L xyz R xyz, up to four, ';' between), hidden whenever they recur whichever way you\n"
+        "; look. Ships with the opening boat ride's pose; the mod adds a pose when still arms hold both\n"
+        "; hands behind the camera. `cinehidearms forget` clears them.\n"
+        "CineHidePoses=54.23 -104.30 -23.16 -54.24 -104.30 -23.14\n"
         "; HandAnimMelee: a TRIGGER sword attack plays the game's swing on the tracked hand\n"
         "; and returns it to the controller. A physical swing (the motion sword) never does:\n"
         "; your arm is the animation. HandAnimMeleeSwing=1 hands physical swings back too.\n"
@@ -1310,6 +1431,29 @@ static bool WriteDefaultIni(const char* ini)
         "HandBack=1\n"
         "ReleaseMs=250\n"
         "HandBackBlendMs=150\n"
+        "; SmoothBlend=1 eases the hand into and out of a game animation (zero speed at both\n"
+        "; ends), keeps the palm on a straight path and holds the hand through the return, over\n"
+        "; HandBackBlendInMs / HandBackBlendOutMs. 0 = the linear HandBackBlendMs ramp above and\n"
+        "; an instant return. F10 Advanced > Hands > Game arms during actions.\n"
+        "SmoothBlend=1\n"
+        "HandBackBlendInMs=250\n"
+        "HandBackBlendOutMs=350\n"
+        "; CinematicArms=1 (experimental, F10 Advanced > Hands) keeps your tracked arms in\n"
+        "; cutscenes (a hidden body is shown again) and hands them to the game only while it\n"
+        "; animates them. Replaces CinematicHandBack while on. 0 = cutscenes and conversations\n"
+        "; are left exactly as the game shows them; nothing of this runs.\n"
+        "CinematicArms=0\n"
+        "; The game's own arm motion (uu/s, measured between the bones of an arm so your own hand\n"
+        "; cannot trigger it) that hands a cutscene's arms to it: above Start for StartMs over\n"
+        "; Samples frames; and how long they must stay below Stop before they come back (a scripted\n"
+        "; clip can hold a pose for seconds). CinematicRefPoseUu: arms within this distance of the\n"
+        "; unposed default stance are never handed over (0 = off). F10 > Hands has all of them.\n"
+        "CinematicMotionStart=20\n"
+        "CinematicMotionStop=8\n"
+        "CinematicMotionStartMs=120\n"
+        "CinematicMotionSamples=3\n"
+        "CinematicMotionHoldMs=5000\n"
+        "CinematicRefPoseUu=1\n"
         "; Arms.<lane>.<state> and Action.<lane>.<state> are the per-state handback rules\n"
         "; (VR-88). 1 hands the state back to the game's own animation, 0 keeps the VR\n"
         "; hands driving it. Lane 0 is the master state, 1 and 2 the upper-body states.\n"
@@ -1454,6 +1598,11 @@ static bool WriteDefaultIni(const char* ini)
         "; Render HUD and native markers at output resolution while upscaling. Advanced Display.\n"
         "UpscaleSharp=1\n"
         "MarkersSharp=1\n"
+        "; SemanticOwnership=1 routes each HUD draw by the game widget it belongs to, so the pieces\n"
+        "; of one widget stay on one layer and objective text stays with its marker. It arms at\n"
+        "; game start and refuses itself (the log says so) on a game build it does not recognise.\n"
+        "; 0 = the older rectangle and position rules only.\n"
+        "SemanticOwnership=1\n"
         "; SlotScale: each sink's texture is the render's size times this. The window subtends\n"
         "; about 50 degrees, so half is already more than the headset resolves.\n"
         "SlotScale=0.50\n"
@@ -1565,7 +1714,7 @@ static bool WriteDefaultIni(const char* ini)
         "WindowWheel=1\n"
         "WindowStore=1\n"
         "WindowMissionStats=1\n"
-        "Element.default.WinX=0.184\n"
+        "Element.default.WinX=0.004\n"
         "Element.default.WinY=-0.183\n"
         "Element.default.WinScale=1.210\n"
         "Element.vitals.WinX=-0.167\n"
@@ -1786,6 +1935,62 @@ static void LoadConfig()
             keepJson[0] ? " - kept [VR] XrRuntimeJson" : "",
             keepRt[0] ? " - kept [VR] Runtime" : "");
     }
+    // 2026-10-05: the headset-accepted defaults reach EXISTING inis once. A version bump would rewrite the
+    // whole file; these keys alone are written, once ([Meta] DefaultsRev), and every other setting stays. A
+    // fresh ini already carries them and DefaultsRev=1.
+    if (!missing && GetPrivateProfileIntA("Meta", "DefaultsRev", 0, ini) < 1) {
+        static const char* const kRev1[][3] = {
+            { "Stereo", "CameraSilentGrace", "1" }, { "Hands", "GrabAnim", "1" }, { "Hands", "GrabReadyOpen", "1" },
+            { "Hands", "GrabReadyHide", "1" }, { "Anim", "HideTakedownArms", "1" }, { "Hands", "PoseFromView", "1" },
+            { "Hands", "ArmIK", "1" }, { "Hands", "HeartBack", "1" }, { "Hands", "CrouchToggle", "1" },
+            { "Clarity", "DlssModel", "0" }, { "Aim", "PhysicalPickupReachCm", "60" },
+            { "Aim", "PhysicalPickupBookReachCm", "74" }, { "Aim", "PhysicalDoorReachCm", "75" } };
+        for (const auto& k : kRev1) WritePrivateProfileStringA(k[0], k[1], k[2], ini);
+        WritePrivateProfileStringA("Meta", "DefaultsRev", "1", ini);
+        Log("config: defaults revision 1 applied once to this ini - CameraSilentGrace, GrabAnim, GrabReadyOpen/Hide, "
+            "HideTakedownArms, PoseFromView, ArmIK, HeartBack, CrouchToggle on; DlssModel 0 (K); reach 60/74/75 cm. "
+            "Every other key is unchanged");
+    }
+    // 2026-10-06: the headset-accepted IK fit becomes the default. Only a key still at the earlier default
+    // (or absent) moves; a fit the player tuned in F10 is theirs and stays.
+    if (!missing && GetPrivateProfileIntA("Meta", "DefaultsRev", 0, ini) < 2) {
+        static const struct { const char* key; float was; const char* now; } kRev2[] = {
+            { "ArmShoulderForwardCm", -6.0f, "-16" }, { "ArmShoulderUpCm", -20.0f, "-25" },
+            { "ArmShoulderWidthCm", 36.0f, "38.1" }, { "ArmLengthScale", 1.0f, "1.27" } };
+        char moved[192] = "", kept[192] = "";
+        for (const auto& k : kRev2) {
+            const float v = IniFloat(ini, "Hands", k.key, k.was);
+            const bool atOld = std::fabs(v - k.was) < 0.001f;
+            if (atOld) WritePrivateProfileStringA("Hands", k.key, k.now, ini);
+            char item[48]; _snprintf_s(item, _TRUNCATE, " %s=%g", k.key, atOld ? atof(k.now) : (double)v);
+            strncat_s(atOld ? moved : kept, sizeof(moved), item, _TRUNCATE);
+        }
+        WritePrivateProfileStringA("Meta", "DefaultsRev", "2", ini);
+        Log("config: defaults revision 2 applied once to this ini - IK fit moved to the new default:%s; kept as "
+            "tuned:%s", moved[0] ? moved : " none", kept[0] ? kept : " none");
+    }
+    // 2026-10-07: the still-cutscene-arm hide, confirmed on the boat, becomes the default, with the boat's pose
+    // baked in where the ini has none of its own.
+    if (!missing && GetPrivateProfileIntA("Meta", "DefaultsRev", 0, ini) < 3) {
+        WritePrivateProfileStringA("Anim", "CineHideStaticArms", "1", ini);
+        char poses[512] = "";
+        GetPrivateProfileStringA("Anim", "CineHidePoses", "", poses, sizeof(poses), ini);
+        const bool hadPoses = strspn(poses, " \t") != strlen(poses);
+        if (!hadPoses) WritePrivateProfileStringA("Anim", "CineHidePoses", "54.23 -104.30 -23.16 -54.24 -104.30 -23.14", ini);
+        WritePrivateProfileStringA("Meta", "DefaultsRev", "3", ini);
+        Log("config: defaults revision 3 applied once to this ini - CineHideStaticArms on; CineHidePoses %s. Every other key is unchanged",
+            hadPoses ? "kept (this ini had captured its own)" : "set to the opening boat ride's pose");
+    }
+    // 2026-10-07: the HUD window's default element re-centred in a headset (WinX 0.184 -> 0.004). Only an ini
+    // still at the old default moves; a placement the player set in F10 stays.
+    if (!missing && GetPrivateProfileIntA("Meta", "DefaultsRev", 0, ini) < 4) {
+        const float was = IniFloat(ini, "Hud", "Element.default.WinX", 0.184f);
+        const bool atOld = std::fabs(was - 0.184f) < 0.0005f;
+        if (atOld) WritePrivateProfileStringA("Hud", "Element.default.WinX", "0.004", ini);
+        WritePrivateProfileStringA("Meta", "DefaultsRev", "4", ini);
+        Log("config: defaults revision 4 applied once to this ini - HUD Element.default.WinX %s. Every other key is unchanged",
+            atOld ? "moved 0.184 -> 0.004" : "kept as placed");
+    }
     {   // [Paths] DataDir: where the harness files go. Applied before any of
         // them is written (the command seam and status.json start after the
         // config); the dev PC's tool sandbox virtualizes writes under the user
@@ -1799,6 +2004,7 @@ static void LoadConfig()
                 dvr::paths::data_dir());
         }
     }
+    dvr::assets::install();   // the IK and Heart data files, from inside this DLL (core/util/embedded_assets.h)
     g_trackingEnabled = IniFloat(ini, "Tracking", "Enabled", 1) != 0.0f;
     g_yawCounts    = IniFloat(ini, "Tracking", "YawCountsPerDegree", 11.5f);
     g_pitchCounts  = IniFloat(ini, "Tracking", "PitchCountsPerDegree", 11.5f);
@@ -1847,6 +2053,7 @@ static void LoadConfig()
         dvr::stereo::set_config_method(sm);
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
         dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
+        dvr::stereo::set_reentry_c5_guard(GetPrivateProfileIntA("Stereo", "C5SameEyeGuard", 1, ini) != 0);
         dvr::stereo::set_reentry_single_tag(GetPrivateProfileIntA("Stereo", "SingleTagRepair", 1, ini) != 0);
         dvr::stereo::set_reentry_late_tag(GetPrivateProfileIntA("Stereo", "LateTagRepair", 1, ini) != 0);   // Confirmed profile default; F10 retains the A/B.
         PeFastSet(GetPrivateProfileIntA("Perf", "PeFast", 1, ini) != 0);   // route 2: the script lane's caches
@@ -1939,6 +2146,18 @@ static void LoadConfig()
         // Uncap deep dive (2026-09-27): not in the default ini on purpose (a missing key is the
         // 41.1 two-slot ring); `capture depth <n>` is the live A/B.
         dvr::capture::set_shared_depth((int)IniFloat(ini, "Capture", "SharedDepth", 1), "ini");
+        {   // A SharedDepth the player wrote always wins over the automatic step.
+            char sd[16] = "";
+            GetPrivateProfileStringA("Capture", "SharedDepth", "", sd, sizeof(sd), ini);
+            // Not in the default ini: a missing key is the shipped 10%. capture.cpp says why it is a key.
+            dvr::capture::set_auto_depth_percent((int)IniFloat(ini, "Capture", "AutoDepthPercent", 10), "ini");
+            dvr::capture::set_auto_depth(IniFloat(ini, "Capture", "AutoDepth", 1) != 0.0f, sd[0] != 0);
+        }
+        // Not in the default ini: a missing key is the 1.0.1 behaviour (deliver). capture.cpp says why.
+        dvr::capture::set_timeout_refuse(IniFloat(ini, "Capture", "TimeoutRefuse", 0) != 0.0f, "ini");
+        DVR_INFO("config: [Capture] TimeoutRefuse=%d - %s", dvr::capture::timeout_refuse() ? 1 : 0,
+                 dvr::capture::timeout_refuse() ? "a capture wait that runs out drops the grab (1.0.2/1.0.3 behaviour)"
+                                                : "a capture wait that runs out still delivers (1.0.1 behaviour, the default)");
         {   // [Capture] BboxMs: how often the content-bbox instrument resamples.
             // Each sample is a full-frame CPU readback on the present thread even
             // in shared mode (capture.h says why), so this is a frame-time knob,
@@ -2097,6 +2316,10 @@ static void LoadConfig()
     dvr::controller::configure({int(GetPrivateProfileIntA("Controllers","DpadModifier",1,ini)),
         GetPrivateProfileIntA("Controllers","DpadFlip",0,ini)!=0,
         GetPrivateProfileIntA("Controllers","PauseChord",1,ini)!=0});
+    ZoomTapSet(GetPrivateProfileIntA("Controllers","ZoomTap",1,ini)!=0,"ini");   // 2026-10-07: the mask lens zoom
+    ZoomGestureSet(GetPrivateProfileIntA("Controllers","ZoomGesture",1,ini)!=0,"ini");
+    ZoomGestureRadiusSet(IniFloat(ini,"Controllers","ZoomGestureRadiusCm",25.0f),"ini");
+    ZoomGestureRightSet(IniFloat(ini,"Controllers","ZoomGestureRightCm",8.0f),"ini");
     const auto controller=dvr::controller::config();
     Log("controls: modifier=%d dpad=%s X+Y=%d; Y=native, menu tap=START, modifier/hold+menu=BACK",
         controller.modifier,controller.flip ? "right" : "left",int(controller.pauseChord));
@@ -2238,6 +2461,16 @@ static void LoadConfig()
             char plan[MAX_PATH] = "";
             GetPrivateProfileStringA("Perf", "AbPlan", "", plan, sizeof(plan), ini);
             if (!diagnosticAb && plan[0]) dvr::perf::ab_load_plan(plan);
+            // Pre-release audit: AbPlanOnce arms a plan for ONE launch. The key is emptied as it
+            // is read, so a plan that flips settings for a quarter of an hour cannot be left armed.
+            char once[MAX_PATH] = "";
+            GetPrivateProfileStringA("Perf", "AbPlanOnce", "", once, sizeof(once), ini);
+            if (once[0]) {
+                WritePrivateProfileStringA("Perf", "AbPlanOnce", "", ini);
+                if (!diagnosticAb && !plan[0]) dvr::perf::ab_load_plan(once);
+                Log("config: [Perf] AbPlanOnce=%s - %s; the key has been emptied, so only this launch runs it",
+                    once, diagnosticAb ? "NOT loaded (DiagnosticAb is on)" : plan[0] ? "NOT loaded ([Perf] AbPlan is set and wins)" : "armed");
+            }
         }
         dvr::diag_ab::set_enabled(diagnosticAb);
         const int desktopTrial = GetPrivateProfileIntA("Perf", "DesktopAb", 0, ini);
@@ -2558,7 +2791,7 @@ static void LoadConfig()
     if (g_graftHCY < -2.0f || g_graftHCY > 2.0f) g_graftHCY = 1.5f;
     if (g_graftHCP < -2.0f || g_graftHCP > 2.0f) g_graftHCP = 1.5f;
     g_blkProbeForce   = IniFloat(ini, "Blink", "BlinkProbe", 0) != 0.0f;
-    g_crouchToggle    = IniFloat(ini, "Hands", "CrouchToggle", 0) != 0.0f;
+    g_crouchToggle    = IniFloat(ini, "Hands", "CrouchToggle", 1) != 0.0f;
     g_elixirOn     = IniFloat(ini, "Input", "HealthElixirLongPress", 1) != 0.0f;  // 36.6
     g_elixirHoldMs = IniFloat(ini, "Input", "HealthElixirHoldMs", 400.0f);  // 36.7:
     if (g_elixirHoldMs < 150.0f)  g_elixirHoldMs = 150.0f;  // dedicated input now -
@@ -2754,7 +2987,7 @@ static void LoadConfig()
     g_mpEyeMenuHalfStep = IniFloat(ini,"Hands","PaletteEyeMenuHalfStep",0)!=0;
     Log("config: [Hands] PaletteEyeMenuHalfStep=%d - menu signed half-IPD jump candidate; no toggle prediction",(int)g_mpEyeMenuHalfStep);
     g_mpEyePredict    = IniFloat(ini, "Hands", "PaletteEyePredictToggle", 0) != 0.0f;
-    g_mpPoseFromView  = IniFloat(ini, "Hands", "PoseFromView", 0) != 0.0f;
+    g_mpPoseFromView  = IniFloat(ini, "Hands", "PoseFromView", 1) != 0.0f;
     Log("config: [Hands] PoseFromView=%d - %s", (int)g_mpPoseFromView,
         g_mpPoseFromView ? "hand draws use their own view's head sample and eye (found by c5 in the pose records)"
                          : "hand draws use the head two presents back and the jump-classified eye (the previous path)");
@@ -2779,9 +3012,56 @@ static void LoadConfig()
     g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 1) != 0.0f;
     g_mpAnchorHandBone = IniFloat(ini, "Hands", "AnchorBone", 1) != 0.0f;   // VR-183: palm frame from the hand bone
     g_msRigidWrist = IniFloat(ini, "Hands", "RigidWrist", 1) != 0.0f;         // VR-184: the wrist cut and cap rigid with the hand
+    g_ikOn = IniFloat(ini, "Hands", "ArmIK", 1) != 0.0f;
+    auto ikFloat = [&](const char* key, float def, float lo, float hi) {
+        const float v=IniFloat(ini,"Hands",key,def);
+        return std::isfinite(v)?std::clamp(v,lo,hi):def;
+    };
+    g_ikForward=ikFloat("ArmShoulderForwardCm",-16,-50,50);
+    g_ikRight=ikFloat("ArmShoulderRightCm",0,-50,50);
+    g_ikUp=ikFloat("ArmShoulderUpCm",-25,-80,20);
+    g_ikWidth=ikFloat("ArmShoulderWidthCm",38.1f,10,80);
+    g_ikLength=ikFloat("ArmLengthScale",1.27f,.5f,2);
+    g_ikElbowOut=ikFloat("ArmElbowOut",.6f,0,2);
+    g_ikGameArmInAnim = IniFloat(ini, "Hands", "ArmIKGameArmInAnim", 1) != 0.0f;
+    Log("config: [Hands] ArmIKGameArmInAnim=%d (%s)", g_ikGameArmInAnim.load() ? 1 : 0, g_ikGameArmInAnim.load()
+        ? "a game animation that owns a hand shows the game's own arm on that side, blended by the hand-back weight"
+        : "the IK arm follows an animated wrist from the tracked shoulder");
+    g_ikGameArmShoulder = (int)std::clamp(IniFloat(ini, "Hands", "ArmIKGameArmShoulder", 1), 0.0f, 2.0f);
+    Log("config: [Hands] ArmIKGameArmShoulder=%d (%s)", g_ikGameArmShoulder.load(), g_ikGameArmShoulder.load() == 0
+        ? "off: the game's arm as it is drawn for the game's own camera" : g_ikGameArmShoulder.load() == 1
+        ? "the game's arm is re-seated on the IK shoulder, wrist kept; not in the choke" : "the game's arm is re-seated on the IK shoulder, wrist kept; the choke too");
+    {
+        const float v = IniFloat(ini, "Hands", "ArmIKGameArmMaxStretch", 1.9f);
+        g_ikGameArmMaxStretch = std::isfinite(v) ? std::clamp(v, 1.0f, 2.5f) : 1.9f;
+        Log("config: [Hands] ArmIKGameArmMaxStretch=%.2f (the re-seat lengthens the game's arm at most this much to reach the "
+            "IK shoulder; a takedown that needs more keeps its shoulder in front by the ik/gamearm left over)",
+            g_ikGameArmMaxStretch.load());
+    }
+    {   // [Anim] CineHidePoses: the still cutscene arm poses CineHideStaticArms captured (mesh_split.cpp)
+        char buf[512] = "";
+        GetPrivateProfileStringA("Anim", "CineHidePoses", "", buf, sizeof(buf), ini);
+        g_msCinePoseN = 0;
+        int refused = 0;
+        for (char* tok = buf; tok && *tok && g_msCinePoseN < MS_CINE_POSES_MAX;) {
+            char* next = strchr(tok, ';');
+            if (next) *next++ = 0;
+            float* v = g_msCinePose[g_msCinePoseN];
+            bool ok = sscanf_s(tok, "%f %f %f %f %f %f", v, v + 1, v + 2, v + 3, v + 4, v + 5) == 6;
+            for (int i = 0; ok && i < 6; ++i) ok = std::isfinite(v[i]);
+            if (ok) ++g_msCinePoseN; else if (strspn(tok, " \t") != strlen(tok)) ++refused;
+            tok = next;
+        }
+        Log("config: [Anim] CineHidePoses: %d captured pose(s) loaded%s (still cutscene arms in one of them are hidden "
+            "whichever way you look; the hide captures a pose when its hands are both behind the camera)",
+            g_msCinePoseN, refused ? " - SOME ENTRIES REFUSED, not six numbers" : "");
+    }
+    Log("ik: configured %s; nominal shoulder center cm=(%.2f %.2f %.2f), width=%.2f, length=%.2f, elbow-out=%.2f; independent reach, native hands / IK arms",
+        g_ikOn.load()?"ON":"OFF",g_ikForward.load(),g_ikRight.load(),g_ikUp.load(),g_ikWidth.load(),g_ikLength.load(),g_ikElbowOut.load());
     g_ohOn = IniFloat(ini, "Hands", "OpenEmptyRightHand", 1) != 0.0f;       // the empty right hand opens like the left
     Log("config: [Hands] OpenEmptyRightHand=%d (%s)", g_ohOn ? 1 : 0,
         g_ohOn ? "an empty right hand takes the left hand's open pose, mirrored" : "the empty right hand keeps the game's fist");
+    GrabAnimConfigure(ini);   // [Hands] GrabAnim and its times
     // VR-33: attachment matches owned component transforms independently of
     // the optional hide sweep. Installed test configuration enables it;
     // a fresh configuration leaves this render lever off.
@@ -2884,21 +3164,25 @@ static void LoadConfig()
     CamShakeConfigure(ini);   // VR-172
     dvr::snap::configure(ini);   // VR-219: [Turning] snap turn
     LensConfigure(ini);
+    HbConfigure(ini);
     WmConfigure(ini);
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
     dvr::depthprobe::set_enabled(IniFloat(ini, "Diagnostics", "DepthProbe", 0) != 0.0f, "ini [Diagnostics] DepthProbe");
+    dvr::depthprobe::set_share_checks((int)IniFloat(ini, "Diagnostics", "DepthShareChecks", 3), "ini [Diagnostics] DepthShareChecks");
     dvr::depthprobe::set_share(IniFloat(ini, "Diagnostics", "DepthShare", 0) != 0.0f, "ini [Diagnostics] DepthShare");
     dvr::clarity::set_calib(IniFloat(ini, "Diagnostics", "MotionCalib", 0) != 0.0f, "ini [Diagnostics] MotionCalib");
     CamModConfigure(ini);     // VR-165: [Diagnostics] CamModProbe
     SwingTraceConfigure(ini); // VR-165: [Diagnostics] SwingTrace
     AimSourceConfigure(ini);  // VR-166: [Aim] SourceProbe
     InteractAimConfigure(ini); // VR-166: [Aim] InteractFromHand
+    PickupConfigure(ini);      // [Aim] PhysicalPickup, PhysicalPickupReachCm
     ThrowAimConfigure(ini);    // VR-166: [Aim] ThrowFromHand
     GadgetAimConfigure(ini);   // VR-166: [Aim] GadgetFromHand
     CarryThrowAimConfigure(ini); // VR-181: [Aim] CarryThrowFromHand
     PowerAimConfigure(ini);    // VR-44: [Aim] PowersFromHand
     CineFovConfigure(ini);
     HandsWorldFovSet(GetPrivateProfileIntA("Screen", "HandsAtWorldFov", 1, ini) != 0, "ini");   // VR-39
+    ZoomMagnifySet(GetPrivateProfileIntA("Screen", "ZoomMagnify", 1, ini) != 0, "ini");   // 2026-10-07: the spyglass as a scope
     AfwFgGainSet(IniFloat(ini, "Stereo", "AfwForegroundGain", 0.911f), "ini");   // VR-39 run 14
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
@@ -2981,6 +3265,9 @@ static void LoadConfig()
     g_sdSceneQuietMs  = IniFloat(ini, "Stereo", "SceneQuietMs", 400.0f);
     if (g_sdSceneQuietMs < 50.0f)   g_sdSceneQuietMs = 50.0f;
     if (g_sdSceneQuietMs > 2000.0f) g_sdSceneQuietMs = 2000.0f;
+    g_sdSilentGrace = IniFloat(ini, "Stereo", "CameraSilentGrace", 1) != 0.0f;
+    Log("config: [Stereo] CameraSilentGrace=%d (resolved; absent = 0 = the camera-silent gate's shipped rule)",
+        g_sdSilentGrace ? 1 : 0);
     // VR-62: the movie-player probe. Read-only observation, and it ships ON for
     // the same reason the equipment reader does - a reporter nobody enables
     // reports nothing, and this one exists to be read out of a tester's log.
@@ -3616,6 +3903,7 @@ static void LoadConfig()
         // ApiLayerGuard runs before LoadConfig and reads this key itself; the
         // read here only keeps the global in step for the ini rewrite.
         g_algGuard = IniFloat(ini, "VR", "DisableBadApiLayers", 1) != 0.0f;
+        g_algReShade = IniFloat(ini, "VR", "DisableReShadeApiLayer", 1) != 0.0f;
         if (g_fpsCap < 0.0f) g_fpsCap = 0.0f;
         if (g_fpsCap > 0.0f && g_fpsCap < 20.0f)  g_fpsCap = 20.0f;
         if (g_fpsCap > 144.0f) g_fpsCap = 144.0f;
@@ -3633,6 +3921,7 @@ static void LoadConfig()
             dvr::vr::set_image_orientation(GetPrivateProfileIntA("Pace","ImageOrientation",1,ini)!=0);
             // VR-39: the depth layer under AFW (read here, before the runtime creates its instance). Default off.
             dvr::vr::set_submit_depth(GetPrivateProfileIntA("VR", "SubmitDepth", 0, ini) != 0);
+            dvr::vr::set_visibility_mask_probe(GetPrivateProfileIntA("VR", "VisibilityMaskProbe", 0, ini) != 0);
             // VR-39: the mod's own spacewarp under AFW. Default off.
             dvr::vr::set_mod_spacewarp(GetPrivateProfileIntA("VR", "ModSpacewarp", 0, ini) != 0);
             dvr::afw::set_synth_hands(GetPrivateProfileIntA("VR", "ModSpacewarpHands", 0, ini) != 0);
@@ -3867,6 +4156,8 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Controllers","DpadModifier",v,ini);
     WritePrivateProfileStringA("Controllers","DpadFlip",controller.flip ? "1" : "0",ini);
     WritePrivateProfileStringA("Controllers","PauseChord",controller.pauseChord ? "1" : "0",ini);
+    WritePrivateProfileStringA("Controllers","ZoomTap",ZoomTapGet() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Controllers","ZoomGesture",ZoomGestureGet() ? "1" : "0",ini);
 
     _snprintf(v, 64, "%.1f", g_posScaleUU);
     WritePrivateProfileStringA("PosTrack", "Scale", v, ini);
@@ -3879,6 +4170,7 @@ static void OverlaySaveDefaults()
     _snprintf(v,64,"%.2f",ProjectionFovGet());
     WritePrivateProfileStringA("Screen","ProjectionFov",v,ini);
     WritePrivateProfileStringA("Screen","HandsAtWorldFov",HandsWorldFovGet()?"1":"0",ini);   // VR-39
+    WritePrivateProfileStringA("Screen","ZoomMagnify",ZoomMagnifyGet()?"1":"0",ini);
     _snprintf(v,64,"%.3f",AfwFgGainGet());
     WritePrivateProfileStringA("Stereo","AfwForegroundGain",v,ini);   // VR-39
     // 30.70: the hand drive's live-tuned values, so a good calibration sticks
@@ -4141,6 +4433,7 @@ static void OverlaySaveDefaults()
     if (g_msCutSet[2]) { _snprintf(v, 64, "%.2f", g_msCutRel[2]);
                          WritePrivateProfileStringA("Hands", "WristCutB", v, ini); }
     WritePrivateProfileStringA("VR", "DisableBadApiLayers", g_algGuard ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "DisableReShadeApiLayer", g_algReShade ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "FromControllers", g_skcLive ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldSpace", g_skcWorld ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldRotation", g_skcWorldRot ? "1" : "0", ini);
@@ -4225,6 +4518,7 @@ static void OverlaySaveDefaults()
     }
     WritePrivateProfileStringA("Cine","HeadLook",CineHeadEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","SpecialHeadLook",SpecialHeadEnabled() ? "1" : "0",ini);
+    { char v[32]; _snprintf(v,sizeof(v),"%.1f",KeyholeForwardCm()); WritePrivateProfileStringA("Cine","KeyholeForwardCm",v,ini); }
     WritePrivateProfileStringA("Cine","HideBorders",CineBordersEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","PossessionStereo",PossessionStereoEnabled() ? "1" : "0",ini);
@@ -4239,6 +4533,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Lens","Trace",LensTraceEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Lens","FollowHead",LensFollowHead() ? "1" : "0",ini);
     { char v[16]; _snprintf(v,sizeof(v),"%d",LensRainPct()); WritePrivateProfileStringA("Lens","RainStrength",v,ini); }
+    WritePrivateProfileStringA("Hands","HeartBack",HbEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Mirror","Enabled",WmEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockRoll",CineRollEnabled() ? "1" : "0",ini);

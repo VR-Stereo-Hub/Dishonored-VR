@@ -18,6 +18,7 @@
 
 namespace dvr::aim {
 namespace {
+std::atomic<int> g_handOverride{-1};
 Config g_config;
 Ray g_ray;
 std::mutex g_fireMutex;
@@ -56,6 +57,12 @@ void log_status() {
 }
 } // namespace
 Config config() { return g_config; }
+void set_hand_override(int hand) {
+    const int h = (hand == 0 || hand == 1) ? hand : -1;
+    if (g_handOverride.exchange(h) != h)
+        DVR_INFO("crosshair: ray hand %s", h < 0 ? "back to the configured hand" : h ? "RIGHT for a carry (the hand that grabbed it)" : "LEFT for a carry (the hand that grabbed it)");
+}
+int hand_override() { return g_handOverride.load(); }
 bool model_ray_requested() { return g_modelRequested.load(); }
 FireFrame fire_frame() { std::lock_guard<std::mutex> lock(g_fireMutex); return g_fireFrame; }
 Ray ray() { return fire_frame().ray; }
@@ -102,22 +109,26 @@ void configure(const Config& cfg, const char* origin) {
                             : "");
 }
 void tick(bool gameplay, bool projectionWanted) {
+    // 2026-10-05: a carry in the hand that grabbed it ([Aim] CarryInGrabHand) points this ray at that
+    // hand for the carry's duration, so the hold and the throw follow it (one ray). -1 = the config's hand.
+    const int over = g_handOverride.load();
+    const int hand = over >= 0 ? over : g_config.hand;
     const auto now = GetTickCount64();
     const bool armed = g_config.dot || g_config.laser || g_config.controlDot ||
                        g_fireRequested.load() || g_blinkRequested.load() ||
                        g_interactRequested.load() || g_throwRequested.load() ||
                        g_powerRequested.load();
     dvr::vr::HandAimSample sample;
-    g_ray = Ray{}; g_ray.hand = g_config.hand;
+    g_ray = Ray{}; g_ray.hand = hand;
     if (!armed) g_ray.why = "off";
     else if (!dvr::vr::session_live()) g_ray.why = "no XR session";
     else if (!gameplay) g_ray.why = "menu/cinematic/gameplay unavailable";
     else if (!projectionWanted) g_ray.why = "method not requesting projection";
     else {
 #if DVR_WITH_OPENXR
-        sample = dvr::vr::input_hand_aim_sample(g_config.hand);
+        sample = dvr::vr::input_hand_aim_sample(hand);
 #endif
-        g_ray = from_pose(g_config.hand, sample.aimValid, sample.aimPos, sample.aimQuat,
+        g_ray = from_pose(hand, sample.aimValid, sample.aimPos, sample.aimQuat,
                           sample.generation, sample.stampMs, now);
     }
     // VR-57: THE TRANSPORT. One place, before BOTH publications, so the visual and
@@ -143,8 +154,8 @@ void tick(bool gameplay, bool projectionWanted) {
     // will never have a measured axis, and it should still aim where it is pointed.
     bool modelUsed = false;
     if (g_config.modelRay && g_ray.ok) {
-        const auto model=dvr::hands::model_ray_snapshot(g_config.hand);
-        const auto cal=dvr::hands::trim_snapshot(g_config.hand);
+        const auto model=dvr::hands::model_ray_snapshot(hand);
+        const auto cal=dvr::hands::trim_snapshot(hand);
         dvr::hf::Mat3 rc,g;
         for(int i=0;i<9;++i){rc.m[i]=cal.R_C[i];g.m[i]=cal.G[i];}
         float mo[3],md[3];
@@ -163,6 +174,43 @@ void tick(bool gameplay, bool projectionWanted) {
             }
             g_ray.why="measured model axis";
             modelUsed = true;
+        }
+    }
+    // 2026-10-05: a RIGHT-hand carry (CarryInGrabHand). The hold was tuned on the left hand's ray, which is
+    // its measured model axis; the right hand has none of its own while carrying a bottle, and waiting for one
+    // left the carry without a ray (the hold stopped, the throw took the head). So the right hand gets the LEFT
+    // hand's ray mirrored: expressed in the left grip's own frame, reflected across its x axis (left and right
+    // controllers are mirror images in local coordinates), and placed on the right grip.
+    if (over == 1 && g_config.modelRay && g_ray.ok && !modelUsed) {
+        const auto modelL = dvr::hands::model_ray_snapshot(0);
+        const auto calL = dvr::hands::trim_snapshot(0), calR = dvr::hands::trim_snapshot(1);
+#if DVR_WITH_OPENXR
+        const dvr::vr::HandAimSample sL = dvr::vr::input_hand_aim_sample(0);
+#else
+        dvr::vr::HandAimSample sL;
+#endif
+        dvr::hf::Mat3 rc, g;
+        for (int i = 0; i < 9; ++i) { rc.m[i] = calL.R_C[i]; g.m[i] = calL.G[i]; }
+        float mo[3], md[3];
+        if (calL.ok && calR.ok && modelL.ok && modelL.latched && sL.gripValid && sample.gripValid &&
+            std::isfinite(calR.handToWorldScale) && calR.handToWorldScale > 0 &&
+            dvr::hf::palm_ray_to_xr(rc, g, calL.p0, calL.trimRdeg, calL.trimTm, modelL.originPalm, modelL.dirPalm, mo, md)) {
+            auto unrot = [](const float* q, const float* v, float* o) { dvr::xrmath::quat_rotate(-q[0], -q[1], -q[2], q[3], v, o); };
+            auto rot = [](const float* q, const float* v, float* o) { dvr::xrmath::quat_rotate(q[0], q[1], q[2], q[3], v, o); };
+            float rel[3] = { mo[0] - sL.gripPos[0], mo[1] - sL.gripPos[1], mo[2] - sL.gripPos[2] }, lo[3], ld[3], wo[3], wd[3];
+            unrot(sL.gripQuat, rel, lo); unrot(sL.gripQuat, md, ld);
+            lo[0] = -lo[0]; ld[0] = -ld[0];                          // the mirror
+            rot(sample.gripQuat, lo, wo); rot(sample.gripQuat, ld, wd);
+            for (int i = 0; i < 3; ++i) {
+                const float o = sample.gripPos[i] + wo[i];
+                g_ray.originXr[i] = calR.headPos[i] + calR.handToWorldScale * (o - calR.headPos[i]);
+                g_ray.dirXr[i] = wd[i];
+            }
+            g_ray.why = "carry: the left hand's measured ray, mirrored onto the right hand";
+            modelUsed = true;
+        } else {
+            g_ray.why = "carry: the right controller's own ray (the left hand's axis is not measured yet)";
+            modelUsed = true;                                        // never wait during a carry
         }
     }
     g_modelRayUsed = modelUsed;
@@ -186,7 +234,7 @@ void tick(bool gameplay, bool projectionWanted) {
                     "so it cannot appear in the wrong place and then move)";
     }
     if (!modelUsed && !g_config.modelRay && g_config.followHandTrim && g_ray.ok) {
-        const int h = g_config.hand;
+        const int h = hand;
         const dvr::hands::TrimSnapshot cal = dvr::hands::trim_snapshot(h);
         if (!cal.ok) {
             g_followWhy = cal.why;
@@ -235,7 +283,7 @@ void tick(bool gameplay, bool projectionWanted) {
     // Turned HERE, before both publications, so the dot and the shot stay one ray.
     {
         static int kindWas = -1; static bool usedWas = false;
-        const int kind = dvr::hands::aim_item_kind(g_config.hand);
+        const int kind = dvr::hands::aim_item_kind(hand);
         const bool want = g_config.otherXDeg != 0 || g_config.otherYDeg != 0;
         bool used = false;
         g_ray.baseOk = false;
@@ -283,7 +331,7 @@ void tick(bool gameplay, bool projectionWanted) {
         float pt[3] = { g_ray.originXr[0] + g_config.distanceM * g_ray.dirXr[0],
                         g_ray.originXr[1] + g_config.distanceM * g_ray.dirXr[1],
                         g_ray.originXr[2] + g_config.distanceM * g_ray.dirXr[2] };
-        dvr::hudlayout::set_aim_point(g_ray.ok && gameplay, pt, g_config.distanceM, g_config.hand);
+        dvr::hudlayout::set_aim_point(g_ray.ok && gameplay, pt, g_config.distanceM, hand);
     }
     const bool gaugeUp = dvr::hudlayout::reticle_on_aim() &&
                          dvr::hudlayout::element_drawing(dvr::hudlayout::ElReticle);
@@ -299,7 +347,7 @@ void tick(bool gameplay, bool projectionWanted) {
         // BOTH rays, with the two ENDPOINTS published first so a tight layer
         // budget cannot drop the second one and hide half the comparison.
         // The fat dot and beam are the AIM pose, the small ones the GRIP pose.
-        const Ray gripRay = from_pose(g_config.hand, sample.gripValid, sample.gripPos,
+        const Ray gripRay = from_pose(hand, sample.gripValid, sample.gripPos,
                                       sample.gripQuat, sample.generation, sample.stampMs, now);
         out = visual(g_ray, g_config.dot, false, g_config.distanceM, g_config.sizeDeg);
         visual_append(out, gripRay, g_config.dot, false, g_config.distanceM,
@@ -329,13 +377,13 @@ void tick(bool gameplay, bool projectionWanted) {
     dvr::vr::set_aim_visual(out);
     if (std::strcmp(g_lastWhy, g_ray.why)) {
         DVR_INFO("crosshair: ray %s (hand=%s, gen=%u); %s", g_ray.why,
-                 g_config.hand ? "right" : "left", g_ray.gen,
+                 hand ? "right" : "left", g_ray.gen,
                  !armed || !gameplay ? "zero visuals expected while off/in menus" : "renderer outcomes follow on beat");
         g_lastWhy = g_ray.why;
     }
     if (!armed || now - g_lastBeat < 1000) return;
     g_lastBeat = now;
-    const Ray grip = from_pose(g_config.hand, sample.gripValid, sample.gripPos, sample.gripQuat,
+    const Ray grip = from_pose(hand, sample.gripValid, sample.gripPos, sample.gripQuat,
                                sample.generation, sample.stampMs, now);
     float angle = -1;
     if (g_ray.ok && grip.ok) {
@@ -433,7 +481,7 @@ void tick(bool gameplay, bool projectionWanted) {
              "grip=(%+.3f,%+.3f,%+.3f) aimGripDeg=%.2f (-1=unavailable; near zero is possible, not proof of aliasing) "
              "fixed=%.2fm axisSource: see modelray status "
              "window publish=%u submit=%u dot=%u beam=%u renderer=%s",
-             g_config.hand ? "right" : "left", g_ray.gen, sample.stampMs ? now-sample.stampMs : 0,
+             hand ? "right" : "left", g_ray.gen, sample.stampMs ? now-sample.stampMs : 0,
              g_ray.why, g_ray.dirXr[0], g_ray.dirXr[1], g_ray.dirXr[2],
              grip.dirXr[0], grip.dirXr[1], grip.dirXr[2], angle, g_config.distanceM,
              s.publishes-g_previous.publishes, s.submitted-g_previous.submitted,

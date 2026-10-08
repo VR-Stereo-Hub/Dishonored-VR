@@ -1,4 +1,5 @@
 #include "core/gfx/reshade_runtime.h"
+#include "core/framework/stage_profile.h"
 // proxy/d3d9_exports.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
 // module gets its own header and translation unit. Bodies are verbatim from
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
@@ -150,12 +151,14 @@ extern "C" HRESULT WINAPI Direct3DCreate9Ex(UINT sdkVersion, IDirect3D9Ex** out)
 }
 
 
+// The engine's own render-stage events arrive here while its draw-event switch is set
+// (`stages on`): core/framework/stage_profile.h times them. One flag test when it is off.
 extern "C" int WINAPI D3DPERF_BeginEvent(D3DCOLOR col, LPCWSTR name)
-{ return (EnsureRealD3D9() && g_realBeginEvent) ? g_realBeginEvent(col, name) : 0; }
+{ dvr::stageprof::begin(name); return (EnsureRealD3D9() && g_realBeginEvent) ? g_realBeginEvent(col, name) : 0; }
 
 
 extern "C" int WINAPI D3DPERF_EndEvent(void)
-{ return (EnsureRealD3D9() && g_realEndEvent) ? g_realEndEvent() : 0; }
+{ dvr::stageprof::end(); return (EnsureRealD3D9() && g_realEndEvent) ? g_realEndEvent() : 0; }
 
 
 extern "C" void WINAPI D3DPERF_SetOptions(DWORD options)

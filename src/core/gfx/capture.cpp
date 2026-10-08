@@ -127,6 +127,30 @@ int                       g_sharedCur = 0;
 int                       g_sharedDepth = 1;        // presents between a slot's blit and its delivery
 int                       g_sharedN = 0;            // slots live now (0 = none built)
 int                       g_sharedDepthWant = 1;
+// What a bounded capture wait does when its 10 ms run out ([Capture] TimeoutRefuse,
+// `capture timeout deliver|refuse`). 1.0.1 delivered anyway; 1.0.2 (1d2ee24a5, a TAA
+// hardening verified only on the simulator) refused the grab instead. On a GPU-bound
+// machine the timeouts are routine, the eyes alternate, so the refusals land on the
+// SAME eye every time: that eye's present goes out untagged and is held, and it
+// refreshes at 6-9 Hz while the other gets 23-30 (GTX 1650 field logs, 2026-10-03,
+// FLICKER_REFERENCE). Deliver is the default again; refuse stays as the A/B.
+bool                      g_timeoutRefuse = false;
+uint32_t                  g_timeoutDelivered = 0, g_timeoutDeliveredWindow = 0;
+uint32_t                  g_timeoutRefused = 0, g_timeoutRefusedWindow = 0;
+// [Capture] AutoDepth (default 1). Delivering a timed-out slot keeps the eyes paired, but
+// the copy is not finished, and with two slots and alternating eyes each slot always holds
+// the same eye - so the headset shows that eye's PREVIOUS frame: a one-frame hitch in one
+// eye, worse when moving (GTX 1650, 2026-10-03: 68-81 timeouts per 3 s window, the capture
+// wait 8.6-8.8 ms per present against 3-5 in 1.0.1). When at least 10% of the grabs time
+// out for two windows running, the ring steps once to depth 2 (3 slots): each copy gets one
+// more present to finish. An explicit SharedDepth (ini or `capture depth`) always wins.
+bool                      g_autoDepth = true;
+// [Capture] AutoDepthPercent (default 10, the rule above): the timeout share of a window that counts as a strike.
+// 2026-10-05: a 4070 Ti at 120 Hz under afw timed out on 2-4% of grabs per window (max 10.9%, once), about one to
+// three one-eye hitches a second, and the 10% rule never acted. 2 would have stepped it in its first windows.
+int                       g_autoDepthPct = 10;
+bool                      g_depthExplicit = false;
+int                       g_autoStrikes = 0;
 uint32_t                  g_fenceWaitUsWindow = 0;  // the fence wait's own sum, for the window line
 int                       g_sharedDelivered = -1;   // the slot texture()/srv() hand out
 bool                      g_sharedWait = false;
@@ -202,6 +226,30 @@ void cost_tick() {
                      g_sharedN, g_fenceWaitsWindow, g_windowGrabs,
                      g_windowGrabs ? (double)g_fenceWaitUsWindow / 1000.0 / g_windowGrabs : 0.0, g_fenceTimeouts,
                      g_readWaitsWindow, g_readTimeouts);
+        if (g_mode == Mode::Shared && (g_timeoutDeliveredWindow || g_timeoutRefusedWindow))
+            DVR_INFO("capture: wait timeouts this window: %u delivered anyway, %u refused (policy %s) | lifetime %u "
+                     "delivered, %u refused. A refused grab goes out untagged and is held; the eyes alternate, so "
+                     "on a GPU-bound machine the refusals starve ONE eye ([Capture] TimeoutRefuse, `capture timeout`)",
+                     g_timeoutDeliveredWindow, g_timeoutRefusedWindow, g_timeoutRefuse ? "refuse" : "deliver",
+                     g_timeoutDelivered, g_timeoutRefused);
+        {
+            const uint32_t timeouts = g_timeoutDeliveredWindow + g_timeoutRefusedWindow;
+            if (g_mode == Mode::Shared && g_autoDepth && !g_depthExplicit && !g_sharedWait &&
+                g_sharedDepthWant == 1 && g_windowGrabs >= 30) {
+                g_autoStrikes = (timeouts * 100 >= (uint32_t)g_autoDepthPct * g_windowGrabs && timeouts) ? g_autoStrikes + 1 : 0;
+                if (g_autoStrikes >= 2) {
+                    g_autoStrikes = 0;
+                    DVR_WARN("capture: AUTO DEPTH - %u of %u grabs (%.0f%%) timed out waiting for the GPU's frame copy, "
+                             "two windows running. A timed-out copy is not finished, so that eye shows its previous "
+                             "frame (a one-frame hitch). Delivery depth 1 -> 2 (3 slots): each copy gets one more "
+                             "present to finish, at one present more latency (the pose travels with the image). "
+                             "[Capture] AutoDepth=0 or an explicit SharedDepth turns this off; `capture depth 1` undoes it live",
+                             timeouts, g_windowGrabs, 100.0 * timeouts / g_windowGrabs);
+                    set_shared_depth(2, "auto: capture timeouts");
+                }
+            }
+        }
+        g_timeoutDeliveredWindow = 0; g_timeoutRefusedWindow = 0;
         g_fenceWaitsWindow = 0; g_readWaitsWindow = 0; g_fenceWaitUsWindow = 0;
     }
     g_sumRtd = g_sumLock = g_sumCopy = g_sumUpload = g_sumBlit = 0;
@@ -472,7 +520,14 @@ bool read_wait(int i, uint64_t* lockUs) {
         if (hr == S_FALSE) ++g_readTimeouts;
     }
     *lockUs += qpc_us(t0, qpc_now());
-    if (hr != S_OK) return false;
+    if (hr == S_FALSE && !g_timeoutRefuse) {
+        // 1.0.1's behaviour: stop waiting on this read and blit anyway. The query is
+        // dropped, not kept pending, or the same slot refuses on every later present.
+        ++g_timeoutDelivered; ++g_timeoutDeliveredWindow;
+        g_readIssued[i] = false;
+        return true;
+    }
+    if (hr != S_OK) { if (hr == S_FALSE) { ++g_timeoutRefused; ++g_timeoutRefusedWindow; } return false; }
     g_readIssued[i] = false;
     return true;
 }
@@ -495,7 +550,14 @@ bool fence_wait(int i, uint64_t* lockUs) {
         if (hr == S_FALSE) ++g_fenceTimeouts;
     }
     *lockUs += qpc_us(t0, qpc_now());
-    if (hr != S_OK) return false;
+    if (hr == S_FALSE && !g_timeoutRefuse) {
+        // 1.0.1's behaviour: deliver the slot anyway. Its eye tag is still the right one,
+        // so the pair stays a pair; at worst the blit is not finished for this present.
+        ++g_timeoutDelivered; ++g_timeoutDeliveredWindow;
+        g_fenceIssued[i] = false;
+        return true;
+    }
+    if (hr != S_OK) { if (hr == S_FALSE) { ++g_timeoutRefused; ++g_timeoutRefusedWindow; } return false; }
     g_fenceIssued[i] = false;
     return true;
 }
@@ -913,7 +975,36 @@ void set_shared_wait(bool on) {
                                                  : "the previous present's slot (SharedWait=0: one present late, no wait in the common case)");
 }
 bool shared_wait() { return g_sharedWait; }
+void set_timeout_refuse(bool refuse, const char* who) {
+    if (refuse == g_timeoutRefuse) return;
+    g_timeoutRefuse = refuse;
+    DVR_INFO("capture: timeout policy -> %s (%s)", refuse
+                 ? "REFUSE: a capture wait that runs out drops the grab; the present goes out untagged (1.0.2/1.0.3 behaviour)"
+                 : "DELIVER: a capture wait that runs out still delivers the slot with its eye tag (1.0.1 behaviour, the default)",
+             who ? who : "?");
+}
+bool timeout_refuse() { return g_timeoutRefuse; }
+void set_auto_depth(bool on, bool explicitDepth) {
+    g_autoDepth = on;
+    g_depthExplicit = explicitDepth;
+    DVR_INFO("capture: auto depth %s (at >=%d%% of grabs timing out for two windows running; [Capture] AutoDepthPercent)%s",
+             on ? "ON - steps the ring to depth 2 once when a GPU cannot finish a frame copy in one present"
+                : "OFF ([Capture] AutoDepth=0)",
+             g_autoDepthPct, explicitDepth ? "; [Capture] SharedDepth is set explicitly, so it never acts" : "");
+}
+void set_auto_depth_percent(int pct, const char* who) {
+    if (pct < 1) pct = 1;
+    if (pct > 100) pct = 100;
+    if (pct == g_autoDepthPct) return;
+    DVR_INFO("capture: auto depth threshold %d%% -> %d%% (%s) - a window whose grabs time out at least this often is a "
+             "strike, two strikes step the ring to depth 2 once", g_autoDepthPct, pct, who ? who : "?");
+    g_autoDepthPct = pct;
+    g_autoStrikes = 0;
+}
+int auto_depth_percent() { return g_autoDepthPct; }
 void set_shared_depth(int depth, const char* who) {
+    // Anyone but the automatic step and the ini's default read makes the depth explicit.
+    if (who && strncmp(who, "auto", 4) != 0 && strcmp(who, "ini") != 0) g_depthExplicit = true;
     if (depth < 1) depth = 1;
     if (depth > kMaxShared - 1) depth = kMaxShared - 1;
     if (depth == g_sharedDepthWant) return;

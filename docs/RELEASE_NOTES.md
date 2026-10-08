@@ -1,3 +1,37 @@
+# Dishonored VR 1.0.4
+
+## Full-arm IK
+- **Your whole arms now follow your controllers,** shoulders to fingers, instead of floating hands. It's on by default.
+- **The game still borrows your arms** for takedowns, chokes and climbing, then hands them back smoothly.
+- **Fit it to your body:** F10 > IK > *IK shoulder position and arm length*. Adjust shoulder height, depth and width, then arm length, until the virtual arm meets your hand.
+- Prefer floating hands? Turn **Full-arm IK** off in the same tab.
+
+## Grab things with your hands
+- **Reach out and squeeze the grip** to take loot, read books and notes, open doors, pull levers, and pick up things to throw.
+- **Each hand grabs for itself,** and your hand opens as it gets close. Settings are in the new F10 > Interact tab. The Interact button still works.
+
+## New
+- **The Heart is a complete object:** it has a back now.
+- **DLSS and FSR in the launcher,** next to resolution.
+- **Cutscene arms (experimental):** keep your own arms in cutscenes. Off by default, in F10.
+
+## Improved
+- **Keyhole peeking:** your view now goes through the keyhole instead of sitting inside the door. Adjustable in F10 > Comfort.
+- **The HUD sits more centred** by default.
+- **A cleaner F10 menu,** with grabbing on its own tab and test tools moved to Debug.
+- **Crouch toggle is on by default,** and **takedowns no longer show the game's forearms.**
+- **Smoother AFW:** a small hitch every 5 seconds is gone, and hands keep up better with fast head turns.
+
+## Fixed
+- **The mask's zoom (spyglass) now works in VR:** hold the right controller to your right eye and pull the trigger, or tap the right stick.
+- **One eye stuttering on slower GPUs** (since 1.0.2), and a rare sideways flicker in one eye.
+- **The view shrinking into a small box, or going flat,** when a conversation opens a shop.
+- **The still arms pointing behind you on the opening boat ride.**
+- **The Heart's glow, and the Blink and Possession effects, sliding off your hand** while walking.
+- **Objective text flickering** and HUD pieces splitting apart.
+- **SteamVR chosen in the launcher but Virtual Desktop opening** when the game ran as administrator.
+- **VR not starting** when ReShade's VR layer was installed, and **ReShade problems:** it now starts after a launcher install, and F10 shows and applies your preset.
+
 # Dishonored VR 1.0.3
 
 ## Alternate Frame Warping (AFW)

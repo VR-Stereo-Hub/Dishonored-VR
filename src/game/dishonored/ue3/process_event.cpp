@@ -244,6 +244,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     AimSourceTick(); // VR-166: read-only; drains the power-aim helper probe
     PeSub(25);
     InteractAimTick(); // VR-166: logs what the engine focused and who aimed it
+    PhysicalPickupTick(); // once a frame: the lootable within reach (costed with the statement above)
     PeSub(26);
     CarryThrowAimTick(); // VR-181: where a thrown carried object actually went
     PeSub(27);

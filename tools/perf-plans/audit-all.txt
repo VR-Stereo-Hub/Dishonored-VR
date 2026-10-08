@@ -1,0 +1,65 @@
+# Pre-release performance audit, the ALL-IN-ONE plan (2026-10-05): plans 1 and 2 and the stage
+# profile in one unattended run. PERFORMANCE.md, "pre-release audit".
+#
+# Armed for ONE launch by `[Perf] AbPlanOnce=<absolute path to this file>` (the key empties itself).
+# After a save is loaded there are 60 seconds to reach the spot; then stand still, hands at rest,
+# for about 14 minutes. When the F10 panel opens by itself the plan is over: close it and quit.
+# Pick a typical outdoor view with a light source and some smoke or fog in it: light shafts, bloom
+# and translucency cost only when they are drawn. Do not pause: a menu inside a segment discards it.
+#
+# One segment per line: label | apply (seam words, ';' between) | restore. No apply = a baseline.
+# Nothing is written to any ini while a row runs. The restore words are the dev PC's settings of
+# 2026-10-04 (DLSS on with model K, HUD sharp on, anisotropy 16 with trilinear, sharpen 0.40,
+# ReShade effects on) and the game's shipped engine values (ShadowTexelsPerPixel 1.27324,
+# MaxShadowResolution 800, ScreenPercentage 100).
+#
+# Part A measures our own costs with nothing else running. The row "stage profile ON" then switches
+# the engine's stage events on and LEAVES them on, so every later baseline and row carries a
+# `perf/stages:` table (CPU, GPU and draws per engine stage) and the same profiling overhead.
+# Compare a row with the baselines either side of it, not with the plan's overall noise floor.
+# The two rows that change the render size are last, so a fault there costs nothing before it.
+seg 20000
+warm 4000
+delay 60000
+atend stages off; stages gpu off; overlay on
+baseline A1
+hud off | hud off | hud on
+baseline A2
+hud sharp off | hud sharp off | hud sharp on
+baseline A3
+reshade effects off | reshade effects off | reshade effects on
+baseline A4
+aniso 4 no trilinear | aniso 4; aniso trilinear off | aniso 16; aniso trilinear on
+baseline A5
+sharpen 0 | clarity sharpen 0 | clarity sharpen 0.40
+baseline A6
+script lane named | pe fn on | pe fn off
+baseline A7
+dlss fast model | dlss model fast | dlss model k
+baseline A8
+stage profile ON (stays on) | stages on; stages gpu on |
+baseline B1
+light shafts off | console scale toggle bAllowLightShafts | console scale toggle bAllowLightShafts
+baseline B2
+cheap bloom | console scale toggle UseHighQualityBloom | console scale toggle UseHighQualityBloom
+baseline B3
+bloom off | console scale toggle Bloom | console scale toggle Bloom
+baseline B4
+half-res translucency | console scale toggle bAllowDownsampledTranslucency | console scale toggle bAllowDownsampledTranslucency
+baseline B5
+distortion off | console scale toggle Distortion | console scale toggle Distortion
+baseline B6
+dynamic shadows off | console scale toggle DynamicShadows | console scale toggle DynamicShadows
+baseline B7
+light env shadows off | console scale toggle LightEnvironmentShadows | console scale toggle LightEnvironmentShadows
+baseline B8
+shadow texels half | console scale set ShadowTexelsPerPixel 0.64 | console scale set ShadowTexelsPerPixel 1.27324
+baseline B9
+shadow max 400 | console scale set MaxShadowResolution 400 | console scale set MaxShadowResolution 800
+baseline B10
+lens flares off | console scale toggle LensFlares | console scale toggle LensFlares
+baseline B11
+screen percentage 80 | console scale set ScreenPercentage 80 | console scale set ScreenPercentage 100
+baseline B12
+dlss off (native size) | dlss off | dlss on
+baseline B13

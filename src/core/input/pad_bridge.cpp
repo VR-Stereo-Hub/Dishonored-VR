@@ -9,6 +9,75 @@
 #include <shlobj.h>   // VR-204: SHGetFolderPathA for the game's DishonoredInput.ini
 
 static dvr::controller::Composer g_controllerComposer;
+// 2026-10-07: [Controllers] ZoomTap. A TAP of the right stick click is the game's own zoom (the mask lens, the
+// "spyglass" upgrade: XboxTypeS_RightThumbstick -> GBA_Zoom -> Dis_Zoom, toggled inside m_fCurZoomToggleTime).
+// The click never reached the pad: the R3 D-pad modifier consumes it and the health elixir takes the hold, so a
+// run that tried the zoom narrowed nothing (every world draw at 103, measured). A press released before the
+// elixir's hold threshold that selected no D-pad direction and was not the both-sticks chord pulses the pad's
+// right thumb button for 120 ms. Live: zoomtap on|off, F10 Controls.
+static std::atomic<bool> g_zoomTap{true};
+static bool ZoomTapGet() { return g_zoomTap.load(); }
+// 2026-10-07: [Controllers] ZoomGesture. The mask's lens is on the face: with the right controller held at the RIGHT
+// EYE (its grip pose within ZoomGestureRadiusCm of the head pose moved half the IPD to the right, XR LOCAL space,
+// metres) a right-trigger press is the zoom toggle instead of an attack, and the trigger stays swallowed until it is
+// released. Every press cycles the game's own zoom (the Spyglass upgrade adds levels). Live: zoomgesture on|off,
+// zoomgesture radius <cm>, F10 Controls.
+static std::atomic<bool>  g_zoomGesture{true};
+static std::atomic<float> g_zoomGestureRadiusM{0.25f};   // 25 cm: the owner found 15 too tight (2026-10-07)
+static std::atomic<float> g_zoomGestureRightM{0.08f};    // the anchor sits this far to the RIGHT of the right eye (the temple), so the
+                                                         // hand need not come fully in front of the face (owner, 2026-10-07)
+static double g_zoomPulseUntil = 0.0;   // present lane: the pad's right thumb button is held until this time
+static bool ZoomGestureGet() { return g_zoomGesture.load(); }
+static void ZoomGestureSet(bool on, const char* who) {
+    if (g_zoomGesture.exchange(on) != on)
+        Log("zoom: the right trigger with the right hand at the right eye %s (%s)",
+            on ? "ZOOMS (that press is swallowed as an attack)" : "is an attack as usual", who ? who : "?");
+}
+static void ZoomGestureRightSet(float cm, const char* who) {
+    if (!(cm >= 0.0f && cm <= 30.0f)) { Log("zoom: gesture anchor %.1f cm right of the eye refused (0..30) (%s)", cm, who ? who : "?"); return; }
+    g_zoomGestureRightM.store(cm * 0.01f);
+    Log("zoom: gesture anchor %.1f cm to the right of the right eye (%s)", cm, who ? who : "?");
+}
+static void ZoomGestureRadiusSet(float cm, const char* who) {
+    if (!(cm >= 4.0f && cm <= 40.0f)) { Log("zoom: gesture radius %.1f cm refused (4..40) (%s)", cm, who ? who : "?"); return; }
+    g_zoomGestureRadiusM.store(cm * 0.01f);
+    Log("zoom: gesture radius %.1f cm from the right eye (%s)", cm, who ? who : "?");
+}
+static void ZoomPulse(const char* why) {
+    g_zoomPulseUntil = MaimNowMs() + 120.0;
+    Log("zoom: %s -> right thumb pulse to the pad, the game's zoom toggle; the fov: line says MAGNIFIED if it took", why);
+}
+// The right hand against the right eye, metres: the nearer of its grip and aim poses (the aim pose sits at the
+// controller's ring, which is what touches the face). Negative when the head or the hand is untracked; the two
+// distances are given back for the log. The first run never fired and logged nothing, so every press measures.
+static double zNowTrig() { return MaimNowMs(); }
+static float ZoomHandToRightEyeM(float* gripM, float* aimM) {
+    dvr::vr::HeadPose head{};
+    *gripM = *aimM = -1.0f;
+    if (!dvr::vr::peek_head_pose(head)) return -1.0f;
+    // the head's right axis, R(q) * (1,0,0)
+    const float rx = 1.0f - 2.0f * (head.qy * head.qy + head.qz * head.qz);
+    const float ry = 2.0f * (head.qx * head.qy + head.qz * head.qw);
+    const float rz = 2.0f * (head.qx * head.qz - head.qy * head.qw);
+    const float h = g_ipdM * 0.5f + g_zoomGestureRightM.load();   // the right eye, then further right to the temple
+    const float ex = head.px + rx * h, ey = head.py + ry * h, ez = head.pz + rz * h;
+    float best = -1.0f;
+    for (int aim = 0; aim < 2; ++aim) {
+        dvr::vr::HeadPose hand{};
+        if (!dvr::vr::get_hand_pose(1, aim != 0, hand)) continue;
+        const float dx = hand.px - ex, dy = hand.py - ey, dz = hand.pz - ez;
+        const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+        if (!std::isfinite(d)) continue;
+        *(aim ? aimM : gripM) = d;
+        if (best < 0.0f || d < best) best = d;
+    }
+    return best;
+}
+static void ZoomTapSet(bool on, const char* who) {
+    if (g_zoomTap.exchange(on) != on)
+        Log("zoom: a tap of the right stick click %s (%s)", on ? "ZOOMS (the pad's right thumb button, the game's own toggle)"
+                                                                 : "does nothing", who ? who : "?");
+}
 
 static inline SHORT PadStick(float v)
 {
@@ -128,7 +197,12 @@ static void UpdateVirtualPad()
     const auto binds=dvr::binds::layout();
     const dvr::binds::Source bindMuted=(!binds.is_default() && g_ovlVisible && g_ovlPtrEnable)
         ? (g_ovlPtrHand ? dvr::binds::RightTrigger : dvr::binds::LeftTrigger) : dvr::binds::None;
-    dvr::vr::InputSnapshot in=dvr::binds::apply(raw,binds,bindMuted);
+    // Physical pickup: a grip pressed with loot in reach is swallowed BEFORE the remap (so whatever
+    // is bound to that grip does not fire) and Interact is pressed for a moment instead.
+    dvr::vr::InputSnapshot rawForBinds=raw;
+    const bool pickupPress=PickupPadFilter(rawForBinds,g_ovlVisible || g_menuOpen || g_inMenu || UiSurfaceBlocks() || CineActive());
+    dvr::vr::InputSnapshot in=dvr::binds::apply(rawForBinds,binds,bindMuted);
+    if (pickupPress) in.x=true;
     if (controller.modifier==dvr::controller::R3) in.clkR=raw.clkR;
     if (g_ovlVisible && dvr::binds::capture_active(GetTickCount64())) {   // F10 press-to-bind owns the press
         in.a=in.b=in.x=in.y=in.clkL=in.clkR=in.menu=false;
@@ -141,6 +215,44 @@ static void UpdateVirtualPad()
         active = true;
         g_dbgRawMx = in.mv[0]; g_dbgRawMy = in.mv[1];  // 38.25 pre-shaping
         float mx = in.mv[0], my = in.mv[1], tx = in.lk[0], ty = in.lk[1];
+        {   // ZoomGesture: the right trigger with the right hand at the right eye (g_zoomGesture above).
+            // Decided at the trigger's FIRST movement, not at the full pull: the game acts on the first few percent
+            // of the trigger (an unholster, a swing) before a 0.7 threshold could decide, so the first build
+            // drew the weapons and attacked on every gesture. With the hand at the eye the press is swallowed
+            // from its first percent; the pulse goes at the full pull, once per press.
+            static bool swallow = false, pulsed = false, trigWas = false, armedWas = false;
+            static float dAtStart = -1.0f, gripAtStart = -1.0f, aimAtStart = -1.0f;
+            const bool armed = in.trigR > 0.05f;                       // the trigger has started moving
+            const bool trig  = in.trigR > (trigWas ? 0.5f : 0.7f);     // the full pull
+            const bool gated = g_ovlVisible || g_menuOpen || g_inMenu || UiSurfaceBlocks() || CineActive() || g_wheelHeld;
+            if (armed && !armedWas) {
+                dAtStart = gripAtStart = aimAtStart = -1.0f;
+                if (ZoomGestureGet() && !gated) {
+                    dAtStart = ZoomHandToRightEyeM(&gripAtStart, &aimAtStart);
+                    if (dAtStart >= 0.0f && dAtStart <= g_zoomGestureRadiusM.load()) { swallow = true; pulsed = false; }
+                }
+            }
+            if (swallow && trig && !pulsed) {
+                pulsed = true;
+                char why[160]; _snprintf_s(why, _TRUNCATE, "right trigger with the right hand %.1f cm from the eye anchor (grip %.1f, aim %.1f; radius %.0f, "
+                                           "anchor %.0f cm right of the right eye)", dAtStart * 100.0f, gripAtStart * 100.0f, aimAtStart * 100.0f,
+                                           g_zoomGestureRadiusM.load() * 100.0f, g_zoomGestureRightM.load() * 100.0f);
+                ZoomPulse(why);
+            }
+            if (!swallow && trig && !trigWas && ZoomGestureGet() && !gated) {   // a press that was not the gesture says why (one line a second)
+                static double nextSay = 0.0;
+                if (zNowTrig() >= nextSay) {
+                    nextSay = zNowTrig() + 1000.0;
+                    if (dAtStart < 0.0f) Log("zoom: right trigger - the head or the right hand was not tracked when it started moving, no eye gesture (an attack as usual)");
+                    else Log("zoom: right trigger with the right hand %.1f cm from the eye anchor (grip %.1f, aim %.1f) - over the %.0f cm radius, "
+                             "an attack as usual ([Controllers] ZoomGestureRadiusCm, ZoomGestureRightCm)", dAtStart * 100.0f, gripAtStart * 100.0f,
+                             aimAtStart * 100.0f, g_zoomGestureRadiusM.load() * 100.0f);
+                }
+            }
+            if (!armed) { swallow = false; pulsed = false; }          // the full release ends the press
+            trigWas = trig; armedWas = armed;
+            if (swallow) in.trigR = 0.0f;   // this press is the zoom, never an attack, a throw or an unholster
+        }
         float hr = in.trigR, hl = in.trigL;
         WORD b = emulation.buttons;
         static bool wheelWas = false, chokeWas = false;
@@ -158,6 +270,24 @@ static void UpdateVirtualPad()
         if (in.y)            b |= XINPUT_GAMEPAD_Y;       // native lean/adrenaline
         if (SprintBit(in.clkL)) b |= XINPUT_GAMEPAD_LEFT_THUMB; // SPRINT 38.28
         HealthElixirTick(in.clkR);                        // health hold
+        {   // ZoomTap: the PHYSICAL right stick click, tapped (g_zoomTap above)
+            static bool r3Was = false, r3Used = false; static double r3Down = 0.0;
+            const double zNow = MaimNowMs();
+            const bool gated = g_menuOpen || g_inMenu || g_wheelHeld || g_ovlVisible || UiSurfaceBlocks() || CineActive() || !g_handMesh;
+            if (raw.clkR && !r3Was) { r3Down = zNow; r3Used = gated; }
+            if (raw.clkR && (raw.clkL || (emulation.buttons & 0xF) || gated)) r3Used = true;   // the chord, a D-pad pick, a menu
+            if (!raw.clkR && r3Was && ZoomTapGet() && !r3Used) {
+                const double held = zNow - r3Down;
+                if (held < (double)g_elixirHoldMs) {
+                    char why[96]; _snprintf_s(why, _TRUNCATE, "right stick click tapped (%.0f ms, under the %.0f ms elixir hold)", held, g_elixirHoldMs);
+                    ZoomPulse(why);
+                } else {
+                    Log("zoom: right stick click held %.0f ms - the elixir's hold, not a zoom tap", held);
+                }
+            }
+            r3Was = raw.clkR;
+            if (zNow < g_zoomPulseUntil) b |= XINPUT_GAMEPAD_RIGHT_THUMB;
+        }
         {   // stick-click edges stay measured facts
             static bool sw = false, hw = false;
             if (in.clkL != sw) { sw = in.clkL;

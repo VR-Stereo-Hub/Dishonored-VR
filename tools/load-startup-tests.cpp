@@ -41,6 +41,22 @@ static bool BuildLiveSet() { ++rebuilds; if(refreshLive) for(auto* o:objects) o-
 static unsigned reads=0;
 static const char* NameFromIndex(uint32_t i) { ++reads; return i<names.size() && !names[i].empty()?names[i].c_str():nullptr; }
 static bool PrintableName(const char* s) { return s && strlen(s)<64; }
+// 2026-10-05: FindNameIdx now reads a name index built once from GNames (uobject.cpp, LuExtendNames) instead
+// of the per-lookup cache. The harness builds the same index over its fake table with the production rule
+// (the FIRST index a string appears at wins; every hit is re-read before use), and refreshes liveness
+// through the fake BuildLiveSet.
+#include <unordered_map>
+static LONG g_luNameScans=0, g_luIndexHits=0; static double g_luNameMs=0;
+static double LuNowMs() { return clockMs; }
+static SRWLOCK g_luNameLock = SRWLOCK_INIT;
+static std::unordered_map<std::string,uint32_t>* g_luNames=nullptr; static uint32_t g_luNamesBuiltTo=1;
+static unsigned indexBuilds=0;
+static void LuExtendNames(uint32_t num) {
+    if (!g_luNames) g_luNames=new std::unordered_map<std::string,uint32_t>();
+    if (num<=g_luNamesBuiltTo) return;
+    for (uint32_t i=g_luNamesBuiltTo;i<num;++i) { const char* nm=NameFromIndex(i); if (nm && PrintableName(nm)) g_luNames->emplace(nm,i); }
+    g_luNamesBuiltTo=num; ++indexBuilds; }
+static bool RefreshLiveSet(unsigned) { return BuildLiveSet(); }
 #include "load_startup_body.inc"
 static int fails=0, checks=0;
 static void check(bool yes,const char* msg) { ++checks; if(!yes) { ++fails; printf("FAIL: %s\n",msg); } }
@@ -94,9 +110,13 @@ int main(int argc,char** argv) {
     check(reads<=16,"warm lookup avoids thousands of repeated name reads"); printf("warm lookup engine reads: %u\n",reads);
     names[4000]="Reused";
     check(find("Name4000")==~uint32_t(0),"recycled ID cannot return stale name");
-    check(find("Reused")==4000,"replacement name discovered");
+    // 2026-10-05: the production index grows only by append (UE3 never rewrites a GNames entry); a name added
+    // to the table is found on demand, and the stale entry above is never returned.
+    if (!legacyNames) { names.emplace_back("Appended"); nameCount=(uint32_t)names.size();
+        check(find("Appended")==nameCount-1,"a name appended to the table is indexed on demand"); }
+    else check(find("Reused")==4000,"the legacy scan finds the replacement name");
     check(find("Later")==~uint32_t(0),"missing name fails honestly"); names.emplace_back("Later"); ++nameCount;
-    check(find("Later")==5000,"missing lookup does not poison later name growth");
+    check(find("Later")==nameCount-1,"missing lookup does not poison later name growth");
     names[4999].clear(); check(find("Name4999")==~uint32_t(0),"unreadable cached entry falls back");
     dvr::ue3::NameIndexCache<2> tiny;
     for(uint32_t i=1;i<20;++i) tiny.remember(names[i].c_str(),i);

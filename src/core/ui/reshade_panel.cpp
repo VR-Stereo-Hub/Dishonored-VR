@@ -2,6 +2,7 @@
 // Handles are enumerated and used in this frame only; reloads invalidate them.
 #include "core/ui/reshade_panel.h"
 #include "core/gfx/reshade_runtime.h"
+#include "core/gfx/reshade_ini.h"
 #include "../../../third_party/reshade/reshade_api.hpp"
 #include <imgui.h>
 #include <algorithm>
@@ -66,6 +67,22 @@ std::vector<std::string> presets(const std::string& current) {
     }
     return result;
 }
+// The effects the selected preset has: its `Techniques=` line, plus anything switched on since
+// (so an effect unticked here stays in the list until the preset changes). Keys are
+// "Technique@File.fx", exactly as ReShade writes them.
+struct PresetView {
+    std::string path; std::vector<std::string> wanted, listed; double changedAt = 0;
+    bool has(const std::vector<std::string>& set, const std::string& key) const { return std::find(set.begin(),set.end(),key)!=set.end(); }
+    void sync(const std::string& current) {
+        if (current == path) return;
+        path = current; wanted.clear(); listed.clear(); changedAt = ImGui::GetTime();
+        std::ifstream file(from_utf8(current), std::ios::binary);
+        std::string text; char buffer[4096];
+        while (file && text.size() < 1024*1024) { file.read(buffer, sizeof(buffer)); text.append(buffer, (size_t)file.gcount()); }
+        wanted = reshade_ini::preset_techniques(text);
+        listed = wanted;
+    }
+} view;
 void uniform_control(Runtime* runtime, Uniform variable) {
     bool hidden=false, noedit=false;
     runtime->get_annotation_bool_from_uniform_variable(variable,"hidden",&hidden,1);
@@ -159,6 +176,12 @@ void draw() {
             if(ImGui::Button("Use VR integration"))saveFailed=!reshade_runtime::set_enabled_next_start(true);
             return;
         }
+        // A load that was tried and failed is not fixed by restarting: say why instead.
+        if(enabled && reshade_runtime::load_failure()) {
+            ImGui::TextWrapped("ReShade did not start this launch (%s).",reshade_runtime::load_failure());
+            ImGui::TextWrapped("Restarting will not fix this. Run Install ReShade in the launcher again - it repairs ReShade.ini and the shader folders - then use Collect logs if it still fails.");
+            return;
+        }
         ImGui::TextWrapped(enabled ? "Restart Dishonored to load the VR ReShade integration." : "ReShade is installed and disabled. Enable it above, then restart Dishonored.");return;
     }
     if(!enabled)ImGui::TextWrapped("ReShade will be disabled next launch. Its controls remain available until you exit.");
@@ -180,29 +203,57 @@ void draw() {
         if(choices.empty())ImGui::TextWrapped("Put a ReShade preset INI beside Dishonored.exe.");
         ImGui::EndCombo();
     }
+    view.sync(path);
     bool optimized=reshade_runtime::performance_mode();
     if(ImGui::Checkbox("Performance mode",&optimized)) { reshade_runtime::set_performance_mode(optimized);return; }
-    tip("Compiles fixed shader settings for performance. Turn off to edit shader parameters; changing this reloads effects.");
-    if(ImGui::Button("Reload effects")) { runtime->save_current_preset();runtime->reload_effect_next_frame(nullptr);return; }
+    tip("Compiles the preset's shader settings in for speed. Turn it off to adjust shader settings below. Changing it reloads the effects.");
+    bool showAll=reshade_runtime::load_all_effects();
+    if(ImGui::Checkbox("Show all installed effects",&showAll)) { reshade_runtime::set_load_all_effects(showAll);return; }
+    tip("Off: only the effects this preset uses are loaded and listed. On: every effect in the shader folders is loaded so you can add one to the preset; loading takes longer and uses more memory. Changing it reloads the effects.");
+    if(const char* note=reshade_runtime::live_note())ImGui::TextWrapped("%s",note);
+    if(ImGui::Button("Reload effects")) { runtime->save_current_preset();runtime->reload_effect_next_frame(nullptr);view.changedAt=ImGui::GetTime();return; }
     ImGui::SameLine();if(ImGui::Button("Save preset"))runtime->save_current_preset();
     ImGui::TextWrapped("Changes save to the selected preset. Point and click with the trigger; use the stick to scroll or nudge a value.");
-    struct Entry { Technique handle;std::string file,label; };
+    struct Entry { Technique handle;std::string file,label,key;bool on; };
     std::vector<Entry> entries;
     runtime->enumerate_techniques(nullptr,[&](Runtime* r,Technique t) {
         char file[512]={},label[512]={};r->get_technique_effect_name(t,file);r->get_technique_name(t,label);
-        entries.push_back({t,file,label});
+        entries.push_back({t,file,label,std::string(label)+"@"+file,r->get_technique_state(t)});
     });
-    if(entries.empty()) { ImGui::TextWrapped("Effects are loading, or no shader packages were found. Check the ReShade log if this message remains.");return; }
-    std::vector<std::string> drawn;
+    // Anything that is on belongs to the preset now, whatever its file said when it was read.
+    for(const auto& entry:entries) if(entry.on && !view.has(view.listed,entry.key)) view.listed.push_back(entry.key);
+    ImGui::Separator();
+    ImGui::TextDisabled(showAll ? "ALL INSTALLED EFFECTS" : "EFFECTS IN THIS PRESET");
+    unsigned shown=0;
     for(const auto& entry:entries) {
+        if(!showAll && !view.has(view.listed,entry.key)) continue;
+        ++shown;
         ImGui::PushID(entry.file.c_str());ImGui::PushID(entry.label.c_str());
-        bool on=runtime->get_technique_state(entry.handle);
+        bool on=entry.on;
         if(ImGui::Checkbox(entry.label.c_str(),&on)) { runtime->set_technique_state(entry.handle,on);runtime->save_current_preset(); }
         tip(entry.file);ImGui::PopID();ImGui::PopID();
     }
+    if(!shown) ImGui::TextWrapped(entries.empty() && view.wanted.empty() ? "This preset has no effects switched on. Tick Show all installed effects to add some."
+                                  : entries.empty() ? "Effects are loading." : "This preset has no effects switched on. Tick Show all installed effects to add some.");
+    // Effects the preset asks for that ReShade did not load, once loading has had time to finish.
+    if(ImGui::GetTime()-view.changedAt>4.0) {
+        std::string missing;
+        for(const auto& key:view.wanted) {
+            bool loaded=false;
+            for(const auto& entry:entries) if(entry.key==key) { loaded=true;break; }
+            if(!loaded) { if(!missing.empty())missing+=", ";missing+=key; }
+        }
+        if(!missing.empty()) {
+            ImGui::TextWrapped("Not loaded: %s.",missing.c_str());
+            ImGui::TextWrapped("The preset uses a shader that is not installed or did not compile. Drop its shader package on the launcher's Mods screen; ReShade.log beside the game says which.");
+        }
+    }
     ImGui::Separator();
     if(optimized) { ImGui::TextWrapped("Turn off Performance mode above to adjust shader settings.");return; }
+    ImGui::TextDisabled("SHADER SETTINGS");
+    std::vector<std::string> drawn;
     for(const auto& entry:entries) {
+        if(!showAll && !view.has(view.listed,entry.key)) continue;
         if(std::find(drawn.begin(),drawn.end(),entry.file)!=drawn.end())continue;
         drawn.push_back(entry.file);
         if(ImGui::CollapsingHeader(entry.file.c_str())) {

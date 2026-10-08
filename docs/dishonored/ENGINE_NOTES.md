@@ -1,3 +1,161 @@
+## 2026-10-05: Attached hand effects drift during locomotion, corrected candidate
+
+Scope: the attached Heart glow, not the Heart backing material or a stereo
+flicker. The backing was accepted on v1.0.3-55-gf8f2260ea; its matching run is
+archived locally. The current combined test has a different banner and must
+not be attributed to that Heart build. No game was launched for this fix.
+
+The existing hand-effects entry (VR-182, build 669) established controller-motion
+follow for Heart, Blink and Possession. It did not establish locomotion alignment.
+`FxWorldCorrection` used `inverse(br) * D * br` with `br = L * inverse(N)`;
+N was the native arm transform retained in the render publication. Applying
+that saved world correction to a bone queried at the current world position
+introduces `(R - I) * delta` error during translation. The host harness holds
+the controller correction fixed and varies only body travel to falsify it.
+
+The corrected chain names the parent as well as the arm:
+
+- Published arm frame A, published attached-parent frame P, arm draw frame L.
+- Parent draw frame `Lp = L * inverse(A) * P`.
+- Parent-local correction `Dp = inverse(Lp) * D * Lp`.
+- Current world correction `W = Pnow * Dp * inverse(Pnow)`.
+- Engine TransformFromBoneSpace supplies the native socket pose; W moves it;
+  TransformToBoneSpace returns the new relative to the same parent.
+
+Using only the current ARM world transform is insufficient when the arm and
+held item update at different points in the tick. That intermediate approach
+passed synchronized travel tests but still gives 3.872019 uu error in the
+staggered-parent negative control. Rebase through the actual attachment parent;
+its subsequent engine update then carries the relative along with the mesh.
+No inferred socket from the previously written component matrix is reintroduced.
+
+Static content verification used the existing UModel inventory driver and
+UE Explorer 1.6.2's UELib on decompressed local package copies. Startup contains
+`Vfx_Weapon.Effects.Heart.heart_glow`; its ParticleModuleRequired explicitly has
+`bUseLocalSpace=true`. DishonoredGame contains
+`Vfx_GamePlay.Possession.Possession_HandCast_01`; both required modules explicitly
+have the same flag. Other unsupported array/distribution decompiles were not
+used as evidence. The prior log identifies both as tracked mesh attachments.
+This supports correcting the component's attachment without modifying particles,
+materials, emitter templates or the game packages. Local property dumps remain
+untracked. No new engine address or field offset was introduced.
+
+The writer now uses IsLiveObject and recorded class/FName plus parent and bone
+identity for every destination. It re-reads the live attachment array after the
+engine bone calls, tolerates array relocation, and refuses detached or changed
+relationships. Restore only if the current relative still equals the last write;
+a native reattach wins. Menu transitions refresh the live-object table, load/pawn
+transitions reset bindings and require a new hand draw, and function identities
+are revalidated before ProcessEvent. Hand publications copy under an SRW lock;
+device reset and weapon invalidation clear them under the same lock.
+
+`tools/fx-follow-host.ps1` compiles production fx_follow.cpp against mock UE3
+bone calls and attachment arrays. 733 checks pass: Heart, Possession, separate
+left/right hand routing and a light component, rotations, scale, 77 travel/turn poses, stationary
+parity, repeated application, array relocation, reattach/detach, dead/reused
+objects, menu/load refresh, failed bone calls, stale publications, oversized
+moves and nested ProcessEvent. Straight walking: old 3.872011 uu versus corrected
+0.000275 uu. Staggered update: arm-only 3.872019 uu versus parent-local 0.000246 uu.
+Across 77 poses the final error is at most 0.000741 uu; the old control reaches
+37.274 uu. These are host results, not measured headset distances or frame times.
+
+The heartbeat reports current-parent travel separately from correction distance.
+This measures how far the current parent has advanced since its publication;
+it is not a measurement of visible glow error. Build only per the latest request;
+the in-game locomotion and Possession checks remain pending.
+
+## 2026-10-04: Heart rear shell runtime integration
+
+The preview was approved for implementation. `heart_back.cpp` adds the local
+surface after a successful, instance-validated Heart draw in both weapon_attach
+placement routes, before mirror handling and palette/viewport restoration. It
+does not write engine objects or replace the original Heart vertices. Contract
+invalidation releases its owned buffers, including before the empty-contract
+early return. The body pass has 3,672 triangles; the separate nine-triangle lens
+pass is not duplicated. There are 2,583 vertices in the native body draw window.
+
+Measured on the September 13 Hound Pits Pub save with the xrsim runtime:
+
+- The native declaration uses stride 32: UBYTE4 tangent at 0, UBYTE4 normal at 4,
+  UBYTE4 bone indices at 8, UBYTE4N weights at 12, FLOAT3 position at 16 and
+  FLOAT16_2 UV at 28 (aliased as TEXCOORD0..3). A second stream supplies COLOR0
+  as D3DCOLOR with stride zero, offset zero and one four-byte constant. Refusing
+  every secondary stream prevented the first candidate from drawing. The fixed
+  path supports that color stream and restores it after each addition.
+- All 2,583 positions and skin-weight fields validated against the locally
+  generated reference. The shader declares c6 x225, or 75 palette slots. The
+  maximum relative weight-field error is 0.0000074; 22 reference bones exist.
+- The native vertex dump agrees with the glTF coordinates after the measured
+  transform to engine space: maximum position error 0.00000192 uu, UV error zero.
+  Decoding packed normals as byte/127.5 - 1 agrees within 0.00845 vector length
+  for every vertex. Native tangent W is 128; normal W stores handedness. Tangent
+  seam duplicates make nearest-position/UV tangent comparisons ambiguous, so
+  they are not used as an all-vertex tangent proof.
+- The added surface contains 9,903 vertices and 19,439 triangles. At all 65 rim
+  points, the native reference weights are copied exactly. Interior weights
+  diffuse across the cap adjacency; detail weights interpolate the nearest cap
+  triangle. The new rear bulge is reduced by up to 1.5 cm for finger clearance;
+  the original boundary stays fixed. Screenshots still only cover sampled grips.
+- Final clean candidate v1.0.3-50-g4cdd3b78d (optimized, legacy off) was installed
+  with matching build banner and SHA-256
+  096827320B820E164DBA9A8E848F4489CB5B2C21D4D8445B4CFBADF8191C7F64.
+  Final status sampled 30,714 successful draws and zero failures. All three final
+  screenshots use this build and the September 13 save; its hash is unchanged.
+- Rotated views and the live OFF/ON comparison show the main rear opening filled.
+  A sampled status counted 14,755 successful draws and zero failures. Model reload
+  also rebuilt and validated the fitted version without restarting the game.
+
+`tools/heart-back-export.py` runs in Blender with a local proposal directory and
+the tools directory. It writes `dishonored_vr_heart_rig.bin` (DVRIK002 reference)
+and `dishonored_vr_heart_back.bin` (DVRHRT01 vertices/indices) for the mod data
+directory. These derived assets must not be committed or packaged. The loader
+bounds counts, checks all values/influences/indices, and fails back to the
+original Heart when unavailable or invalid. `tools/heart-back-host.ps1` checks
+valid data plus negative cases. `heartback dump` explicitly requests a local
+native vertex/declaration capture on the next validated rebuild; normal play
+does not create that diagnostic file.
+
+The original material shaders and textures light the backing. Its UVs select
+the original darker flesh patch; the static Blender preview's vertex-color edge
+blend and procedural bump are not native shader features. In-game screenshots,
+not the Blender material preview, determine acceptance. No new engine addresses,
+field offsets, package mutation or UObject writes are involved. The addition is
+inside the tracked weapon route; native-only cinematic rendering remains outside
+the tested scope. No performance improvement is claimed.
+
+## 2026-10-04: Heart rear shell, local modeling preview
+
+UModel's Startup.upk object list identifies SkeletalMesh Heart, materials
+Heart_Mat and Heart_lens_Mat, and Heart_D/N/S/SP/E plus HeartLens_D/N textures.
+Export only that mesh and those textures into an ignored local output directory.
+The glTF import has 2,583 vertices and 3,681 triangles. Welding coincident UV seam
+positions for inspection exposes 249 open edges; the largest connected rear
+opening contains 65. Small separate component and vessel boundaries also remain.
+
+The proposal uses a constrained triangulation of that rear perimeter with a
+rounded posterior surface, shallow vessels, an incision and retaining wires.
+The original mesh and rig stay separate and unchanged. The new wall has 2,173
+vertices and 4,279 triangles. All 65 rim coordinates match exactly; joining copies
+for validation reduces total boundary edges from 249 to 184. Original vertex
+coordinates and polygon indices compare exactly, and the new wall has no
+zero-area triangles. This is not a claim that every original part is watertight.
+
+Color revision: use a darker flesh region of the existing Heart_D atlas, with
+Heart_N detail and matching roughness. Convert sampled sRGB rim colors to linear
+before assigning the vertex color attribute. The initial unconverted edge colors
+made the new material too pale. Blender lighting and a simplified lens material
+are previews, not an exact recreation of UE3's complete material.
+
+Reproduction tools: heart-back-inspect.py then heart-back-preview.py, both run
+inside Blender with `-- <local-output-directory>`. The directory contains
+originals/Startup/SkeletalMesh3/Heart.gltf and its buffer, plus exported textures
+under originals/Startup/Texture2D. Inspection creates heart-original-inspection.blend;
+the preview creates Heart-backside-proposal.blend, paired renders and a report.
+These outputs contain game-derived data and are never committed. Scripts are ours.
+
+Preview scope ends at screenshots. No engine hooks, memory writes, package edits,
+DLL build/install or INI changes. Added parts are not skinned or animation-tested.
+Review the revised color and shape before planning any runtime implementation.
 ## 2026-09-27: read-only pause submenu identity
 
 Local class declarations expose DisGFxMoviePlayerMenuBase.m_bIsInSaveMenu and
@@ -10093,3 +10251,410 @@ case it is: foreground peak = world peak, a foreground FOV of its own, or no for
 In a merchant conversation (`StatePlayerMasterInDialog`) the camera's FOV sensor (0x53c) reads 88 ->
 52 -> 23.4 deg while `cine/fov` keeps the drawn scene at `[Screen] ProjectionFov` (103). The sensor only
 names the foreground's projection in plain gameplay, when it reads back the FOV lever's own write.
+
+## 2026-10-04: full-arm IK mapping without native bone-bank writes
+
+The local IK candidate uses a PSK-derived reference file outside Git. The tool
+composes named reference joint heads from the hierarchy and local quaternions;
+Blender's independent import agrees within 0.000020 model units. At runtime the
+owned mesh copy must match every reference vertex position and uniquely match
+each active palette slot's weight field across the entire draw. This bridges
+reference bones to the shader palette without equating their indices. Synthetic
+UV-seam/quantized/shuffled mapping recovers all 48 active bones; a game run is
+still required to validate the actual draw's mapping. No native offsets were
+added. The path does not read or write engine bone arrays or retain UObjects.
+
+The endpoint is the named wrist under the final `MpWorldTarget` correction,
+after animation blending and empty-hand pose handling. Using the pre-blend
+`g_mpPalmTarget` would disconnect IK from an animated wrist. `RigidWrist` only
+protects clipped fallback geometry; complete arms retain authored weights.
+Details, local-data handling and limits: [ARM_IK.md](ARM_IK.md).
+
+## 2026-10-04: ActorX export coordinates are not engine mesh coordinates
+
+The first IK game run (banner-matched v1.0.3-9-g012ddce9a) refused reference
+positions with zero solves. Native VB Y bounds were -152.5..-87.9 while the
+prepared PSK reference had the opposite sign. UModel ExportPsk.cpp explicitly
+mirrors Y in MIRROR_MESH for vertices and skeletal transforms. Preparation
+now reverses Y on vertices and composed reference heads, with a DVRIK002
+format gate to reject stale files. All three corrected bounds match the
+native log. Runtime still validates every point and active weight field.
+No native memory writer, offsets, or relaxed guard were introduced. Details
+and source: [ARM_IK.md](ARM_IK.md#first-live-run-and-coordinate-boundary-correction-2026-10-04).
+
+## 2026-10-04: a hide-player cinematic hides the whole pawn (static, IDA)
+
+Read from our own `Dishonored.exe` (md5 204f3c1a..., staged copy == deployed), headless IDA
+scripts `tools/ida/cm1..cm4` plus `ue3-natives.py --verify`. Static only; the runtime check
+is the `cine/arms:` log line below.
+
+- `ADishonoredPlayerControllerexecPreSetCinematicMode_Native` (thunk 0x009EE960) and
+  `...execSetCinematicMode_Native` (thunk 0x009EEA00) unpack their bools and dispatch
+  through the controller vtable 0x01118738 at +0x580 -> 0x00AA33A0 and +0x584 -> 0x00AAF150.
+- `PreSetCinematicMode(bNew, bHidePlayer)` (0x00AA33A0): `bNew && bHidePlayer` calls
+  0x00587FA0(1), `!bNew` calls 0x00587FA0(0), on `ecx = [0x0145F628]`.
+- 0x00587FA0 is a thiscall(actor, bool), `ret 4`: if bit 1 of `[ecx+0x120]` differs it sets
+  it (and 0x200000), then calls 0x00585CE0, which walks the actor's components and
+  re-attaches or detaches them. That is UE3 `SetHidden`; bit 1 of +0x120 is `bHidden`.
+  Prologue `55 8B EC 8B 91 20 01 00 00 8B 45 08` (`kActorSetHidden` in patterns.h).
+- 0x0145F628 is the live `DishonoredPlayerPawn`: the pawn constructor 0x00ABF9A0 jumps to
+  0x00ABF830, which stores `this` there unless an outer carries the template/CDO flags
+  (0x600); 0x00AB5320 clears it. 592 references, 2 writers.
+- `SetCinematicMode_Native` (0x00AAF150) writes controller flag bits (+0x610 bits 12/17,
+  and +0x4E0 masks through 0x009EA0A0/0x009EA0C0 on an object whose `ecx` was not traced)
+  and calls helpers not traced here; none
+  of its direct callees is 0x00587FA0. The HIDE is the Pre call.
+
+So a Kismet `ToggleCinematicMode` with bHidePlayer hides the pawn and every component,
+the first-person arms included; there is no arm draw to correct while it lasts. Measured
+on a dialogue (dev PC log, 2026-10-04): in `StatePlayerMasterInDialog` the arm mesh
+(4,448 triangles, census row 0) was not drawn at all. Whether a conversation uses this
+hide or only lowers the arms out of view is NOT established; the `cine/arms:` line
+(CinematicArms, ANIM-HANDOFF-PLAN) logs bCinematicMode, pawn bHidden, body mode, the
+matinee blend and when the arm mesh last drew on every cinematic transition.
+`m_pMatineeBlender` (`ArkAnimNodeBlendPose.m_bEnabled`) is the read-only signal that a
+matinee is posing the pawn's mesh. Runtime use requires reflection to resolve
+`Actor.bHidden` to exactly +0x120 / 0x2 and the prologue to match; otherwise it refuses.
+
+### 2026-10-05: Heart backing material integration
+
+The approved side-view seam material requires dedicated textures, not a remap
+into the native atlas. DVRHRT02 adds a bounded cap-triangle count; DVRHMT01
+contains five local texture mip chains and native BC1 reference signatures.
+UModel exports the highest mip normally. Lower external mip descriptors are
+reordered only in a decompressed local copy of Startup, then exported through
+UModel; inline mips are copied from that same local package. No shipped package
+is modified. The extracted mip dimensions and data sizes are checked.
+
+The renderer recognizes diffuse/normal/specular/specular-power/emissive textures
+by 64 sampled BC1 blocks per exact native mip. Probe locations include regular
+coverage and high-information texels. No shader sampler index is assumed.
+Resource-incarnation and successful-upload stamps prevent pointer reuse or
+streaming writes from making the bounded recognition cache stale. GetTexture
+references are temporary, with no retained native COM ownership. Weapon-contract
+invalidation also drops all mod-owned buffers, textures and recognition entries.
+
+The backing is drawn first with replacements; all native sampler bindings are
+restored before details and subsequent game draws. Unknown color passes fail
+soft with a rate-limited diagnostic. `heartback status` now reports textured
+passes and material waits separately from draw failures. This path introduces
+no engine-memory writer. Host evidence: 17 model cases, 72 material cases and
+paged GPU upload/incarnation checks pass. These are not an in-game appearance
+claim; the first user launch must confirm the installed build banner and material
+matches before interpreting its visual result.
+## Scene render stages, the draw-event switch and the SCALE command (2026-10-04)
+
+IDA series `tools/ida/pf1_render_stages.py` .. `pf5_scale_exec.py`, staged md5
+204f3c1a0de5e6ad77efa75236b0990e (equal to the deployed exe when run). Read from the image;
+nothing here has been exercised at runtime yet.
+
+**The scene render function, VA 0x0086C060 (482 bytes).** It holds the three sampled return
+addresses of PERFORMANCE.md: 0x0086C0C1 after the call to InitViews (0x008662A0, already in
+patterns.h), 0x0086C1F4 after the call to 0x0086BF00, 0x0086C208 after the call to 0x00864290.
+Its own strings are the depth-priority-group labels (UnrealEd Background, World, Foreground,
+UnrealEd Foreground, PostProcess) and the format `DPG %s`. Five callers.
+- 0x0086BF00 calls, in order, functions whose only string literals are: PrePass,
+  Dominant light shadows, BeginRenderingSceneColor, ClearView, (RenderTextureDensity and
+  LightMapDensity behind a debug-viewmode config read), BasePass, FinishRenderingSceneColor,
+  ResolveSceneDepthTexture.
+- 0x00864290 references ShadowedLights and UnshadowedLights itself and calls functions labelled
+  ModShadow, BeginRenderingSceneColor, Translucent / Opaque / Decals, RenderSoftMasked,
+  BeginOcclusionTests (ShadowFrustumQueries, IndividualQueries, GroupedQueries), BloomParts
+  (Draw blooming primitives, Bloom reduction and blur, Bloom compose), DisFog, Distortion
+  (Accum, Apply), ResolveSceneColor, Translucency, RadialBlur, LightShafts (Downsample,
+  RadialBlur, Apply), PostProcessEffects.
+A label names a stage because the function that carries it passes it to the event constructor;
+the stage's own cost is not read from the label.
+
+**The draw-event switch (UE3 GEmitDrawEvents), VA 0x0141B268.** The event constructor is
+0x004DA900 (formats a wide name, calls the wrapper 0x009B5EA0, which calls the imported
+D3DPERF_BeginEvent); the end is the thunk 0x009B5EC0. The image reads the dword 139 times: 123
+reads are followed first by the constructor, 1 by the end thunk, 15 by name-building helpers.
+Its single writer is 0x006C7BBB, inside the console handler that compares the command against
+`TOGGLEDRAWEVENTS` and stores the inverted value. In the scene render function the read is at
+0x0086C161 (`39 35 68 B2 41 01 74 5D`). patterns.h: `kEmitDrawEvents`, the reader and the
+writer's 20 bytes; the `stages` seam word verifies both before writing 0 or 1. The game imports
+D3DPERF_BeginEvent, EndEvent and SetOptions from d3d9.dll (IAT 0x00F94724, 0x00F94720,
+0x00F94728), so with the switch set every stage reaches the proxy's exports.
+
+**The SCALE console command, handler VA 0x00586740 (4,470 bytes).** It references SCALE, SET,
+TOGGLE, ADJUST, LOWEND, HIGHEND, RESET, DUMP and DUMPINI, and builds the switch table by name:
+43 booleans (StaticDecals, DynamicDecals, UnbatchedDecals, DynamicLights, DynamicShadows,
+LightEnvironmentShadows, CompositeDynamicLights, SHSecondaryLighting, DirectionalLightmaps,
+MotionBlur, MotionBlurPause, DepthOfField, AmbientOcclusion, Bloom, UseHighQualityBloom,
+bAllowLightShafts, bAllowRatsShadow, Distortion, FilteredDistortion, DropParticleDistortion,
+bAllowDownsampledTranslucency, SpeedTreeLeaves, bUseMaxQualityMode, SpeedTreeFronds,
+OnlyStreamInTextures, LensFlares, FogVolumes, FloatingPointRenderTargets, OneFrameThreadLag,
+UseVsync, UpscaleScreenPercentage, Fullscreen, AllowD3D10, AllowRadialBlur,
+bEnableBranchingPCFShadows, bAllowHardwareShadowFiltering, bAllowBetterModulatedShadows,
+bEnableForegroundShadowsOnWorld, bEnableForegroundSelfShadowing,
+bAllowWholeSceneDominantShadows, bAllowFracturedDamage, bForceCPUAccessToGPUSkinVerts,
+bDisableSkeletalInstanceWeights), the integers (SkeletalMeshLODBias, the two LOD distance
+multipliers, TextureForcedLODBias, iType_AntiAlias, ParticleLODBias, DetailMode,
+ShadowFilterQualityBias, MaxAnisotropy, MaxMultisamples, MinShadowResolution,
+MinPreShadowResolution, MaxShadowResolution, MaxWholeSceneDominantShadowResolution, ResX, ResY,
+the two unbuilt-cascade values, ShadowFadeResolution, PreShadowFadeResolution,
+SpeakerConfiguration) and the floats (ScreenPercentage, SceneCaptureStreamingMultiplier,
+FoliageDrawRadiusMultiplier, ShadowTexelsPerPixel, PreShadowResolutionFactor,
+ShadowFilterRadius). The same names are referenced from two other functions (0x005806C0,
+0x00581250), taken to be the ini load and save; not read further.
+NOT established: that the mod's `console` seam word reaches this handler, and which switches
+take effect without a restart. Both are runtime questions.
+## Physical pickup: the lootable classes and the target ray (2026-10-05)
+
+First headset session 2026-10-05: targets were found from both hands, the game focused every one of them and the grip picked them up (three pickups, no refusal); that build's scan was too slow and has been rewritten. Code: `physical_pickup.cpp`, two lines in
+`interact_aim.cpp`, one filter in `pad_bridge.cpp`.
+
+* **What counts as loot** (from the script declarations, class hierarchy only): everything
+  that derives from `DisPickup_Base` (itself a `DishonoredKActor`): `DisGenericPickup`,
+  `DisStatPickup` and `DishonoredInventoryPickup`, `DisElixirHealth`, `DisElixirMana`,
+  `DisKey_Base`, `DisWhaleBoneCharm`, `DisAbstractItemPickup` (notes, audio logs). Plus
+  `DisProjectile_Arrow`, the class the focus field showed for a recoverable bolt (VR-85).
+  The test is a walk of `UStruct::SuperField` (+0x44) from the object's class, comparing each
+  class object's own name, cached per class pointer.
+* **Finding them without a frame paying for it.** A whole GObjects walk costs milliseconds, so
+  the list is built by an incremental pass: up to 500 slots and 60 us a frame, a full sweep
+  in a few seconds. Class tests compare name indices (text once per name). The entries are read directly under a structured exception handler, not checked
+  for readability one by one: the first build did that through `RegionMemo`, which is a
+  VirtualQuery per object here, and cost 2.4 ms a tick (TRAPS, 2026-10-05). An entry is
+  trusted only while its GObjects slot still holds the same pointer AND that object's class
+  pointer is unchanged. The position is `Actor.Location` (+0xC4 at run time) and the hidden
+  test `Actor.bHidden`, both resolved by name. First headset session: 167 lootable actors
+  among 100086 objects.
+* **The engine still chooses.** No field is written and nothing is picked up by the mod. When
+  a listed item is within reach of a hand, the two interaction bridges of VR-166 hand the
+  engine's own trace a ray from the game camera to the item instead of the pointing ray. The
+  engine then focuses it (`m_pCrosshairActor`), highlights it and prompts for it as it would
+  for any item the player looked at, and refuses what it would refuse. The mod only reads the
+  focus back: a grip counts while the focused actor IS the target.
+* **Not established:** that a trace from the camera to `Actor.Location` hits every pickup's
+  collision (a mesh can sit off its actor origin), and what a looted pickup looks like to this
+  list (destroyed, hidden, or neither). The code does not depend on either answer: a target
+  the engine does not focus within 250 ms is dropped and left alone for 3 s, doubling each
+  time up to a minute. The log's `pickup: target released (the game did not focus it ...)`
+  line is where both answers will show.
+* **Books and notes** are `DisAbstractItemPickup` and its children (`...Note`, `...AudioLog`).
+  The class walk meets that name before `DisPickup_Base` and marks the entry readable. A
+  readable entry has its own reach (`PhysicalPickupBookReachCm`, 45): with the common 30 cm,
+  measured to the actor origin, the first headset sessions needed the hand almost on the
+  book. When a readable target is opened by a grip, `hudlayout::note_opened_by_hand` asks the
+  reading panel onto that hand (HUD_ANCHORS, "the reading panel on either hand").
+* **Stacked books: tried, reported worse, removed** (2026-10-05). Of two stacked books only the
+  upper one opens by hand: the trace to the lower book's origin passes through the upper one.
+  Three changes were built together (commit 111b93de2) and taken out again in the next commit
+  after one headset session reported the result worse: the engine's focused actor taken as the
+  target, a grip-opened book left out for 15 s after reading, and twelve aim variants (from
+  the head and the hand, at the origin and 7 units to each side and above) walked while the
+  target was not focused. Which of the three did the harm was not isolated. The lower book is
+  opened by pointing at it. Not to be rebuilt as one change.
+* **Doors** are `DisDoor` (a `DishonoredUsableObject`, a skeletal breakable; its origin is the
+  hinge). A door is measured from its collision box: `Actor.CollisionComponent` ->
+  `PrimitiveComponent.Bounds` (origin and box extent, both by name), the distance being from
+  the hand to the nearest point of that axis-aligned box, and the trace looks at that point
+  (moved 8 % toward the box centre). The box of a door standing open at an angle is larger
+  than the door, so a hand can read as "in reach" beside it; the engine's focus still decides.
+  `[Aim] PhysicalDoors` (1), `PhysicalDoorReachCm` (20). Headset-accepted 2026-10-05.
+* Hand positions: the grip pose, scaled about the head by the drawn hand's own scale, through
+  the same head-to-world mapping as the published aim ray (`fireaim::solve`), anchored on the
+  game camera. Distances are to the actor origin, so the default reach is a generous 30 cm.
+* **The wider list** (PLAN-physical-interaction.md step 2, built 2026-10-05, not yet run). The
+  script corpus has 21 actor classes that declare `DisInteractableInterface`; their parents, from the
+  same declarations, put them in four groups by the first base name met walking up the chain:
+  loot (`DisPickup_Base`, `DisProjectile` - every bolt and dart, not only `DisProjectile_Arrow` -,
+  `DisRiverKrust`, `DisUpgrade`), carry (`DishonoredMovable` and its `DisWhaleOilBattery`,
+  `DisGrenade`, `DisWhiskeyBottle`, `DisMovableLimb`, `DisDLC07SkeletalMovable`; the last four
+  are `DishonoredKAsset`s, not movables), usable (`DishonoredUsableObject`, which `DisDoor`
+  extends and is met before, `DisProjectileLauncher`, `DisClimbable` - the chains, a
+  `DishonoredKAsset` -, and the placed traps `DisGadget_SpringRazorPlaced`,
+  `DisDLC06Gadget_ArcMinePlaced`, `DisTripwire`, all `SkeletalMeshActor`s), and EXCLUDED
+  (`DishonoredPawn` - which declares the interface itself, so every NPC does -, `Pawn`,
+  `DisDialogInanimateDummy` (an `Actor`), `DisSpeaker_PA` (a `DishonoredBreakable`, a sibling of
+  the movables, not one), `GameCrowdAgent` (the rats), `DisTrigger`). An excluded name ends the
+  walk with a no, so no pawn subclass can be listed whatever its parents; a second check reads
+  the chosen target's chain as text and refuses any name containing `Pawn` (the beat line's
+  `pawn or talk targets refused`, expected 0). Carry and usable things are measured from the
+  collision box with the door reach. `DisUseState_AltInteract` also names the interface but is a
+  use state, not an actor.
+* **The carry states, per lane** (`dvr::anim::snapshot`, the player's three state machines). A
+  carried movable is `StatePlayerGrabMovable` on any lane (the same read VR-181 uses); a body is
+  `StatePlayerGrabCorpse` then `StatePlayerCarryCorpseIdle` on lane 1, the upper body and right
+  arm, while lane 2, the left arm, stays free (powers, Blink). So while a body is carried only
+  the hand on the free lane is offered a target; the module reads which lane holds it rather
+  than assuming the side, and logs `pickup: carry gate` on every change. Not yet seen in a log.
+* **How highlight and focus work, from the script declarations (2026-10-05).** The controller
+  holds ONE focused actor (`m_pCrosshairActor`), one highlight actor (`m_pCrosshairHighlightActor`),
+  `m_bCanInteractWithCrosshairActor`, a `m_CrosshairStatus` enum (pickup, loot, usable, movable,
+  corpse, locked door, note, ...) and the Use state machine (`m_pUseInteractionFSM`) that acts on the
+  focused actor. The highlight itself lives on each object: `m_HighlightFlags` and a highlight mesh
+  (`m_pHighlightStaticMeshComponent` / `m_pHighlightMesh`) on `DisPickup_Base`, the movables,
+  usables, launchers, climbables and traps, with the material and `m_bAllowedToHighlight` in
+  `DisTweaks_InteractableInterface`, whose `m_fMaxDistance` default is 200 uu (about 1.85 m). The
+  level-script action `DisSeqAct_Highlight` (highlight / unhighlight a usable object) shows the
+  engine CAN highlight several objects at once outside the crosshair. Every interface function is
+  native (the interface declares only the `CanInteractParams` / `EndInteractParams` structs), so a
+  direct highlight or can-interact call needs the native entry found first (not done).
+* **The selection rework (2026-10-05, built, not yet run).** Still ONE engine focus, now chosen
+  the way Half-Life: Alyx chooses: each hand takes its own nearest thing, measured from the PALM
+  (7 cm along the hand's forward from the grip pose) to the nearest point of the thing's
+  collision box, for every kind; the two hands' picks are compared as a fraction of their kind's
+  reach, and the better one is aimed at. The engine's check now traces from that palm (pulled
+  back 15 cm) to the thing, not from the eyes, so the thing the hand reaches for is the first one
+  the ray meets - which is what should make the lower of two stacked books reachable (the earlier
+  stacked-book attempt aimed from the head and the hand at the origin and took the game's focus as
+  the target; this is a different mechanism, still to be judged in a headset). A refusal leaves
+  that one object out for 1 s (it was 3 s doubling to a minute) and the next nearest is tried.
+  Reach defaults went up: loot 45 cm, books 55, doors, carried things and usables 35. Only the
+  picking hand is marked ready: every hand within 1.25 reach used to be, and a later "both hands
+  when it is each hand's nearest" exception still hid the crossbow in the left hand during a
+  right-hand grab (headset, 2026-10-05: both hands READY in the same millisecond), so it went too. Pointing is unchanged: with no hand
+  near anything, the engine's own cursor trace runs as before.
+* **The grip gate takes the FOCUS, not the target (2026-10-07, built, not yet run).** Reported in
+  the headset: a thing the reticle is on (its prompt showing) cannot be taken by either grip, while
+  grabbing works with the reticle off it. The 1.0.3-137 log (`dishonored_vr.prev7.log` on the dev
+  PC) measures why. The gate needed `m_pCrosshairActor == target`, and the two were apart for whole
+  seconds: (a) the target a `DishonoredUsableObject` whose box held the palm (0 to 23 cm) and never
+  focused, while the engine, tracing palm-to-usable, focused a `DisElixirMana` behind it
+  (`interact/focus: DisElixirMana | driving (physical pickup target)` with the usable as target);
+  (b) the elixir as target, its own palm trace finding nothing, so after 250 ms it was dropped and
+  left out for 1 s, during which the pointing ray drove the trace and focused it again (the prompt
+  visible) with no target at all. Over the 77 s of that episode: 20 "did not focus" drops, the
+  target alternating between the elixir (13 times) and the usable (14), 3 grips taken. Neither
+  state could pass the gate. The focus pointer was the listed actor's own (`DisElixirMana`, the listed class), not a
+  component, so the brief's counter-hypothesis is not what this log shows. The gate now asks
+  whether the ENGINE's focus is a listed thing (in the near list, its kind on) within a palm's
+  reach (its kind's own; 1.25 x only when it is the target) and offers the grip to one hand: the
+  target's hand when the focus is the target, else the nearer palm. A target is no longer dropped
+  as unfocused while the focus is such a thing (the trace aimed at the target is what produced it).
+  The grip's kind, page and usable-hold follow the focused thing, since Interact acts on the focus.
+  The trace (interact_aim.cpp's bridges) is unchanged. A grip pressed near something and not taken
+  logs `pickup: <hand> grip NOT taken - <why> | target <class> <ptr>, engine focus <class> <ptr>
+  (<kind> or not listed), this palm <cm>, reach <cm>`; the beat counts `gate passes on a focus that
+  is not the target`.
+
+## 2026-10-07: the layer's claim followed a camera FOV the render ignores (the store box, the mask-on "zoom")
+
+Reported: a conversation that turns into Piero's store shrinks the headset view into a small box for a
+moment (long-standing; entering the store any other way is fine), and the scene where Piero fits the mask
+magnifies the view, which reads like the spyglass zoom and was taken as the mechanism the spyglass should use.
+
+**Measured (build v1.0.3-132-g74b01a910, one run, `xr: fovaudit submit` and `fgproj:`).**
+
+- The store box is a CLAIM error, not a render change. At 60142578 the store's screen flagged the menu
+  (`stereo/state ... menu=1 ... standIn=open pending`) 1.5 s before the store state arrived, still in
+  `StatePlayerMasterInDialog`. `cine/fov` released its scope on that menu flag, and the layer's claim
+  (`DvrFovHandoff`: the scene scope's write, else the camera sensor 0x53c) fell to the sensor, which the
+  dialogue was blending 103 -> 50.14 over 300 ms (29 `fovaudit submit` lines, 99.15 down to 50.14, all
+  `src=readback`). `fgproj` read WORLD hfov **103.0 for 100% of samples** through the whole window: the
+  scene was never drawn narrower. A 103 deg image submitted as a 50 deg layer is the box. The scope
+  re-armed at 60144109 (menu=0) and the claim returned to 103 (60144125). A second one-frame instance at
+  the InDialog -> InStore state change (60160203, 15 ms).
+- The mask-on scene (`StatePlayerMasterInStore`, 60160 to 60190) was drawn at 103 throughout
+  (`fgproj` WORLD 103.0 x32940, 100%), claimed at 103 (one `fovaudit` line), with the zoom-lens
+  post-process (`Epp_ZoomLens`, index 13) NOT active (`pp/watch` listed only effect 19, the UI blur).
+  The camera sensor read 50.14 and the game held the arms' lens at 103 (`armslens: ... lock-arms zoom`),
+  but neither reached the render. Whatever magnification was seen there was the authored camera's
+  motion, not a lens change: nothing in that scene is a mechanism the spyglass can borrow.
+- So the sensor (`camera+0x53c`, `m_fCurFOV` by declaration order) is NOT the rendered FOV in a dialogue
+  or a store: it carries the look-at / lock-arms intent that `cine/fov`'s POV.FOV write overrides. In plain
+  gameplay it reads back the lever's own write, which is why it looked like a render readback.
+
+**The spyglass.** The game's zoom is the "Spyglass" power (`AddPower Spyglass`, the mask's lens, upgraded
+through `m_SpyglassDistance`): `GBA_Zoom` (`Dis_Zoom`, left Alt / right stick), every item `m_bItemCanZoom`
+with `m_fZoomFOV=30` on the 75 base and `m_fZoomBlendSpeed=5`, the `Epp_ZoomLens` post-process for the
+vignette (`m_fZoomLensEffectMinRadius/MaxRadius` 0.38/0.55), and a `DisCamFOVTarget` with `m_bLockArms`
+holding the arms' FOV (the lock-arms zoom the `armslens:` line names). In VR the gameplay scope already
+draws the zoom proportionally (`cine_fov::gameplay_target`: 30 on 75 becomes 47.4 on 103, the authored
+2.86x in tangent space), then claimed that 47.4 honestly, so the headset showed the narrower image at its
+true angular size: a smaller picture, not a closer one. An FOV narrowing under a claim held at the
+projection FOV IS a magnification about the view centre; that is the only way a zoom can exist in VR.
+
+**Shipped.**
+
+- The claim is what the frame's world draws projected: `fgproj` now keeps a per-frame histogram and
+  `dvr::depthprobe::fgproj_frame_world_hfov_deg()` returns the frame's dominant world bin (this frame's
+  samples at the present, else the last completed frame's). `DvrFovHandoff` claims that, falling back to
+  the scene scope's write and then the sensor only when no world draw was sampled (menus, loads). The
+  `fov:` line says which, with all three numbers.
+- `[Screen] ZoomMagnify` (default 1, `zoommagnify on|off`, F10 Display > Field of view): a scene drawn
+  narrower than `ProjectionFov` keeps the claim at `ProjectionFov`. Ships ON as a stated exception: the
+  owner asked for the zoom and 0 is the box. During such a zoom the lever writes the target, not the scaled
+  value, into `m_fCurFOV_Arms` (`kFovArms` 0x540, in `kLevCam`), so a lock-arms zoom that copies it into
+  the arms' lens keeps the hands at their true size (whether the arms' lens is honoured under
+  `HandsAtWorldFov` is still the open question of VR-39 run 14; `fgproj`'s FOREGROUND bin during a zoom
+  answers it).
+- `cine/fov` keeps its scope through the menu gate in `StatePlayerMasterInDialog` and `InStore`, so the
+  dialogue -> store handover no longer releases it (the exit side was already bridged).
+
+Not yet run: a gameplay zoom under this build. What its log must show: `fov: ... MAGNIFIED` while
+`fgproj` WORLD reads about 47 and FOREGROUND reads 103 (hands true size) or 47 (hands magnified too).
+
+### Second run (v1.0.3-133-g04b8df581): the rectangle is the presentation, the zoom never reached the game
+
+- The claim held at 103 for the whole run (one `fovaudit submit` line), and the shop choice still showed a
+  small picture, rectangular. It is `stereo/state: FALLBACK`: the dialogue's shop choice raises the menu
+  flag (`menu=1`, `standIn=open pending`) with no owner ever published (`ui/surface: context=Other
+  blocked=0 rides=0`), the 300 ms open-pending stand-in expires (`standIn=none`), `scene_state::eligible`
+  refuses on the menu flag, and the mono quad (`xr: cinematic quad ON`) shows the frame as a flat
+  rectangle until the flag drops (`gateAge=1187` on recovery; 1203 in the previous run). The dialogue
+  scene kept drawing throughout (`fgproj` WORLD 103, 100%). The open gap is now 2.5 s in a cinematic
+  state (`stereo_state.cpp`); `ride_eligible` still demands the raw camera-upload clock or a tagged
+  projection present, so a pause that stops the world still falls back.
+- The zoom narrowed nothing: no `fovlever` sensor under 95 in a Walk state, `fgproj` WORLD 103 at 100%
+  in play. The right stick click (the game's `GBA_Zoom`) never reaches the pad: the composer consumes it
+  as the R3 D-pad modifier (`s.clkR=false`) and `HealthElixirTick` takes the hold; nothing ever set
+  `XINPUT_GAMEPAD_RIGHT_THUMB`. The previous `ZoomMagnify` lines marked MAGNIFIED only in the second
+  after a load (the world drawn at the game's own 75 or 90 before the lever arms, no scope up), a 1.4x
+  pop on every load; the gate now requires the scene scope to have published the narrower draw.
+  Shipped: `[Controllers] ZoomTap` (a tap under the elixir hold with no D-pad pick and no both-sticks
+  chord pulses the thumb button 120 ms: the game's own toggle, `m_fCurZoomToggleTime`) and
+  `[Controllers] ZoomGesture` / `ZoomGestureRadiusCm` (the right trigger with the right grip pose
+  within 12 cm of the right eye, head pose + half the IPD along the head's right axis, XR LOCAL metres;
+  that press is swallowed as an attack). Not yet run; `zoom:` logs every pulse with its reason.
+- Reported: the eye a foot behind Piero's hands in the mask-on scene, suspected as a general eye
+  offset. The positional-tracking offset during that scene in the previous run was under 1 cm
+  (`heartbeat ... lean=(-0.9,+5.6,-0.0)uu`; the reference had been taken at `(-0.000 0.001 -0.000) m`),
+  so it is not the room. Two other readings fit: the first-person arm rig places the game's shoulders
+  10 to 46 uu in front of the nominal shoulder (the re-seat corrects it), and a flat-screen scene
+  stages a face-level prop where it fills a 75 deg frame, about 30 uu out. Undecided by measurement:
+  `eye/probe:` (every 5 s, `fov_lever.cpp`) now logs the camera's position against the pawn's eye
+  (`Actor.Location` + `Pawn.EyeHeight`) in the pawn's yaw frame; a negative "ahead" there in play is
+  an eye offset to fix, a zero with the hands still short is the scene's staging.
+
+### Third run (v1.0.3-134-g0bca7d804): the zoom works; the lens scales the arm mesh; the gesture never fired
+
+- **The zoom (a tap of the right stick click) is headset-confirmed.** Eleven taps, each `zoom: right stick
+  click tapped` then `fov: ... MAGNIFIED`. `fgproj` in the zoom windows: WORLD hfov **41.2** at 55 to 100%
+  of samples (103 in the untoggled part of each 5 s window) and FOREGROUND 41.2 with it. So the world was
+  drawn at 41.2 and claimed at 103: a 3.3x magnification (tan 51.5 / tan 20.6). Why 41.2 and not the
+  authored 47.4: the camera's `m_fCurFOV` read 30.00 (`fovlever: feedback sensor=30.00 ... write=41.20`),
+  the lever's linear ratio wrote 41.2 into the persistent fields and the render followed that, while the
+  scene scope's gameplay branch read a cache of 75.36 at its sampled moment. Three writers disagree on the
+  magnitude; the player accepted the result, so it is left as measured and named here. The `fov:` line logs
+  only the first magnified frame (100.8): the claim and its reason stay constant through the blend.
+- **The left hand stuck forward in the zoom is the arm lens.** During the lock-arms zoom the game sets the
+  player mesh's `m_bUseFOV=1` (`armslens: ... (was 0 ...)` at every toggle) and the arm mesh's
+  LocalToWorld no longer has unit columns: `ms/palette/world: hand 0 NOT placed - LocalToWorld column is not
+  unit` (refused 14152 of 61508 draws in a window), `ik: hands-only fallback`, and `wa/id: DROPPING an
+  uncorrectable pass of 'crossbow_01'`. The fail-soft drew the engine's own hand at its native pose, which a
+  3.3x magnified view puts dead ahead with the sleeve cut. So the engine implements the viewmodel lens by
+  scaling the mesh's LocalToWorld (its draws share the world's projection: FOREGROUND 41.2 = WORLD 41.2),
+  not by a projection of its own. Interim: a hand refused for that reason while the lens is on is not
+  drawn at all; the refusal now logs the three column norms, which name the scale and its axis for the
+  real fix (placing the hand through the scaled LocalToWorld, so the lens keeps the hands their true size
+  in the magnified view, which is what the game's lens is for).
+- **The eye gesture never fired**, and nothing said why (no line on a press). Every right-trigger press
+  now logs the hand's grip and aim distances from the right eye, or that a pose was untracked; the nearer
+  of the two poses counts (the aim pose sits at the controller's ring, which is what reaches the face);
+  the radius default is 15 cm.
+
+### Fourth run (v1.0.3-135-g62bfd3c1d): a save loaded zoomed captured the zoom as the natural base
+
+The eye gesture fired (three `zoom: right trigger with the right hand 11.9 / 12.0 / 11.2 cm from the right
+eye` pulses) and the taps fired, but the world drew at 96.2 (`fgproj` 96.2 at 81% of a zoom window), a
+1.07x zoom. `fovlever: natural base 32.1 deg (read 32.12, last write 0.00: first capture)` at 64666109,
+right after a load (`owners revalidated load=1 UI epoch=5 baseline=recapture`): the save had been made
+while zoomed and the game came up zoomed, so the first reading the lever trusted as the game's resting FOV
+was the zoom's. `target()` then scaled every zoom against 32 (30 x 103/32 = 96). The policy now refuses a
+first capture under 50 deg (`kNaturalFloorDeg`): the game's base is 75 and nothing at rest reads under 50;
+with a kept base a narrow reading stays KeptNarrower. The lever logs the refusal once and writes nothing
+until a plausible reading arrives (the zoom's end). Host test: a 32.12 first capture refuses, 50 is taken.

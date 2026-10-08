@@ -30,10 +30,15 @@ static bool GoCallSettingChange(int id,double v) {
  return true;
 }
 static bool g_goStartupDone=false, g_goStartupPolicyRead=false, g_goDefaultsAtStartup=true;
+static bool g_goDlssOn=false;   // 2026-10-05: AA is left off (0) under DLSS/DLAA, MLAA (1) otherwise
 static int policy=1;
 static const int MAX_PATH=260;
 static const char* g_dir="test";
 static unsigned GetPrivateProfileIntA(const char*,const char*,int,const char*) {return policy;}
+// 2026-10-05: the startup policy also reads [Clarity] DLAA (AA off under DLSS/DLAA); the stub serves `dlaaIni`.
+static const char* dlaaIni="0";
+static unsigned GetPrivateProfileStringA(const char*,const char*,const char*,char* out,unsigned n,const char*) {
+    snprintf(out,n,"%s",dlaaIni); return (unsigned)strlen(out); }
 #include "game_opts_body.inc"
 static int checks=0;
 static void require(bool v) { ++checks; if(!v) { printf("FAIL %d\n",checks);exit(1); } }

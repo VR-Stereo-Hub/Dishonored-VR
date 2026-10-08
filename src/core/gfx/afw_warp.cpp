@@ -83,7 +83,7 @@ const char* kSrc =
     "    float4 prm7;\n"                 // MSW: the hands follow their controllers, the world turns in the image (matrices), the foreground ignores the world yaw
     "    float4 mY0, mY1, mY2;\n"        // MSW: the extrapolated body turn, as a rotation of the camera-relative point (UE world axes)
     "    float4 prm8;\n"                 // run 15: fresh clean bound, held clean bound, UI difference threshold (0..1)
-    "    float4 prm9;\n"                 // run 22: edge hands on, the edge band (uv from each side)
+    "    float4 prm9;\n"                 // run 22: edge hands on, the edge band (uv from each side), near the held hands; w: the target view is typed sRGB
     "};\n"
     "cbuffer M : register(b1) {\n"
     "    float4 mp;\n"                   // source (0 fresh, 1 held), grid step (source texels), source w, h
@@ -312,6 +312,11 @@ const char* kSrc =
     "        float3 dd = abs(hc - hk);\n"
     "        if (max(dd.r, max(dd.g, dd.b)) > prm8.z) o.c = float4(prm3.z > 0.5 ? hc * float3(1.0, 0.5, 1.0) : hc, 1.0);\n"
     "    }\n"
+    // The sources hold the game's gamma-encoded bytes, and the fresh eye reaches its swapchain by a raw copy. A
+    // swapchain image the runtime created TYPED sRGB can only be written through an sRGB view, which encodes once
+    // more: decode here so the bytes that land are the bytes a copy would have put there (prm9.w, set by the caller).
+    "    if (prm9.w > 0.5) { float3 e = saturate(o.c.rgb);\n"
+    "        o.c.rgb = lerp(e / 12.92, pow((e + 0.055) / 1.055, 2.4), step(0.04045, e)); }\n"
     "    o.z = (g_outZ > 0.0 && g_outZ < 1e8) ? g_outZ : 60000.0; return o; }\n"
     // The depth layer: an eye's depth (units, signed: the mask is negative; 0 or >= 59999 the sky) to the
     // runtime's device depth for [near, far] metres, standard (not reversed) D3D convention.
@@ -509,6 +514,24 @@ DXGI_FORMAT typed(DXGI_FORMAT f) {
         case DXGI_FORMAT_R16G16B16A16_TYPELESS: return DXGI_FORMAT_R16G16B16A16_FLOAT;
         default: return f;
     }
+}
+// A target the runtime created TYPED sRGB (the simulator does; VDXR and the SteamVR shim hand out typeless
+// images, which typed() views as UNORM). A view of it must be sRGB too, and writing through one encodes: the
+// rebuilt eye came out one gamma step brighter than the fresh eye beside it, which arrives by a raw copy. Found
+// in simulator captures (2026-10-05: mean luma 93 against 35-42, the bright eye equal to the dark one encoded
+// once more to 4.5 of 255, alternating with the fresh eye). The compose decodes for such a target (prm9.w).
+bool typed_srgb(DXGI_FORMAT f) {
+    return f == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || f == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+}
+std::atomic<bool> g_srgbDecode{true};   // `afw typedsrgb on|off`: off = the write as it was (the A/B and the host control)
+void note_target_view(DXGI_FORMAT image, DXGI_FORMAT view) {
+    static std::atomic<uint32_t> said{0xFFFFFFFFu};
+    if (said.exchange((uint32_t)view) == (uint32_t)view) return;
+    DVR_INFO("afw/warp: the rebuilt eye is written through a format-%u view of a format-%u swapchain image - %s",
+             (unsigned)view, (unsigned)image,
+             typed_srgb(view) ? "a TYPED sRGB image: the view encodes on write, so the compose decodes first and the bytes "
+                                "match the fresh eye's raw copy"
+                              : "raw bytes, as the fresh eye's copy writes them");
 }
 
 // The pipeline state these passes touch, saved and put back: the passes run inside the runtime's
@@ -1012,6 +1035,16 @@ void beat() {
                  gpu, g_bodyDepth.load(), dvr::clarity::depth_scale() / g_worldScale.load(),
                  g_stereo.load() ? "" : " | fresh-eye source OFF (afw stereo off)");
     }
+    // 2026-10-07: the beat line above is cut by the log's line limit before its GPU field, so the
+    // rebuild's own GPU time was invisible during a stall. Its own short line.
+    if (warps) {
+        if (g_gpuN)
+            DVR_INFO("afw/warp: GPU per rebuild %.3f ms mean, %.3f max over %u timed (D3D11 timestamps around the rebuild)",
+                     g_gpuSum / g_gpuN, g_gpuMax, (unsigned)g_gpuN);
+        else
+            DVR_INFO("afw/warp: GPU per rebuild n/a - no timestamp query resolved this beat (%s)",
+                     g_tsOk ? "queries pending or disjoint" : "timing unavailable on this device");
+    }
     // Run 17: which classification the hands and weapon got (the beat line above is cut in the log before its end).
     if (g_maskDrawn + g_maskMissing + g_maskFg + g_maskNone + g_maskEmpty)
         DVR_INFO("afw/warp: foreground from the DRAWN mask on %u images, %u drawn masks EMPTY (not trusted: the depth "
@@ -1182,6 +1215,14 @@ void set_edge_hands(bool on, const char* who) {
                     : " - parts of the arms at the frame's edges can vanish every other frame");
 }
 bool edge_hands() { return g_edgeHands.load(); }
+void set_typed_srgb_decode(bool on, const char* who) {
+    if (g_srgbDecode.exchange(on) != on)
+        DVR_INFO("afw/warp: typed-sRGB target handling %s (%s) - %s", on ? "ON" : "off", who ? who : "?",
+                 on ? "a swapchain image the runtime typed sRGB gets the rebuilt eye decoded before the view encodes it"
+                    : "the rebuilt eye is written as it was: one gamma step too bright on a typed sRGB image (the "
+                      "simulator's); no effect on a typeless one");
+}
+bool typed_srgb_decode() { return g_srgbDecode.load(); }
 void set_held_hands(bool on, const char* who) {
     if (g_heldHandsFollow.exchange(on) != on)
         DVR_INFO("afw/warp: held hands %s (%s)%s", on ? "FOLLOW their controllers" : "off", who ? who : "?",
@@ -1440,6 +1481,7 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     if (FAILED(dev->CreateRenderTargetView(dst, &rv, &rtv)) || !rtv) {
         ++g_noRtv; if (why) *why = "no render target"; return false;
     }
+    note_target_view(dd.Format, rv.Format);
     // The target: the held eye's view pose of the FRESH image's locate generation.
     const Pose& tgt = fr.targets[held];
     float d = (haveH && src.bodyOk && fr.bodyOk) ? fr.bodyYaw - src.bodyYaw : 0.0f;
@@ -1498,6 +1540,7 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     cb.prm8[0] = freshClean ? 1.0f : 0.0f; cb.prm8[1] = heldClean ? 1.0f : 0.0f; cb.prm8[2] = g_cleanUi.load();
     if (freshClean) ++g_cleanUsed;
     cb.prm9[0] = g_edgeHands.load() ? 1.0f : 0.0f; cb.prm9[1] = 0.25f;
+    cb.prm9[3] = (g_srgbDecode.load() && typed_srgb(rv.Format)) ? 1.0f : 0.0f;   // the view encodes: the compose decodes first
     const bool maskOn = g_fgMask.load() && fr.maskOk && (!haveH || src.maskOk);
     cb.prm6[2] = maskOn ? 1.0f : 0.0f;
     // Run 25: the held eye's hands FOLLOW THEIR CONTROLLERS. Each image carries the grips it was drawn with (note_hands);
@@ -1810,6 +1853,7 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
     rv.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
     ID3D11RenderTargetView* rtv = nullptr;
     if (FAILED(dev->CreateRenderTargetView(dst, &rv, &rtv)) || !rtv) return refuse("no render target");
+    note_target_view(dd.Format, rv.Format);
 
     // The target: the image's own orientation at the slot's eye position.
     Pose tgt = own.pose;
@@ -1876,6 +1920,7 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
     }
     cb.prm5[3] = g_nearMiss.load();
     cb.prm6[2] = (g_fgMask.load() && own.maskOk) ? 1.0f : 0.0f;
+    cb.prm9[3] = (g_srgbDecode.load() && typed_srgb(rv.Format)) ? 1.0f : 0.0f;   // a typed sRGB target: the compose decodes first
     if (g_synthHands.load() && slotHands) {   // the hands: each tracked grip's motion from the image to the slot
         bool any = false;
         for (int k = 0; k < 2; ++k)

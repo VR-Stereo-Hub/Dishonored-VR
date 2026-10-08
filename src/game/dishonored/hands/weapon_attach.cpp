@@ -111,6 +111,7 @@ static void WaCompTick(void)
         WaComp c;
         memset(&c, 0, sizeof(c));
         c.obj = k->obj;
+        MkReadIdentity(c.obj, &c.id);
         _snprintf(c.asset, sizeof(c.asset), "%s", k->asset);
         _snprintf(c.name,  sizeof(c.name),  "%s", k->name);
         c.asset[sizeof(c.asset) - 1] = 0;
@@ -180,6 +181,7 @@ static void WaCompTick(void)
             WaComp c;
             memset(&c, 0, sizeof(c));
             c.obj = comp;
+            MkReadIdentity(c.obj, &c.id);
             const char* as = FpAssetName(comp);
             const char* nm = RealName(RangeReadable(comp + kNameOff, 4)
                                       ? *(uint32_t*)(comp + kNameOff) : 0);
@@ -328,7 +330,9 @@ static void WaPublishCommon(int hand, const MpDrawCtx* c, const dvr::hf::Xform& 
             "swaying, an old snapshot predicts where the weapon WAS.",
             age, (double)g_waSnapMaxMs);
     }
+    AcquireSRWLockExclusive(&g_waCommonLock);
     g_waCommon[hand] = w;
+    ReleaseSRWLockExclusive(&g_waCommonLock);
 }
 
 
@@ -430,6 +434,23 @@ static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
 
 // ---- recognition by buffer identity -----------------------------------------
 
+// THE READY HAND (mesh_split.cpp): while a hand is in reach of a grab, what it holds is not
+// drawn. Asked at BOTH places a held weapon is drawn (the placed contract draw below and every
+// sibling pass here), so every pass of it goes together and no copy is left at the native
+// position; a pass this module does not place is already suppressed (AttachSuppressUnplaced).
+// A world instance on the same buffers (a fired bolt, a placed razor) never reaches either site.
+static volatile LONG g_waReadyHidden = 0;
+static bool WaReadyHide(const WaMesh* w, HRESULT* hr)
+{
+    if (!GrabHideHeld(w->hand)) return false;
+    InterlockedIncrement(&g_waReadyHidden);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+        "wa: '%s' NOT drawn - the %s hand is in reach of a grab (the ready hand); %ld pass(es) hidden so far",
+        w->asset, w->hand ? "RIGHT" : "LEFT", (long)g_waReadyHidden);
+    if (hr) *hr = D3D_OK;
+    return true;
+}
+
 // Apply a known delta to whatever palette this shader declares. Shared by the
 // buffer-identity path and the non-indexed path: both already know WHICH mesh
 // they are looking at and need only the register and the delta.
@@ -439,6 +460,7 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
                            UINT numVertices, UINT startIndex, UINT startVertex,
                            UINT primCount, HRESULT* hr)
 {
+    if (WaReadyHide(w, hr)) return true;
     const int start = (g_pcLayBones >= 0) ? g_pcLayBones : g_pcLayBonesPartial;
     const int cnt   = (g_pcLayBones >= 0) ? g_pcLayBonesN : g_pcLayBonesNPartial;
     if (start < 0 || cnt <= 0 || (cnt % 3) != 0 || start > 256 - cnt ||
@@ -475,6 +497,8 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
                                         numVertices, startIndex, primCount)
         : dvr::frame::orig_draw_prim(dev, type, startVertex, primCount);
     if (hr) *hr = drawHr;
+    if (SUCCEEDED(drawHr) && indexed)
+        HbDraw(dev,w,(UINT)cnt/3,type,baseVertex,minIndex,numVertices,startIndex,primCount);
     // VR-138: the sibling passes take the mirror too, so depth and colour agree.
     if (SUCCEEDED(drawHr) && indexed)
         WmDraw(dev, w, source, (UINT)start, (UINT)cnt, delta, type, baseVertex, minIndex,
@@ -554,6 +578,10 @@ static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
 // at a dead object refuses every draw AND blocks its own re-adoption.
 static void WaInvalidateContracts(const char* why)
 {
+    HbRelease(why);
+    AcquireSRWLockExclusive(&g_waCommonLock);
+    memset(g_waCommon, 0, sizeof(g_waCommon));
+    ReleaseSRWLockExclusive(&g_waCommonLock);
     if (!g_waMeshN) return;
     const int n = g_waMeshN;
     g_waMeshN = 0;
@@ -1500,6 +1528,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     // same place - so the depth and shadow copies take the identical delta
     // instead of being left at the native position.
     w->dm = delta; w->dmPresent = (uint32_t)dvr::frame::count(); w->dmOk = true;
+    if (WaReadyHide(w, hr)) { g_waWhy = "hidden: the ready hand"; return true; }   // after publishing the delta: the siblings stay consistent
     static float source[WA_MAX_REGS*4], patched[WA_MAX_REGS*4];
     if (FAILED(dev->GetVertexShaderConstantF(w->boneReg, source, w->regs))) {
         InterlockedIncrement(&g_waNoSource); return false;
@@ -1521,6 +1550,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
         minIndex, numVertices, startIndex, primCount);
     if (hr) *hr = drawHr;
     if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); BrMeasure(dev,w,source,w->regs,delta); }
+    if (SUCCEEDED(drawHr)) HbDraw(dev,w,w->regs/3,type,baseVertex,minIndex,numVertices,startIndex,primCount);
     // VR-138: the mirrored copy, inside the same patched palette and depth range.
     if (SUCCEEDED(drawHr)) WmDraw(dev, w, source, (UINT)w->boneReg, w->regs, delta, type, baseVertex,
                                   minIndex, numVertices, startIndex, primCount);

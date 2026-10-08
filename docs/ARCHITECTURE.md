@@ -1255,7 +1255,7 @@ Execute, and retires it at consumption. Synchronous drawing uses the native
 Display scope directly. Queue metadata is fixed-size, generation-bound, refuses
 ambiguous/reused identities and never requires render-thread UObject access.
 Unknown draws retain native rendering. The existing menu context route is separate.
-Default-off SemanticOwnership has an explicit local candidate enable and live A/B.
+SemanticOwnership (default on since 2026-10-04; it was default-off with a local candidate enable until then) keeps a live A/B.
 This is an ownership repair candidate; target depth and headset performance are
 not established by transport host tests. See HUD_ANCHORS, ENGINE_NOTES and PERFORMANCE.
 
@@ -1469,3 +1469,159 @@ The new lever defaults off, and without reduced upscaling draws remain native.
     the bridge, with ordinary XR completion. AFW/MSW cycle ownership stays in the same guard.
   - Launcher downloads pinned upstream ReShade on opt-in and never executes its installer.
     The mod DLL/presets survive; only the rebuilt bridge is distributed with the mod.
+
+- **2026-10-03 - ReShade's global OpenXR layer is skipped by default.**
+  - ReShade's x86 layer refuses LoadLibrary without a ReShade.ini beside the exe, and refuses a
+    second ReShade instance; the loader turns either refusal into xrCreateInstance -32 for every
+    runtime. When it does load it is a second ReShade beside the mod's own D3D9 chain.
+  - So `[VR] DisableReShadeApiLayer` defaults ON, unlike a render lever: it is a compatibility
+    opt-out in the same family as DisableBadApiLayers, and no outcome of leaving it on helps.
+    It uses the manifest's disable_environment in this process only; registry untouched.
+  - The loader's warnings reach the mod log through a recorder added to its internal logger
+    (core/vr/xr_loader_log.cpp). No vendored loader file is edited; the one source file that
+    includes loader internals is the only coupling, and it breaks at compile time if the SDK moves.
+
+- **2026-10-04 - Full-arm IK uses a paired shoulder frame (design only).**
+  - One forward/right/up center and total width generate both shoulder anchors.
+    This initial no-slide reach policy is superseded by the revision below.
+  - Reuse each existing driven wrist endpoint. Validate the named skeleton to
+    draw-palette mapping before rendering arms; weighted skin centroids are not
+    joint origins. Keep source weights and the established action handoff.
+  - The reviewed BioShock references, limits and staged verification plan are
+    in `dishonored/ARM_IK.md`. No runtime path is introduced by this decision.
+
+- **2026-10-04 - IK reach and animation requirements revised (design only).**
+  - Follow the BioShock fork: independently shift each shoulder at its near/far
+    reach limits, starting each solve from the shared center/width anchors.
+    Preserve segment lengths and the final wrist target. No cross-arm coupling.
+  - Add a dedicated IK tab beside Hands in the L3+R3/F10 overlay. Shared baseline
+    controls remain paired; independent reach correction does not rewrite them.
+  - Preserve native hand/finger animation and solve arms to the final animated
+    wrists. Suppress native arm animation while IK owns the pose, including the
+    current native-full-arm draw bypass. Keep RigidWrist for clipped fallback.
+  - Details and independent launch questions are in `dishonored/ARM_IK.md`.
+
+- **2026-10-04 - Full-arm IK uses validated local reference data and owned GPU geometry.**
+  - Named joint heads/hierarchy and skin fields come from a locally prepared PSK
+    reference, never from inferred weighted centroids or guessed engine offsets.
+    Match every runtime vertex and every weighted palette slot before solving.
+  - Replace only arm-region skin matrices in a complete copied mesh. Retain the
+    final native hand/finger palette and existing weapon correction publication.
+    No engine-object writes; menu/mesh/reset invalidation clears temporal state.
+  - Independent shoulder reach, shared nominal controls and a dedicated IK tab
+    implement the revised design. Native arm animation cannot bypass active IK.
+  - `dishonored/ARM_IK.md` records host/Blender evidence and pending live validation.
+
+### 2026-10-04: IK history identity and bounded diagnostic captures
+
+IK temporal state uses the locate generation of the exact selected head matrix,
+including lagged fallback samples. Publication counts are a separate clock and
+cannot order view-matched poses. Forearm roll is distributed across the authored
+overlapping lower-arm/sleeve weights; production skinning is checked in Blender.
+On-demand native frame bursts reuse the existing delivered-eye readback seam,
+with bounded worker memory and recorded gaps. AFW retains its established capture.
+Details and remaining headset verification: docs/dishonored/ARM_IK.md and
+docs/dishonored/FLICKER_REFERENCE.md.
+
+### 2026-10-04: offline tools resolve through a local, per-user tool file
+
+IDA, Blender, UModel, UE Explorer, FFDec and the debug programs are found through
+`%LOCALAPPDATA%\DishonoredVR\dev-tools.json` (`tools\tool-paths.ps1`,
+`tools\lib\tool-paths.ps1`), never through a path written into a committed script.
+The repo carries only a catalog of default install locations to detect from; what was
+found or set by hand stays on the machine. It does not follow `DVR_DATA_DIR`: that
+directory is the mod's bulk data and may move drives, while tool paths belong to the
+user profile. Paid and third-party programs are referenced, never copied; their
+databases and outputs (the staged exe and `.i64`, decompiles, PSK/PSA, `.blend`) live
+in per-user workspaces outside the tree, and `.gitignore` refuses their file types.
+Headless IDA output is NOT kept in the repo, unlike the workflow it was adapted from:
+here a decompile is game-derived text. The scripts are kept; each output is stamped
+with the md5 it ran against so a game update shows on the first line.
+See `docs/IDA_WORKFLOW.md` and `docs/MODEL_WORKFLOW.md`.
+
+### 2026-10-04: hand-back smoothing takes only the measured fixes; cutscene arms use the game's setter
+
+SmoothBlend ports two fixes from the retired HandOrigin branch, the mask/owner hold through
+the return and the straight palm path, because each fixes a defect that branch measured;
+its entry translation (moving the clip to start at the tracked palm) was never accepted and
+is not ported. Easing and the separate durations are new. All of it sits behind one lever
+so SmoothBlend=0 is the previous code path exactly. CinematicArms unhides the pawn by
+calling the engine's own SetHidden (0x00587FA0), not by writing the bit: the setter also
+re-attaches the components, which a bare bit write would skip. It is called only after
+reflection resolves Actor.bHidden to the statically read +0x120/0x2 and the prologue
+matches, only for an arms-only body, and the game's own end-of-cinematic call restores it.
+See dishonored/ANIM-HANDOFF-PLAN.md and ENGINE_NOTES.
+
+### 2026-10-04: Heart completion uses local draw-owned geometry
+
+The Heart's missing rear wall is supplied as locally prepared skinned geometry
+inside the existing instance-validated weapon draw. Reusing the game's current
+palette and material passes preserves animation, lighting and depth behavior;
+the mod restores the original streams, indices and cull state before returning.
+Reference position and weight-field correspondence derives the palette mapping
+instead of assuming exported bone order equals shader slots. A missing or invalid
+reference leaves the original Heart drawing. Game-derived geometry remains local.
+
+### 2026-10-05: attachment follow carries a parent-local correction
+
+Hand effects consume the same render correction as weapons, but cannot retain
+its old world origin while querying current bones. Convert through the published
+arm/parent relationship into parent-local space, then conjugate by the live
+parent transform. This remains valid when native arm and item updates occur in
+different phases. The script lane continues to write only validated attachment
+relatives using engine bone-space conversion. A locked publication and refreshed
+object identities bound the render-to-script handoff. Host negative controls
+cover old-world and current-arm-only alternatives; in-game acceptance is pending.
+### 2026-10-05: the fast DLSS model is the default
+
+The shipped default was Transformer K, the sharpest model. Measured in the headset in the
+played configuration (afw, Ultra Quality, 2750x2850 output, RTX 4070 Ti SUPER; a matched A/B
+row with six clean windows each side): K costs 1.1 ms an eye image, 14 percent of the frame
+rate, over the fast CNN presets, and that configuration is limited by the GPU. `DlssModel`
+now defaults to 1 in the code, the default ini and the launcher; K stays one click away in
+F10 and the launcher. An existing ini keeps the value it has: the key is written on every
+save, so a stored 0 cannot be told from a choice, and no migration rewrites it. The
+measurement is in dishonored/PERFORMANCE.md (2026-10-05, on the performance audit branch).
+
+### 2026-10-05: physical pickup lets the engine choose, and finds loot by a slow sweep
+
+Reaching for an item cannot use the pointing ray: a hand that hovers over a coin does not point
+at it. Three routes were weighed. Calling the engine's line check or its usable selector as a
+probe would answer exactly, but it is an engine call that could not be run before shipping the
+change. Alternating the interaction trace between the hands shows as a flickering highlight.
+The route taken reads only: an incremental GObjects pass lists the pickup actors, the nearest
+one within reach of a hand becomes the target, and the existing VR-166 bridges point the
+engine's own trace at it. The engine keeps every decision (focus, highlight, prompt, refusal)
+and the mod presses Interact only when the engine's focused actor is that target. A grip is
+taken before the bind remap so that whatever the player bound to it stays quiet. Default on:
+it is a requested interaction, not a render lever, and it changes nothing until a hand is
+within reach of loot. See dishonored/ENGINE_NOTES.md, "Physical pickup".
+
+### 2026-10-05: one progress policy for every "is the camera still" gate; a bound on proofs
+
+The gameplay camera-silent gate took its baseline at the previous draw's return, the defect
+VR-229 had already paid for in the present-progress guard. Rather than a second rule, the
+gate reuses the progress class (`core/gfx/draw_present_progress.h`, `camera_silent()`): an
+upload counted from the stub's entry and one quiet interval forgiven after observed
+progress, never two. It ships behind `[Stereo] CameraSilentGrace` (default off) because it
+changes which ticks draw twice, and a lever that changes a rendered frame ships off with a
+live A/B. The depth-share proof, a diagnostic the afw method arms by itself, is bounded to a
+count of checks (`[Diagnostics] DepthShareChecks`) instead of a timer: a proof that has not
+failed since the thing it proves was built is not worth a two-device sync every 5 s. The
+afw compose decodes for a typed sRGB target view so the rebuilt eye's bytes equal the fresh
+eye's copy on any runtime's swapchain format. Record: dishonored/FLICKER_REFERENCE.md, the
+2026-10-05 entries and appendix 9.
+
+### 2026-10-07: the projection layer claims what the draws projected; a zoom is a magnification
+
+The layer's claim came from the camera's FOV sensor (0x53c), which in a dialogue or a store holds a
+look-at intent the render ignores; a conversation turning into a store claimed 50 deg over a scene
+drawn at 103 and the view shrank into a box. The claim is now the frame's own world projection,
+measured per frame by the `fgproj` sampler from the draws' c0..c3, with the scene scope's write and
+then the sensor as fallbacks only when no world draw was sampled. A measurement carries the identity
+of what it measured; the sensor did not. Second decision: a scene drawn narrower than
+`[Screen] ProjectionFov` keeps the claim at `ProjectionFov` (`[Screen] ZoomMagnify`, default 1), so
+the game's zoom (the mask lens, the "spyglass") magnifies the view about its centre instead of
+shrinking the picture. It ships on as a stated exception to "every render lever ships off": the owner
+asked for the zoom and the honest claim is the reported box; `zoommagnify off` is the live A/B.
+Record: dishonored/ENGINE_NOTES.md, 2026-10-07.

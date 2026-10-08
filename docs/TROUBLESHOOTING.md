@@ -3,6 +3,21 @@
 Desktop mirror defaults off for a potential large performance boost on any runtime.
 If SteamVR crashes on startup, turn **Desktop mirror ON** in the launcher and retry.
 
+## SteamVR chosen, but the game opens in Virtual Desktop (or another runtime)
+
+`[VR] Runtime=steamvr` (or SteamVR picked in the launcher) and the game still comes up on
+VDXR: the log's `xr:` lines say `runtime mode 'steamvr' - using the SteamVR shim directly`
+and then `instance created on runtime 'VirtualDesktopXR'`. Up to 1.0.3 this happened when
+the game ran **as administrator**: Windows' OpenXR loader ignores the setting the mod uses
+to pick its SteamVR shim in an elevated process, and falls back to the system's runtime.
+The log said so on the line `game is running elevated; the shim cannot be selected`.
+- Builds after 1.0.3 select the shim another way that works elevated too, and print a
+  WARNING naming both runtimes if SteamVR was asked for and something else answered.
+- On 1.0.3: do not run Steam or Dishonored as administrator. Close Steam, start it normally
+  (not "Run as administrator"), and check `Dishonored.exe` > Properties > Compatibility does
+  not have "Run this program as an administrator" ticked. Running the LAUNCHER as
+  administrator is fine: it starts the game through Steam without its rights.
+
 ## Collect a crash report
 
 After a problem, click Collect logs in the launcher (or use Collect VR Support.cmd
@@ -186,3 +201,47 @@ Two cases it cannot fix on its own, both named in the log:
 Known example: OBS mirror-capture layers such as OpenXR-Layer-OBSMirror install
 a 64-bit-only library under `HKCU` and will stop this game reaching VR until
 they are disabled.
+
+**The second cause: a 32-bit layer that refuses to start.** A layer with the
+right architecture can still fail to load, because its DLL decides for itself
+whether to initialise. The loader treats that refusal exactly like a 64-bit
+library: `-32` for every runtime, SteamVR included. The known case is
+**ReShade's global OpenXR layer** (`XR_APILAYER_reshade`, installed by ReShade's
+own setup as `C:\ProgramData\ReShade\ReShade32.dll`). ReShade refuses to load
+into any game that has no `ReShade.ini` beside its exe, and it also refuses when
+another copy of ReShade is already loaded - which is what the mod's own ReShade
+option ([ReShade] in `dishonored_vr.ini`) puts there.
+
+The mod skips that layer for this game only, by default (`[VR]
+DisableReShadeApiLayer=1`), with the opt-out ReShade's manifest declares
+(`DISABLE_XR_APILAYER_reshade_1`). ReShade itself, its registry entry and every
+other game it is installed for are untouched. Setting the key to 0 hands the
+decision back to ReShade.
+
+What the log says:
+
+- `apilayer: ... 'XR_APILAYER_reshade' is ReShade's global OpenXR layer` - what
+  ReShade's own check will see (`ReShade.ini beside the exe: PRESENT|absent`);
+- `apilayer: DISABLED 'XR_APILAYER_reshade' ...` - the opt-out was set;
+- `xr/loader: [-] Implicit layer ... is disabled` - the loader honoured it.
+
+If VR still does not start, the `xr/loader:` lines name the layer or runtime
+the loader could not load and the Windows error - for example `error 1114`
+(*a DLL initialization routine failed*: the DLL refused) or `error 193` (*not
+a valid Win32 application*: a 64-bit DLL).
+
+## ReShade is installed and on, but nothing changes in game
+
+Open the launcher's Mods screen. It says what is wrong:
+
+- **Incomplete** - `ReShade.ini` or the shader packages are missing. Click **Repair
+  ReShade**. The 1.0.3 launcher installed only `ReShade32.dll`, and ReShade refuses to
+  start without a `ReShade.ini` beside the game (the log shows `reshade: load failed
+  error=1114`).
+- **Last game launch: ReShade did not start (...)** - the reason is in the brackets, and in
+  F10 > ReShade. Restarting does not change it.
+- **Last game launch: ReShade ran** - effects are loaded; choose a preset in F10 > ReShade.
+
+To add a preset, drag its download (the `.zip`, its folder, or the preset `.ini`) onto the
+launcher window. Only the preset and its shaders are copied. **Never copy a `d3d9.dll` from
+a preset download into the game folder** - that file is the VR mod.

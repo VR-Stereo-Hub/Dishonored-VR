@@ -49,6 +49,15 @@ static UINT g_curRTw = 0, g_curRTh = 0;
 // the cause. See core/vr/apilayer_guard.cpp.
 static bool g_algGuard = true;
 
+// [VR] DisableReShadeApiLayer. ReShade's global OpenXR layer (XR_APILAYER_reshade,
+// ReShade32.dll under ProgramData) is x86 and so passes the guard above, but its
+// DllMain refuses the load unless a ReShade.ini sits beside the exe - and a
+// refused implicit layer fails xrCreateInstance with -32 for every runtime.
+// When it does load, it is a second ReShade in a process the mod already chains
+// its own ReShade into. ON, the layer is skipped for this process through the
+// opt-out its manifest declares; the registry and ReShade are not touched.
+static bool g_algReShade = true;
+
 // [Stereo] ReentryStandDown. A second scene draw that never becomes a second
 // PRESENT cannot pair; it can only overwrite pass 1 in the same backbuffer, and
 // the one untagged present then carries whichever draw finished last - so the

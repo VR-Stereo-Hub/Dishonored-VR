@@ -638,6 +638,7 @@ struct MpPoseSnap {
     bool          ok[2];         // per hand: head AND that hand tracked
     bool          headOk;
     uint32_t      gen;           // bumped on every publication
+    uint32_t      headLocateGen; // runtime locate identity, never the publication counter
     float         head[3][4];    // the head sample the hands above were normalised against
 };
 static MpPoseSnap        g_mpPosePub;          // the published snapshot
@@ -920,6 +921,17 @@ static volatile int  g_msReady = 0;            // a validated split exists
 static volatile int  g_msRefused = 0;          // a read was tried and rejected
 static volatile uint32_t g_msDraws = 0;        // draws served from our buffer
 static volatile uint32_t g_msFallback = 0;     // draws that fell through to the game's
+static volatile unsigned long long g_msLastArmDrawMs = 0; // GetTickCount64 of the last qualified arm draw (cine/arms reads it)
+// CinematicArms: the GAME's own arm motion (uu/s between the bones of one arm, the mod's one rigid
+// write excluded; both arms, the faster), sampled once per frame from the native palette; -1 = no
+// sample. Render lane writes, script reads. g_msArmFastest is the run-3 instrument (the fastest
+// palette point, which also follows the player's controller), kept for the log. g_msArmRefPose is
+// how far the pose is from the reference pose (uu, -1 = not measurable), g_msArmSampleGen counts
+// measurements so a reader can tell a new one from a repeated read.
+static std::atomic<float> g_msArmSpeed{-1.0f}, g_msArmFastest{0.0f}, g_msArmRefPose{-1.0f};
+static std::atomic<unsigned> g_msArmSampleGen{0};
+static std::atomic<int> g_msArmBones{0};
+static volatile unsigned long long g_msArmSpeedMs = 0;
 
 // AUTO-ARM. The mesh lock was armed by hand from a censused row, so a level
 // load that recreates the buffers left it pointing at freed pointers and
@@ -930,6 +942,11 @@ static volatile uint32_t g_msFallback = 0;     // draws that fell through to the
 static bool     g_msAuto = true;               // [Hands] ArmSplitAuto
 static uint32_t g_msWantPrims = 4448;          // [Hands] ArmMeshPrims (measured)
 static uint32_t g_msWantVerts = 2771;          // [Hands] ArmMeshVerts (measured)
+// [Anim] CineHidePoses: still cutscene arm poses to hide, each hand bone's position in the arm mesh's own
+// space (L xyz, R xyz), captured by the hide itself (MsCineHideStatic). Read at config load, render lane after.
+#define MS_CINE_POSES_MAX 4
+static float g_msCinePose[MS_CINE_POSES_MAX][6];
+static int   g_msCinePoseN = 0;
 static volatile uint32_t g_msLockFrame = 0;    // last frame the lock matched a draw
 static volatile int      g_msAutoArmed = 0;    // this lock came from the signature
 static double   g_msNextReport = 0.0;

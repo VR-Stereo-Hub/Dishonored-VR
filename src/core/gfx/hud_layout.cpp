@@ -126,6 +126,10 @@ dvr::hudalpha::Bank g_alphaBank;
 AlphaCfg& g_alpha=g_alphaBank.general;
 const char* kScopedAlpha[5]={"WeaponDialAlpha","ReadingAlpha","InteractionAlpha","PauseAlpha","WheelPartsAlpha"};
 bool g_readHand[2]={false,false};
+// The hand a grip-opened note attaches to (note_opened_by_hand), and the hand the open note is on.
+std::atomic<int> g_noteAskHand{0};
+std::atomic<uint64_t> g_noteAskMs{0};
+int g_noteHand=0; uint64_t g_noteSeenMs=0;
 float g_readTilt=0;
 float g_readUp[2]={0,0};
 std::atomic<bool> g_pauseSceneFreshness{false},g_menuExitHeading{false};
@@ -1140,13 +1144,30 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         place(d, e, a, whole, aspect, true);
         const int readPanel=e==ElNote?0:e==ElJournal?1:-1;
         if(readPanel>=0 && g_readHand[readPanel]) {
+            // Which hand: the journal is always the left. A note is the left unless a grip opened
+            // it (physical pickup), decided once when the panel appears and kept while it is open.
+            int readHand=0;
+            if(readPanel==0) {
+                const uint64_t nowMs=GetTickCount64();
+                if(nowMs-g_noteSeenMs>300) {
+                    const int was=g_noteHand;
+                    g_noteHand=(nowMs-g_noteAskMs.load()<=2500) ? g_noteAskHand.load() : 0;
+                    DVR_LOG(DVR_CAT,::dvr::log::Level::Info,
+                        "hud/reading-hand: the note opens on the %s hand (%s; the hand before was %s)",
+                        g_noteHand?"RIGHT":"LEFT",g_noteHand==g_noteAskHand.load() && nowMs-g_noteAskMs.load()<=2500 ?
+                        "opened by that hand's grip" : "not opened by a grip: the left hand, as before",was?"right":"left");
+                }
+                g_noteSeenMs=nowMs;
+                readHand=g_noteHand;
+            }
             float hp[3],hq[4],attached[4],page[4];
-            if(!dvr::vr::input_get_hand_pose(0,false,hp,hq) ||
-               !dvr::hudanchor::reading_grip_reference(hq,attached,page)) {--n;continue;}
-            d.anchor=dvr::vr::HudAnchor::LocalBillboard;d.hand=0;
+            if(!dvr::vr::input_get_hand_pose(readHand,false,hp,hq) ||
+               !dvr::hudanchor::reading_grip_reference(hq,attached,page,readHand==1)) {--n;continue;}
+            d.anchor=dvr::vr::HudAnchor::LocalBillboard;d.hand=readHand;
             d.orient=dvr::vr::HudOrient::OpeningPlane;
             dvr::hudanchor::camera_panel_position(hp,attached,g_readDistance[readPanel],d.base);
-            const float offset[3]={g_readRight[readPanel],g_readUp[readPanel],0};float worldOffset[3];
+            // the horizontal offset was tuned on the left hand: mirrored on the right
+            const float offset[3]={readHand==1?-g_readRight[readPanel]:g_readRight[readPanel],g_readUp[readPanel],0};float worldOffset[3];
             dvr::xrmath::quat_rotate(attached[0],attached[1],attached[2],attached[3],offset,worldOffset);
             for(int k=0;k<3;++k)d.base[k]+=worldOffset[k];
             dvr::hudanchor::reading_alignment(page,g_readTilt,d.orientation);
@@ -1327,7 +1348,28 @@ void configure(const char* ini) {
         if(read_i(ini,key,0)) blurMask|=1u<<kMenuContextBits[i];
     }
     dvr::hudclass::set_owner_trace(read_i(ini,"OwnerTrace",0)!=0);
-    dvr::hudowner::configure(read_i(ini,"SemanticOwnership",0)!=0);
+    {   // Native widget ownership. Accepted in a headset on 2026-09-26, but it stayed default 0
+        // and out of the default ini, so it ran only where an ini carried the key by hand, and
+        // an ini rewritten from the packaged profile lost it (2026-09-27): widgets came apart
+        // again and objective text changed layer. Default 1 now. save() wrote the old default
+        // into every ini as 0, so once per ini a stored 0 becomes 1 and SemanticOwnershipRev=1
+        // is written (the HandAnimMeleeRev precedent); after that a 0 set in F10 stays.
+        int semantic=read_i(ini,"SemanticOwnership",1);
+        if(read_i(ini,"SemanticOwnershipRev",0)<1) {
+            if(!semantic) {
+                semantic=1;write_i("SemanticOwnership",1);
+                DVR_LOG(DVR_CAT, ::dvr::log::Level::Info,
+                    "hud/semantic: [Hud] SemanticOwnership 0 -> 1 (one-time: the stored 0 was the old shipped default written by a save, "
+                    "not a choice; SemanticOwnershipRev=1 written; set it to 0 in F10 HUD or the ini and it stays)");
+            }
+            write_i("SemanticOwnershipRev",1);
+        }
+        dvr::hudowner::configure(semantic!=0);
+        DVR_LOG(DVR_CAT, ::dvr::log::Level::Info,
+            "config: [Hud] SemanticOwnership=%d (%s; `hud/semantic: hooks=1` must follow, a REFUSED line means the position rules are in use)",
+            semantic,semantic?"each HUD draw is routed by the game widget it belongs to, so a widget's pieces stay on one layer"
+                             :"off: HUD draws are routed by rectangle and position, pieces of one widget can land on different layers");
+    }
     g_groupInteractions=read_i(ini,"GroupInteractions",0)!=0;
     g_routeObjectives=read_i(ini,"RouteObjectives",0)!=0;
     g_objectiveScreen=read_i(ini,"ObjectiveScreenTracking",0)!=0;
@@ -1445,6 +1487,7 @@ void save(const char* ini) {
     write_i("NativeMarkerChildren",g_nativeMarkerChildren);
     write_i("NativeGameplayReference",g_nativeGameplayReference);
     write_i("SemanticOwnership",dvr::hudowner::enabled());
+    write_i("SemanticOwnershipRev",1);   // a saved value is this machine's choice
     write_i("WheelSidePanels",g_wheelParts);
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
         char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kWheelPartKeys[part],k);write_f(key,g_wheelPartCrop[part][k]);
@@ -1830,7 +1873,7 @@ void draw_ui() {
             ImGui::PopID();
         }
     }
-    if (ov::section("Menu immersion", ov::Advanced, "How in-game menus behave in the headset.")) {
+    if (ov::section("In-game menus in the headset", ov::Advanced, "How in-game menus behave in the headset.")) {
         bool keep = g_menuExitHeading.load();
         if (dvr::ovl::checkbox("Keep viewing direction when closing menus", &keep)) { g_menuExitHeading.store(keep); write_i("MenuExitHeading", keep); }
         for (int i = 0; i < kMenuContexts; ++i) {
@@ -1851,7 +1894,7 @@ void draw_ui() {
             ImGui::PopID();
         }
     }
-    if (ov::section("Screens on the HUD panels", ov::Advanced,
+    if (ov::section("Which screens appear on the HUD panels", ov::Advanced,
                     "In-game screens (pause, journal and others) float on a panel with the world in 3D behind. "
                     "The main menu keeps the flat screen.")) {
         bool on = g_menuInWindow;
@@ -1897,7 +1940,7 @@ void draw_ui() {
         }
         if (ch) set_subtitle_readability(c, "F10 HUD");
     }
-    if (ov::section("HUD elements", ov::Advanced,
+    if (ov::section("Where each HUD element goes", ov::Advanced,
                     "Where each part of the HUD floats: off, the window in front of you, the world, or a hand panel.")) {
         for (int e = 0; e < ElCount; ++e) {
             ImGui::PushID(e);
@@ -1941,7 +1984,7 @@ void draw_ui() {
             ImGui::PopID();
         }
     }
-    if (ov::section("HUD window", ov::Advanced,
+    if (ov::section("HUD window position and size", ov::Advanced,
                     "The panel in front of you that most HUD elements ride. 'window' follows your head; 'world' stays where you recentred.")) {
         WindowCfg c = g_win;
         bool ch = false;
@@ -1955,7 +1998,7 @@ void draw_ui() {
         ch |= dvr::ovl::slider_float("Lateral offset (m)", &c.latM, -1.0f, 1.0f, "%.2f");
         if (ch) set_window(c, "F10 HUD");
     }
-    if (ov::section("Hand panels", ov::Advanced, "The small HUD panels on each wrist.")) {
+    if (ov::section("Wrist HUD panels", ov::Advanced, "The small HUD panels on each wrist.")) {
         for (int k = 0; k < 2; ++k) {
             ImGui::PushID(200 + k);
             ImGui::TextUnformatted(k ? "Right hand panel" : "Left hand panel");
@@ -1976,7 +2019,7 @@ void draw_ui() {
             ImGui::PopID();
         }
     }
-    if (ov::section("HUD grouping", ov::Advanced, "Which HUD pieces travel together.")) {
+    if (ov::section("HUD pieces that move together", ov::Advanced, "Which HUD pieces travel together.")) {
         bool onAim = g_reticleOnAim;   // VR-166
         if (dvr::ovl::checkbox("Centre gauges ride the aim dot", &onAim)) set_reticle_on_aim(onAim, "F10 HUD");
         ov::tip("Gauges drawn at the centre of the screen (the grenade cook ring) follow the reticle.");
@@ -2052,11 +2095,12 @@ void draw_ui() {
             write_i("NativeRuneMarkers", runeTask); write_f("RuneMarkerEdgeInset", runeInset / 100.f);
         }
         bool semantic=dvr::hudowner::enabled();
-        if(dvr::ovl::checkbox("Native widget ownership (test)",&semantic)) {
-            dvr::hudowner::configure(semantic);write_i("SemanticOwnership",semantic);
+        if(dvr::ovl::checkbox("Keep HUD widgets together (native ownership)",&semantic)) {
+            dvr::hudowner::configure(semantic);write_i("SemanticOwnership",semantic);write_i("SemanticOwnershipRev",1);
             dvr::hudcap::invalidate_content();forget_draw_owners();
         }
-        ov::tip("Keeps each widget together through rendering. Enable before starting the game; then toggle here to compare.");
+        ov::tip("Keeps each widget's pieces on one layer and objective text with its marker. On by default; it arms at game start, "
+                "so after turning it on restart the game. Off uses the older position rules.");
         bool nativeTask = dvr::objectivemarkers::enabled();
         float edgeInset = dvr::objectivemarkers::inset() * 100.f;
         const bool taskChange = dvr::ovl::checkbox("Native objective arrow boundary (test)", &nativeTask);
@@ -2120,6 +2164,11 @@ void draw_ui() {
         if (dvr::ovl::button("Reset the HUD to its presets")) reset_presets("F10 HUD");
         ov::tip("Puts every HUD panel, element and alpha back to the shipped layout. Saved at once.");
     }
+}
+
+void note_opened_by_hand(int hand) {
+    g_noteAskHand.store(hand == 1 ? 1 : 0);
+    g_noteAskMs.store(GetTickCount64());
 }
 
 } // namespace dvr::hudlayout

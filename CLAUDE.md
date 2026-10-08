@@ -30,6 +30,12 @@ release PR `staging` -> `VR-Main` that the user merges).
 - **NEVER commit game-derived content**: no decompiled UnrealScript, no extracted assets, no
   frame dumps, captures or crash dumps. `tools/uscript/` and `*.png/*.bmp/*.dmp` are gitignored
   for a reason. Findings go to `docs/dishonored/ENGINE_NOTES.md`, never game code.
+  **The one exception, the repo owner's decision (2026-10-05):** the prepared data files in
+  `assets/vr/` (the full-arm IK rig and the Heart's rig, back geometry and material) are committed
+  and embedded in the proxy (`core/util/embedded_assets.cpp`), which writes them into every
+  player's data directory, so full-arm IK and the Heart's backing work without any setup. Nothing
+  else derived from the game enters the tree, and a new file joins `assets/vr/` only on the
+  owner's say-so.
 - **Every engine address, IAT slot and UE3 field offset lives in
   `src/game/dishonored/patterns.h`** and is documented in ENGINE_NOTES with how it was derived.
   The exe has no ASLR (base 0x400000), so absolute addresses are fine, but every code hook
@@ -72,6 +78,12 @@ release PR `staging` -> `VR-Main` that the user merges).
   **An agent never declares a release and never creates a milestone** - it may report that a
   milestone is full or that its tickets are all Done, and ask. How the work is carved into
   shippable pieces is the user's call. The whole flow is `docs/LINEAR_AND_GITHUB.md`.
+- **Changing ANY `CLAUDE.md` needs the user's yes first, and the ask names WHICH one.**
+  The repo's `CLAUDE.md` (this file) is committed, public and read by every contributor's
+  sessions; a local one (`~/.claude/CLAUDE.md`, `CLAUDE.local.md`) is private to one machine.
+  Say "repo CLAUDE.md" or "local CLAUDE.md", show the exact text to add or remove, and wait.
+  Personal preferences, machine paths and one person's workflow go in a local file or the
+  local tool file (`tools\tool-paths.ps1`), never here.
 - **32-bit only.** The CMake guard stops a 64-bit configure; don't fight it.
 - **The DXVK fork is gone** (removed in 41.0; git history keeps it under the `dxvk-*` tags).
   Do not bring back a Vulkan translation layer: the game renders natively through D3D9.
@@ -144,15 +156,54 @@ Keep a linked recoverable plan with next steps when work is incomplete; do not l
 findings exist only in chat. Update the routing/status table when later evidence
 supersedes an older result, and retain the reason an earlier theory failed.
 
-## Resources you already have - CHECK THESE BEFORE DERIVING ANYTHING
+## Tools - CHECK AND USE THESE FIRST (also called "Resources you already have")
 
 This project has paid for a set of instruments. Sessions keep re-deriving things that
-one of these answers in a single command. **Before hand-walking a disassembly, guessing
-an offset, or asking for a headset run, ask whether one of these already knows.**
+one of these answers in a single command. **Every new prompt starts by asking which of
+these tools applies, and uses it before hand-walking a disassembly, guessing an offset,
+writing a new instrument or asking for a headset run.** Say which tool was used (or why
+none applies) in the reply. If a needed tool is missing, say so; do not silently fall
+back to guessing.
 
-**The rule that governs all of them: the TOOLS are ours and are committed; their OUTPUT
+**The rule that governs all of them: the scripts are ours and are committed; their OUTPUT
 is game-derived and never is.** Summarize findings into `ENGINE_NOTES.md`; keep dumps,
-addresses in bulk and decompiled text out of the tree.
+addresses in bulk, decompiled text, extracted models and databases out of the tree.
+**Third-party and paid programs (IDA, Blender, UModel, UE Explorer, FFDec, PIX, ...) are
+never copied into the repo either** - they are referenced by path.
+
+### The local tool file - where the tools are on THIS machine
+
+```powershell
+.\tools\tool-paths.ps1              # table: every tool, its path, ok / MISSING
+.\tools\tool-paths.ps1 -Init        # detect and write the file (run this if it does not exist yet)
+.\tools\tool-paths.ps1 -Set blender=D:\Apps\Blender\blender.exe
+.\tools\tool-paths.ps1 -Get idat    # one path, for a script
+```
+
+- The file is `%LOCALAPPDATA%\DishonoredVR\dev-tools.json` (override: `DVR_TOOLS_FILE`).
+  It is **per user and never committed**, so every contributor keeps their tools wherever
+  they like. Scripts resolve tools through `tools\lib\tool-paths.ps1` (`Get-DvrTool <name>`),
+  which throws with the exact `-Set` command when one is missing.
+- **At session start, if the file does not exist, run `-Init` before anything else.** A
+  `MISSING` tool that the task needs: ask the user where it is, or look online for the
+  established free tool for the job and **ask before downloading anything**. Record what
+  was installed with `-Set`.
+- **Never write a machine-specific path into a committed file.** Add a detection rule to the
+  catalog in `tools\lib\tool-paths.ps1` instead (default install locations only).
+
+### Static reverse engineering with IDA (headless) - `docs/IDA_WORKFLOW.md`
+
+| Command | Answers |
+|---|---|
+| `.\tools\ida-run.ps1 -Stage` | Copies `Dishonored.exe` out of the game into the IDA workspace, analyses it once, saves the `.i64`, and reports that IDAPython, the x86 decompiler and a published address all check out. Re-run with `-Force` after a game update |
+| `.\tools\ida-run.ps1 tools\ida\<series><n>_<what>.py` | **One question per script**: a decompile, a disassembly with bytes, every caller, which vtable/class a function sits in, who writes a field. Output in `<ida_workspace>\out\`, stamped with the md5 it ran against and whether that still equals the deployed exe |
+| `tools\ida\template.py` | The skeleton to copy: 32-bit RTTI, VA + RVA printing, every negative printed, refuses unless a published known-good address reproduces |
+
+Order of work: **search what is already known** (ENGINE_NOTES, `patterns.h`, TRAPS, the
+UnrealScript corpus, earlier IDA outputs) -> the cheap offline tools below -> IDA ->
+a runtime probe only for what a decompile cannot say (timing, which branch ran, whether a
+write landed) -> a headset run last. Comparison sources (other games, BioShock notes)
+form hypotheses; only our own binary confirms them.
 
 ### Reverse engineering, offline (no game running)
 
@@ -183,18 +234,50 @@ them. That is what the runtime layer is for.
 
 | Resource | What it is good for |
 |---|---|
-| `tools/uscript/dishonored/` | The decompiled UnrealScript class dump. **Declarations and defaultproperties, not function bodies** - so it gives you class hierarchies, property NAMES to feed the resolver, tweak values and which classes implement which interface. `DisTweaks_*` files carry the shipped tuning numbers |
+| `tools/uscript/dishonored/` (tool file: `uscript_corpus`) | The decompiled UnrealScript class dump. **Declarations and defaultproperties, not function bodies** - so it gives you class hierarchies, property NAMES to feed the resolver, tweak values and which classes implement which interface. `DisTweaks_*` files carry the shipped tuning numbers. Grep it before asking the runtime resolver for a name |
+| UE Explorer 1.6.2 + `ExportScripts.exe` (tool file: `ueexplorer`; driver `tools/uscript/_tool/export.ps1`, local) | Regenerates that corpus from the packages through UELib, one process per package (UELib can die with an uncatchable StackOverflow). The GUI opens one `.upk` to browse a class, its bytecode and its properties |
+| `.\tools\model-export.ps1` + UModel (tool file: `umodel`) | **What a package holds and which package holds an object** (`-List`, `-Find`), and extraction of meshes (PSK/glTF) and textures (TGA). Feeds the Blender workflow below |
+| `.\tools\hud-assets-export.ps1` + FFDec (tool file: `ffdec`) | The Scaleform HUD movies: `.gfx` -> XML, frames, ActionScript, the artwork. How the HUD anchors were measured |
 | `%USERPROFILE%\Documents\My Games\Dishonored\DishonoredGame\Config\` | The game's own 21 ini files. **Mapped in `docs/dishonored/GAME_CONFIG_MAP.md`** with a routing table by question and the debug instruments the game ships. Check it before adding a lever - the setting may already exist |
 | `docs/brvr-reference/` *(if present)* | The sibling BioShock VR mod, for parity on a subsystem before re-deriving it |
 
-### Live instrumentation
+### Models and animation: UModel + headless Blender - `docs/MODEL_WORKFLOW.md`
+
+| Command | Answers |
+|---|---|
+| `.\tools\blender-run.ps1 -Setup` | Blender found, the PSK/PSA add-on installed and registered (installs it from `psk_addon_zip` if not) |
+| `.\tools\blender-run.ps1 tools\blender\inspect_model.py -- --psk <f> [--psa <f>]` | **What is in a mesh**: counts, materials, skeleton, skin-weight health, bbox, PSA sequences, an optional render and `.blend`; every problem printed |
+| `.\tools\blender-run.ps1 tools\blender\export_model.py -Blend <f> -- --object <n> --out <f>` | Writes PSK / PSA / OBJ (the mod's own `vrhands\*.obj` model slots) / glTF / FBX |
+| `.\tools\blender-run.ps1 <any.py> [-Blend <f>] -- <args>` | Any offline geometry or skinning test (the full-arm IK solver was validated this way, `tools/blender-arm-ik-sweep.py`) |
+
+Meshes extract; **the game's own animations do not** (Sony Edge Animation compression,
+which UModel cannot decode). New animation is authored in Blender against the extracted
+skeleton, or recorded from the live skin palette. Extracted assets live in the local
+`model_workspace`, never the repo.
+
+### Live instrumentation and the simulator
 
 `tools\game-cmd.ps1 "<cmd>"` drives the command seam (`stereo`, `camera`, `vrpace`,
 `vrinput`, `fireaim`, `propwatch`, `crosshair`); `tools\status-dump.ps1` reads
 `status.json`; `tools\tail-log.ps1 -Grep` follows the log; `DVR_LOG=trace` and
-`DVR_LOG_CATS=hands:debug` open a lane. The simulator (`tools\xrsim-*.ps1`) answers
-anything that is not perceptual without costing a person their evening -
-`docs/VERIFICATION.md` is the catalog of intent -> tool -> command -> how to read it.
+`DVR_LOG_CATS=hands:debug` open a lane. **The OpenXR simulator** (`dvr_xrsim32.dll`,
+`tools\xrsim-*.ps1`: launch, cmd, shot, run, state, selftest) presents as a Quest 3 with
+scripted head/hand poses, every button, deterministic frame stepping and per-eye compositor
+captures; it answers anything that is not perceptual without costing a person their
+evening (launching it is still a launch: ask first). `docs/VERIFICATION.md` is the catalog
+of intent -> tool -> command -> how to read it. Host test harnesses (`tools\*-host.ps1` +
+`*-tests.cpp`) check pure logic without the game; `tools\read-dump.py` reads a crash dump;
+`tools\log-parse.ps1` and the `perf-*` scripts read logs and timings.
+
+### Debug programs on the machine (tool file names)
+
+| Tool | Use it for |
+|---|---|
+| `pix` - PIX for Windows (DirectX SDK June 2010, x86) | **The D3D9 frame debugger**: capture one game frame, every draw, state and shader. RenderDoc does not support D3D9 |
+| `renderdoc` (optional) | The mod's own D3D11 side only (compositor textures), never the game's D3D9 frame |
+| `cheatengine` - Cheat Engine | Live memory scan and structure dissection when a value has no name yet. Prefer `propwatch` and the resolver first; a Cheat Engine address is a lead, not a finding |
+| `hxd` - HxD | Byte-level look at a binary, an ini's line endings, a dump |
+| `x32dbg` (optional) | Attach a 32-bit debugger to the game when a crash dump is not enough |
 
 ## Logging
 
@@ -255,12 +338,15 @@ Extensive does not mean noisy. The rules that buy volume without cost:
   Two sessions have gone to a value that was overridden somewhere else. Find every place the value can
   live, read what the run RESOLVED it to (not what you wrote), and confirm it reached the consumer.
   New traps and failed plans go in that file in the same commit as the work.
-- **Before deriving an address, an offset or a behaviour, read "Resources you already
-  have" above.** Most questions this project asks have a tool that answers them, and
-  the expensive sessions are the ones that re-derived something already on disk.
+- **Before deriving an address, an offset or a behaviour, read "Tools" above and use the
+  one that applies.** Most questions this project asks have a tool that answers them, and
+  the expensive sessions are the ones that re-derived something already on disk. Static
+  before runtime: name the static source you read and what it said before proposing a
+  probe, a build or a run.
 - **START**: read `docs/STATUS.md`, the current milestone in `docs/ROADMAP.md`, then
-  `git log --oneline -10`. **Find the Linear ticket** for the work (search before creating;
-  create from the template if absent, with project, milestone, priority and a `Type` label),
+  `git log --oneline -10`. Run `.\tools\tool-paths.ps1` (with `-Init` if it reports the
+  file MISSING) so the session knows which tools this machine has. **Find the Linear
+  ticket** for the work (search before creating; create from the template if absent, with project, milestone, priority and a `Type` label),
   move it to In Progress and branch `<owner>/vr-<n>-<slug>` off `staging`. Touching engine
   internals? Read `docs/dishonored/ENGINE_NOTES.md` first; new findings go there in the same
   commit as the code.
@@ -319,6 +405,9 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 .\tools\game-cmd.ps1 "stereo status"       # the mod's command seam (command.h / commands.cpp); also camera, vrpace, vrinput
 .\tools\status-dump.ps1                    # status.json, pretty-printed
 .\tools\exports-check.ps1 build\src\Debug\d3d9.dll ; .\tools\lint.ps1
+.\tools\tool-paths.ps1 [-Init]             # where IDA, Blender, UModel, ... are on this machine (local file)
+.\tools\ida-run.ps1 -Stage | <script.py>   # headless IDA (docs/IDA_WORKFLOW.md)
+.\tools\model-export.ps1 ; blender-run.ps1 # UModel extraction, headless Blender (docs/MODEL_WORKFLOW.md)
 ```
 
 - Game: Steam appid 205100, `<library>\steamapps\common\Dishonored\Binaries\Win32\Dishonored.exe`.
@@ -372,7 +461,9 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `docs/ARCHITECTURE.md` | The frame path, the stereo ladder, the runtime layer, the camera seam, thread contracts, the unity build and how modules leave it, decision log |
 | `docs/RESEARCH.md` | Engine facts, prior art, VR runtime facts, legal posture, all with sources |
 | `docs/TRAPS.md` | **Traps and the graveyard**: the stale-setting class (check it FIRST when a key "does nothing"), instruments that could not fail their own hypothesis, plans tried and failed, and an index of the per-topic graveyards |
-| `tools/ue3-natives.py`, `tools/disasm-rva.py`, `tools/pe-xref.ps1` | **The RE toolkit** (not docs, but read them first): class to vtable, function NAME to code via the native registration table, constant hunting, caller census. See "Resources you already have" |
+| `tools/ue3-natives.py`, `tools/disasm-rva.py`, `tools/pe-xref.ps1` | **The RE toolkit** (not docs, but read them first): class to vtable, function NAME to code via the native registration table, constant hunting, caller census. See "Tools" |
+| `docs/IDA_WORKFLOW.md` | **Headless IDA**: staging the exe, the md5 provenance check, the one-question script shape for a 32-bit target, series, where IDA sits in the order of work, traps |
+| `docs/MODEL_WORKFLOW.md` | **UModel + headless Blender**: the model workspace, extract/inspect/export commands, what was verified, why the game's animations cannot be extracted, how a model gets back into the game, traps |
 | `docs/VERIFICATION.md` | **Verification catalog**: intent -> tool -> command -> how to read the result; the simulator and its instruments, the seam, captures, what still needs a human |
 | `docs/INSTALLER.md` | **The installer** (VR-198): what `DishonoredVR-Launcher.exe` does step by step, the five ini keys it writes and why no others, the screens, elevation, every command-line word, the three verification lanes, the traps it paid for |
 | `docs/LINEAR_AND_GITHUB.md` | **The dev flow**: ticket -> branch -> PR -> review -> merge -> release. Statuses and what each means here, priority, labels, the ticket and PR templates, project updates, the release ritual, and what only the Linear UI can do |

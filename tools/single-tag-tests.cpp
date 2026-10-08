@@ -14,6 +14,7 @@ enum class Mode { Shared, Deferred, Sync };
 static Mode g_mode = Mode::Shared;
 static bool g_sharedWait = false;
 static int g_sharedCur = 1, g_rtCur = 1;
+static int g_sharedN = 2;   // the shared ring's slot count (auto depth made it a variable, 2026-10-03)
 static bool g_sharedValid[2] = {true,true}, g_rtValid[2] = {true,true};
 static unsigned g_serial = 8, g_sharedSerial[2] = {8,7}, g_rtSerial[2] = {8,7};
 static int g_sharedTag[2] = {1,0}, g_rtTag[2] = {1,0};

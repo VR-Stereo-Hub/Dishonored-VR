@@ -20,6 +20,7 @@
 #include "core/util/mem.h"
 #include "core/util/ini.h"
 #include "core/util/paths.h"
+#include "core/util/embedded_assets.h"
 #include "core/util/diag.h"
 #include "core/util/crash.h"
 #include "core/util/etw.h"
@@ -50,7 +51,9 @@
 #include "core/gfx/capture.h"
 #include "core/gfx/afw_warp.h"   // VR-39: `afw warp|body` on the seam
 #include "core/gfx/gpu_memory.h"
+#include "core/gfx/gpu_engine.h"   // who holds the GPU when a frame stalls (2026-10-07)
 #include "core/vr/hud_stub.h"
+#include "core/vr/xr_loader_log.h"   // the loader's own words in the log (the apilayer guard installs it)
 #include "core/ui/ovl_ui.h"
 #include "core/gfx/hud_class.h"
 #include "core/gfx/hud_capture.h"
@@ -120,6 +123,7 @@
 #include "mod/state/53_core_input_pad_bridge.inc"
 #include "mod/state/54_game_dishonored_arm_follow.inc"
 #include "mod/state/55_game_dishonored_hands_mesh_split.inc"
+#include "mod/state/55_arm_ik.inc"
 #if DVR_WITH_LEGACY
 #include "legacy/vr33/57_game_dishonored_hands_weapon_id.inc"
 #endif
@@ -219,6 +223,7 @@
 #include "legacy/vr33/weapon_id.cpp"
 #endif
 #include "game/dishonored/hands/weapon_mirror.cpp"   // VR-138: called from weapon_attach.cpp
+#include "game/dishonored/hands/heart_back.cpp"
 #include "game/dishonored/hands/weapon_attach.cpp"
 #include "game/dishonored/hands/draw_census.cpp"
 #undef DVR_CAT
@@ -294,6 +299,7 @@
 #include "game/dishonored/aim_seam.cpp"
 #include "game/dishonored/fire_aim.cpp"
 #include "game/dishonored/interact_aim.cpp"   // VR-166: interaction aimed by hand
+#include "game/dishonored/physical_pickup.cpp"   // loot picked up by reaching for it (needs interact_aim.cpp)
 #include "game/dishonored/throw_aim.cpp"      // VR-166: grenades aimed by hand
 #include "game/dishonored/hands/fx_follow.cpp" // VR-182: after weapon_attach (its snapshot) and throw_aim (rotator maths)
 #include "game/dishonored/power_aim.cpp"      // VR-44: Windblast, Possession, Swarm by hand

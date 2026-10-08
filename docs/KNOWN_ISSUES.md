@@ -1,5 +1,14 @@
 # Known issues
 
+- Full-arm IK is on by default and its reference data now ships inside the mod (1.0.4); a
+  missing or incompatible reference still falls back to floating hands and reports the reason
+  in the IK tab.
+- A short hitch about every 6 seconds on Virtual Desktop comes from the Wi-Fi link to the
+  headset (the headset stops answering for a moment on the same beat), not the game. A
+  dedicated 5/6 GHz access point or another channel is the thing to try.
+- Extreme crossed-arm poses can compress the sleeve or intersect the torso.
+  Minor IK arm flicker remains under investigation. Latest roll and menu
+  corrections still await individual headset confirmation.
 - AFW can still show flicker on held objects (VR-39). Full Stereo remains the default
   and is available in the launcher or F10 > Display > Stereo rendering.
 - The mod's own spacewarp remains experimental and currently broken; it is limited to

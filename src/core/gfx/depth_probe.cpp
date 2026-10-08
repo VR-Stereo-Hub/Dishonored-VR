@@ -16,6 +16,7 @@
 #include <initializer_list>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <vector>
 
@@ -258,6 +259,16 @@ UINT g_depthW = 0, g_depthH = 0;
 bool g_shareFailed = false;
 uint64_t g_shareCopies = 0, g_shareChecks = 0, g_shareAgree = 0, g_shareMissed = 0;
 DWORD g_shareNextMs = 0;
+// The check is a proof, not a heartbeat. Each one reads the game's target back on D3D9
+// (GetRenderTargetData), waits on the copy's fence and maps a D3D11 staging texture: both
+// GPU queues are drained on the PRESENT thread, a hitch of about a frame. It ran every 5 s
+// for as long as AFW was armed (2026-10-05: 42 of 42 agreed in one session, each one a
+// forced sync). Now: kShareChecks after every ring build, then none; `depthprobe share
+// check [n|always]` and [Diagnostics] DepthShareChecks ask for more. -1 = every 5 s forever.
+const int kShareChecks = 3;
+std::atomic<int> g_shareChecksAfterBuild{kShareChecks};   // the configured count (-1 = unbounded)
+std::atomic<int> g_shareChecksLeft{kShareChecks};
+float g_shareCheckLastMs = 0.0f, g_shareCheckMaxMs = 0.0f;
 
 void pre_release() {
     for (Slot& r : g_pre) {
@@ -299,9 +310,21 @@ void on_reset() {
 
 void set_share(bool on, const char* who) {
     g_share.store(on); g_shareFailed = false;
+    if (on) g_shareChecksLeft.store(g_shareChecksAfterBuild.load());
     DVR_INFO("depthshare: %s (%s)%s", on ? "ON" : "off", who ? who : "?",
-             on ? " - the scene target's depth is copied to D3D11 every present; checked every 5 s" : "");
+             on ? " - the scene target's depth is copied to D3D11 every present; checked 5 s apart, a bounded number "
+                  "of times after each ring build (each check is a GPU sync on the present thread)" : "");
 }
+void set_share_checks(int n, const char* who) {
+    if (n < -1) n = -1;
+    g_shareChecksAfterBuild.store(n);
+    g_shareChecksLeft.store(n);
+    DVR_INFO("depthshare: checks %s (%s) - %s", n < 0 ? "EVERY 5 s, unbounded" : n == 0 ? "off" : "bounded", who ? who : "?",
+             n < 0 ? "the old behaviour: a D3D9 readback, a fence wait and a D3D11 map on the present thread every 5 s"
+                   : "that many after each ring build, 5 s apart, then none ([Diagnostics] DepthShareChecks, "
+                     "`depthprobe share check [n|always]`)");
+}
+int share_checks() { return g_shareChecksAfterBuild.load(); }
 bool share_on() { return g_share.load(); }
 bool share_tick_needed() {
     return g_share.load() || (dvr::clarity::temporal_on() && dvr::clarity::motion_on()) || dvr::dlss::mode() != 0 || g_depthW != 0 || g_shareFailed;
@@ -354,6 +377,7 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
             share_release(); g_shareFailed = true; return;
         }
         g_depthW = scene->w; g_depthH = scene->h; g_ringNext = 0;
+        g_shareChecksLeft.store(g_shareChecksAfterBuild.load());   // a new ring is proven again
         DVR_INFO("depthshare: shared depth %ux%u RGBA16F live (target #%d), a ring of %d keyed by the colour grab's "
                  "serial; copied at every present, fenced%s", g_depthW, g_depthH, scene->serial, kRing,
                  g_sceneSurf ? "; plus the pre-foreground ring (the AFW foreground mask)" : "");
@@ -387,7 +411,10 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
     IDirect3DSurface9* src = nullptr;
     if (FAILED(scene->tex->GetSurfaceLevel(0, &src)) || !src) return;
     const DWORD t = GetTickCount();
-    const bool check = g_share.load() && (int)(t - g_shareNextMs) >= 0;
+    const int checksLeft = g_shareChecksLeft.load();
+    const bool check = g_share.load() && checksLeft != 0 && (int)(t - g_shareNextMs) >= 0;
+    LARGE_INTEGER ck0 = {}, ckf = {};
+    if (check) { QueryPerformanceFrequency(&ckf); QueryPerformanceCounter(&ck0); }
     float d9[kGrid][kGrid] = {};
     bool have9 = false;
     if (check) have9 = read_grid_d3d9(dev, src, scene->w, scene->h, D3DFMT_A16B16G16R16F, d9);   // this present, D3D9
@@ -406,6 +433,7 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
     r.fenced = true;
     if (!check) return;
     g_shareNextMs = t + 5000;
+    if (checksLeft > 0) g_shareChecksLeft.store(checksLeft - 1);
     // The check only: wait for this copy, then read the same 25 texels on D3D11.
     const DWORD t0 = GetTickCount();
     while (r.fence->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE && GetTickCount() - t0 < 50) Sleep(0);
@@ -428,6 +456,11 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
     ctx11->Unmap(g_depthStage, 0);
     read_done(ctx11);
     ++g_shareChecks;
+    {
+        LARGE_INTEGER ck1; QueryPerformanceCounter(&ck1);
+        g_shareCheckLastMs = ckf.QuadPart ? (float)((double)(ck1.QuadPart - ck0.QuadPart) * 1000.0 / (double)ckf.QuadPart) : 0.0f;
+        if (g_shareCheckLastMs > g_shareCheckMaxMs) g_shareCheckMaxMs = g_shareCheckLastMs;
+    }
     float worst = 0.0f; char t11[400] = ""; int n = 0;
     for (int j = 0; j < kGrid; ++j) {
         n += _snprintf_s(t11 + n, sizeof(t11) - n, _TRUNCATE, "%s", j ? " /" : "");
@@ -438,9 +471,15 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
     }
     const bool agree = have9 && worst == 0.0f;
     if (agree) ++g_shareAgree;
-    DVR_INFO("depthshare: check %llu - D3D11 depth 5x5:%s | %s (worst diff %.4g) | copies %llu, agreed %llu of %llu, "
-             "step-3 lookups that found no depth for their grab %llu",
-             (unsigned long long)g_shareChecks, t11,
+    const int leftNow = g_shareChecksLeft.load();
+    char more[120];
+    if (leftNow < 0) _snprintf_s(more, sizeof(more), _TRUNCATE, "unbounded: one every 5 s");
+    else if (leftNow == 0) _snprintf_s(more, sizeof(more), _TRUNCATE, "the LAST until the ring is rebuilt or `depthprobe share check` asks");
+    else _snprintf_s(more, sizeof(more), _TRUNCATE, "%d more to come", leftNow);
+    DVR_INFO("depthshare: check %llu (%s) cost %.2f ms on the present thread (max %.2f): a D3D9 readback, the copy's "
+             "fence and a D3D11 map, i.e. both GPU queues drained - D3D11 depth 5x5:%s | %s (worst diff %.4g) | copies "
+             "%llu, agreed %llu of %llu, step-3 lookups that found no depth for their grab %llu",
+             (unsigned long long)g_shareChecks, more, (double)g_shareCheckLastMs, (double)g_shareCheckMaxMs, t11,
              !have9 ? "D3D9 read refused, no comparison" : agree ? "IDENTICAL to the game's own target this present"
                                                                    : "DIFFERS from the game's target",
              worst, (unsigned long long)g_shareCopies, (unsigned long long)g_shareAgree, (unsigned long long)g_shareChecks,
@@ -546,6 +585,13 @@ namespace {
 constexpr int kFpBins = 1400;                 // 20.0 .. 160.0 deg in 0.1
 uint32_t g_fpHist[2][kFpBins];
 uint64_t g_fpSeen[2], g_fpRefused[2];
+// 2026-10-07: THIS frame's world projection, for the layer's claim (present_tick.cpp DvrFovHandoff). The claim used
+// to follow the camera's FOV sensor (0x53c), which in dialogues and stores holds an intent the render ignores: a
+// conversation turning into a store claimed 50 deg over a scene drawn at 103 and the view shrank into a box. What the
+// draws themselves projected is the only honest claim; the dominant bin of the frame's world samples is it.
+uint32_t g_fpFrameHist[kFpBins];
+uint32_t g_fpFrameSeen = 0;
+std::atomic<float> g_fpFrameWorld{0.0f};      // the last completed frame's dominant world hfov, deg (0 = none drawn)
 bool     g_fpCrushed = false;
 DWORD    g_fpVpW = 0;
 uint32_t g_fpTick = 0;
@@ -567,6 +613,18 @@ void fp_sample() {
     const int b = (int)((deg - 20.0f) * 10.0f + 0.5f);
     if (b < 0 || b >= kFpBins) { ++g_fpRefused[cls]; return; }
     ++g_fpHist[cls][b]; ++g_fpSeen[cls];
+    if (!cls) { ++g_fpFrameHist[b]; ++g_fpFrameSeen; }
+}
+// The frame's dominant world projection so far (0 if no world draw was sampled). Render lane.
+float fp_frame_world() {
+    if (!g_fpFrameSeen) return 0.0f;
+    int best = -1;
+    for (int b = 0; b < kFpBins; ++b) if (g_fpFrameHist[b] && (best < 0 || g_fpFrameHist[b] > g_fpFrameHist[best])) best = b;
+    return best < 0 ? 0.0f : 20.0f + best * 0.1f;
+}
+void fp_frame_end() {
+    g_fpFrameWorld.store(fp_frame_world());
+    if (g_fpFrameSeen) { memset(g_fpFrameHist, 0, sizeof(g_fpFrameHist)); g_fpFrameSeen = 0; }
 }
 // The three busiest bins, "103.0 x812 (61%)".
 void fp_peaks(int cls, char* out, size_t n, int* top) {
@@ -671,7 +729,10 @@ void set_enabled(bool on, const char* who) {
 }
 bool enabled() { return g_on.load(); }
 void request(const char* who) { g_now.store(true); DVR_INFO("depthprobe: one read asked (%s)", who ? who : "?"); }
-void fgproj_tick_fwd() { fp_tick(); }
+void fgproj_tick_fwd() { fp_tick(); fp_frame_end(); }
+// The world projection of the frame being presented: this frame's draws if any were sampled, else the last
+// completed frame's. 0 = nothing drawn in perspective (menus, loads). Render lane, read at the present.
+float fgproj_frame_world_hfov_deg() { const float live = fp_frame_world(); return live > 0.0f ? live : g_fpFrameWorld.load(); }
 bool command(const char* args) {
     if (args && !_stricmp(args, "fgmask on"))  { fgmask_set(true, "the seam"); return true; }
     if (args && !_stricmp(args, "fgmask off")) { fgmask_set(false, "the seam"); return true; }
@@ -679,6 +740,14 @@ bool command(const char* args) {
     if (args && !_stricmp(args, "fgproj off")) { g_fpOn = false; DVR_INFO("fgproj: off (the seam)"); return true; }
     if (args && !_stricmp(args, "share on")) { set_share(true, "the seam"); return true; }
     if (args && !_stricmp(args, "share off")) { set_share(false, "the seam"); return true; }
+    if (args && !_strnicmp(args, "share check", 11)) {   // `depthprobe share check [n|always]`: n more checks (default 1)
+        const char* a = args + 11;
+        while (*a == ' ') ++a;
+        if (!_stricmp(a, "always")) set_share_checks(-1, "the seam");
+        else if (!*a) { g_shareChecksLeft.store(1); DVR_INFO("depthshare: one more check asked for (the seam)"); }
+        else set_share_checks(atoi(a), "the seam");
+        return true;
+    }
     if (args && !_stricmp(args, "on")) set_enabled(true, "the seam");
     else if (args && !_stricmp(args, "off")) set_enabled(false, "the seam");
     else request("the seam");

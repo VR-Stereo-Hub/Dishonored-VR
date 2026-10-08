@@ -22,6 +22,7 @@
 // missing or refused leaves the normal path running and says why in the log.
 #pragma once
 #include <stdint.h>
+#include "core/gfx/upscaler_options.h"
 
 struct ID3D11Device;
 struct ID3D11DeviceContext;
@@ -71,10 +72,7 @@ int  model();
 // The model list F10 offers: each entry is a (model, preset) pair written to DlssModel/DlssPreset.
 // Preset 16 = NVIDIA's recommended preset per mode (K for DLAA/Ultra Quality/Quality/Balanced, M for
 // Performance, L for Ultra Performance), set explicitly so a runtime update cannot change it.
-struct ModelChoice { const char* name; int model; int preset; const char* tip; };
-const int kPresetPerMode = 16;
-extern const ModelChoice kModelChoices[];
-extern const int kModelChoiceCount;
+// ModelChoice and the shared preset table are in upscaler_options.h.
 int  model_choice();                  // index into kModelChoices for the current setting, -1 = a custom raw preset
 void set_model_choice(int i, const char* who);
 // Diagnostics off the per-frame path unless asked for: the vector audit and flow check
