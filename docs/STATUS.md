@@ -1,3 +1,26 @@
+## 2026-10-07: the grip takes what the engine focuses (claude/vr-N-grab-reticle, not merged)
+
+**Current state.** Reported: a grabbable the reticle is on cannot be taken by either grip. Read from
+the 1.0.3-137 log already on disk (no new run): the grip gate in `physical_pickup.cpp` required the
+engine's focus to be the mod's target, and the two were apart for seconds at a time - the target a
+usable whose box held the palm while the engine focused an elixir behind it, then the elixir dropped
+for 1 s after its own palm trace found nothing, while the pointing ray focused it again with no target.
+The gate now takes the grip for whatever listed thing the engine focuses within a palm's reach (one
+hand only), keeps a target while such a focus holds, and logs every refused grip with both pointers,
+their classes, the palm distance and the reason. The trace bridges are unchanged. ENGINE_NOTES
+("Physical pickup", 2026-10-07 bullet) has the measurement. Built (Release), NOT run.
+
+Installed on the dev PC over the 137 DLL the CorvoBody session had restored (its logs fill `.log` to
+`.prev6.log`; the 137 run is `.prev7.log`). The ini is byte-identical to the pre-CorvoBody backup
+(the 137 run's own, CRLF throughout) and this change adds no key, so it was kept as is. The DLSS
+helper in `dvr_dlss\` is still the 137 install's (this build was made without the NGX SDK).
+Backup of the DLL, ini and logs: `%LOCALAPPDATA%\DishonoredVR\backups\2026-10-07-pre-grab-reticle`.
+
+**Next.** In the headset with this build: the elixir-in-a-cabinet case or any coin under the reticle.
+Grip with the prompt showing; the line to read is `pickup: ... grip pressed with the target in reach
+and focused` (taken) or `pickup: ... grip NOT taken - <why>` (refused, with the values). The beat's
+`gate passes on a focus that is not the target` says how often the new path fired.
+
 ## 2026-10-07: the layer's claim and the spyglass zoom (claude/fov-claim-zoom, stacked on #190, not merged)
 
 **Current state.** Two reports from the same run, one cause. (1) A conversation turning into Piero's
