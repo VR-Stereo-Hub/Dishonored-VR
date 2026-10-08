@@ -581,6 +581,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
                     // in the 2 s before this stall (the periodic xrEndFrame hitch).
                     dvr::d3d9ex::stream_log_recent("gap", 20);
                     dvr::gpu_memory::log_now("gap");
+                    dvr::gpu_engine::request("gap");   // which PROCESS holds the GPU (its own thread, at most every 10 s)
                 } else {
                     ++gapHeld;
                     if (gp.ms >= 60.0f) ++gapHeld60;

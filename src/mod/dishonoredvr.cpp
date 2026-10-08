@@ -51,6 +51,7 @@
 #include "core/gfx/capture.h"
 #include "core/gfx/afw_warp.h"   // VR-39: `afw warp|body` on the seam
 #include "core/gfx/gpu_memory.h"
+#include "core/gfx/gpu_engine.h"   // who holds the GPU when a frame stalls (2026-10-07)
 #include "core/vr/hud_stub.h"
 #include "core/vr/xr_loader_log.h"   // the loader's own words in the log (the apilayer guard installs it)
 #include "core/ui/ovl_ui.h"

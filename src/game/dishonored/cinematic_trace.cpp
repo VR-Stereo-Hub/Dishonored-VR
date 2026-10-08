@@ -302,6 +302,8 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
     float animWeight=CtWeight(cam,0), playerWeight=CtWeight(cam,1), lookWeight=CtWeight(cam,2);
     const auto state=dvr::anim::snapshot();
     const int special=state.valid && g_specialHead.load()?dvr::cine::special_camera(state.state[0]):0;
+    static bool keyholeLogged=false;                // one push line per peek: re-armed by any tick outside one
+    if(special!=2) keyholeLogged=false;
     const bool scripted=state.valid && (dvr::scene_state::cinematic(state.state[0]) || special);
     const int kind=special?special:scripted?3:0;
     if(state.valid && g_chReference && (special || g_chKind==1 || g_chKind==2) && kind!=g_chKind)
@@ -363,7 +365,6 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
     // forward), so the door's heading is expressed in it: a head turned 30 deg away from the door
     // still moves the eye straight through the keyhole, not off to one side.
     float pos[3]={head.rawPosition[0],head.rawPosition[1],head.rawPosition[2]};
-    static bool keyholeLogged=false;
     if(special==2 && g_keyholeFwdCm.load()>0.0f) {
         const float kRad=6.2831853071795864769f/65536.0f;
         const float d=(float)(int16_t)(uint16_t)(authored[1]-g_chWritten[1])*kRad;
@@ -376,7 +377,7 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
                 g_keyholeFwdCm.load(),push,authored[1]*360.0f/65536,-d*57.29578f,
                 head.rawPosition[0],head.rawPosition[1],head.rawPosition[2]);
         }
-    } else if(special!=2) keyholeLogged=false;
+    }
     g_chScope=dvr::camera::begin_view_scope(cam,g_ctCache+g_ctPov+g_ctRot,g_chWritten,right,doubleDraw ? -1 : 0,ChValidate,true,pos);
     if (!g_chScope) { ++g_chRefused; ChReason("hold: scope write refused"); return; }
     g_chInputUntil=scripted ? now+100 : 0;

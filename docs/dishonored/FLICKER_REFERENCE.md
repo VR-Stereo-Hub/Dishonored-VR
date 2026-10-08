@@ -1,4 +1,4 @@
-## 2026-10-07: after a keyhole peek, one eye frozen and the other at a few fps - every xrEndFrame blocks ~85 ms for the rest of the session (MEASURED from the log; cause OPEN, outside the mod's present path by every counter it has)
+## 2026-10-07: after a keyhole peek, one eye frozen and the other at a few fps - every xrEndFrame blocks ~85 ms for the rest of the session (MEASURED from the log; cause OPEN, the mod NOT cleared; instrument built)
 
 1. **Symptom identity:** reported in the headset: on leaving a keyhole the RIGHT eye stayed frozen
    on one image while the LEFT kept rendering at a very low rate. Whole view, not hands or HUD.
@@ -14,13 +14,17 @@
    * Onset at present #17635, about 2.0 s INTO the second peek (38434.72 s), not at its exit: the
      first slow present blocked 84.0 ms in `xrEndFrame`; every present after it blocked 77-94 ms
      (12-13 display slots at 6.94 ms), `UNDER-SUBMITTING 0.08x`, out/s 141 -> 25 -> 11, until the
-     game was quit 17 s later. It continued in the pause menu with mono presents (tag +0), so it
-     is not afw's, the keyhole's or the stereo method's.
-   * The mod's own work did not change: present-thread `in` minus endFrame stayed 3-5 ms, draws
-     per present (SRT) 57-65 before and after, capture blit 0-1 us, every submit carried both eyes
-     (`staleEye L=0 R=0`, tags alternating -1/+1, afw full rebuilds on every submit). From the
-     mod's side both eyes were delivered every frame; the frozen right eye is downstream of
-     `xrEndFrame`.
+     game was quit 17 s later. It continued into the pause menu, whose presents went out UNTAGGED
+     (tag +0, `stereoSubmits=0`). RETRACTED the same day: this entry first read those as a normal
+     mono menu and used them to clear afw and the stereo method. The pause menu rides stereo on
+     this build, so untagged menu presents are themselves a fault, and nothing here clears the
+     mod.
+   * The mod's CPU-side work did not change: present-thread `in` minus endFrame stayed 3-5 ms,
+     draws per present (SRT) 57-65 before and after, capture blit 0-1 us, every gameplay submit
+     carried both eyes (`staleEye L=0 R=0`, tags alternating -1/+1, afw full rebuilds on every
+     submit). The bridge's D3D11 conversion stage held at about 5 ms of GPU time. What the log
+     CANNOT show: the afw rebuild's own GPU time (its beat line is cut by the log's line limit
+     before the GPU field) and which process held the GPU.
    * The whole GPU slowed: D3D9 render-to-entry 3.1 -> 11.4 -> 29.6 -> 37.3 -> 43.4 ms per present,
      and the DLSS helper (a separate x64 process) evaluate 2.27 -> 3.49 -> 6.26 ms per eye.
    * Head tracking stayed alive (locate generations advancing, head yaw up to 51 deg/s during the
@@ -28,17 +32,20 @@
      driver in 19:45-19:55; VDXR's `OpenXR.log` has nothing after 19:48:45. The same IPv6 bind error
      (Tcpip 4207) recurs every few minutes from 19:45, before and after the onset.
    * Not in any of the other nine logs on disk, four of which contain keyhole peeks.
-4. **Hypothesis and counterprediction:** the streamer or encoder side of Virtual Desktop stalled
-   (back-pressure in `xrEndFrame`, an eye's video stream frozen on the headset), taking GPU time
-   from every other process. Counterprediction: if it recurs, disconnecting and reconnecting the
-   VD stream WITHOUT restarting the game ends it; if the stall survives a reconnect, it is GPU or
-   driver state, and the mod becomes a suspect again. Not tested. The keyhole is the trigger only
-   by coincidence on this evidence: one occurrence, mid-peek, and the first peek clean.
-5. **Results:** read from the log only; nothing was changed for it and nothing ran.
-6. **Status:** OPEN, one occurrence. Next time: note the VD performance overlay (network, decoder,
-   encoder) when it happens, try the stream reconnect above, and copy the log before relaunching.
-   The keyhole view change built in the same session (`[Cine] KeyholeForwardCm`, eye pushed
-   through the keyhole) is unrelated to this stall.
+4. **Hypotheses and counterpredictions:** (a) the mod's own GPU work in this process (the D3D11
+   afw rebuild, compose, HUD and layer work, or the D3D9 frame it adds to) ran away during the peek
+   and stayed that way; (b) another process (the VD streamer's encoder, the DLSS helper) held the
+   GPU. They predict opposite readings of the new `gpu/engines` lines: under (a) this game's 3D
+   share is near the total; under (b) another process's is. The afw rebuild's GPU time now has its
+   own short line (`afw/warp: GPU per rebuild ...`). An earlier draft of this entry favoured (b) on
+   the strength of the mono-menu reading retracted above; that reading does not support it.
+5. **Results:** read from the log only. Built in the same session: `core/gfx/gpu_engine.cpp`
+   (per-process GPU engine utilization from Windows' counters, sampled on its own thread when a
+   frame gap is reported, at most every 10 s) and the afw GPU line. Not run.
+6. **Status:** OPEN, one occurrence, the mod not cleared. Next occurrence: the `gpu/engines` and
+   `afw/warp: GPU per rebuild` lines during the stall decide between (a) and (b); copy the log out
+   before relaunching. The keyhole view change built in the same session (`[Cine]
+   KeyholeForwardCm`) is not known to be related; it changes only the keyhole's eye position.
 
 ## 2026-10-05: afw flicker on a fast GPU at 120 Hz - capture timeouts at 2-4%, under the AutoDepth threshold (MEASURED from field logs; threshold lever built, headset pending)
 
@@ -3774,7 +3781,7 @@ pose metadata without reopening the disproved historical theories.
 | Hands and weapons flicker sideways in the RIGHT eye about once every second or two under AFW, after a new per-frame feature was added; `gates -> SINGLE draw (camera silent ...)` then `pushed eye -1 TWICE` at that rate | The game tick got slower: read `pe/cost` (us an event, mid ticks) against a session without the feature BEFORE looking at the eye path | 2026-10-05 HEADSET-CONFIRMED: the pickup scan (2.4 ms a tick, then 0.32 ms with slow frames) raised the rate from under 1 to 17-32 a minute; bounded to 60 us a frame it is back to 1.1 and no flicker is reported. `pickup/silent` prints the frames before each gate; top entry |
 | One eye lags and flickers sideways (world AND weapon) all the time on a slow GPU, since 1.0.2; `stereo: beat` lopsided with `none/s` ~25 | Capture waits time out and REFUSE (1.0.2, 1d2ee24a5); the refusals land on one eye | `TimeoutRefuse=0` REPORTED fixing the strong flicker (2026-10-03); `[Capture] AutoDepth` measured removing the hitch (2026-10-04); top entry |
 | Rare single one-eye flicker while moving sideways; ledger `TOOK` right after the same eye, then `pushed eye TWICE` | The c5 within-tick arm misreads a cross-tick step when the walk per tick is ~2 ipd | 2026-10-04 candidate `[Stereo] C5SameEyeGuard`, host-verified (599 -> 0 wrong eyes); headset pending; top entry |
-| One eye frozen, the other at a few fps, for the rest of the session (seen once, during a keyhole peek) | Not an eye-tag fault: `perf: frame gap ... sat in: present-tail (xrEndFrame)` at 80-90 ms on every present, `UNDER-SUBMITTING 0.08x`, mono presents too; mod-side counters flat | OPEN 2026-10-07, one occurrence; downstream of xrEndFrame by every counter; the VD-reconnect test decides (top entry) |
+| One eye frozen, the other at a few fps, for the rest of the session (seen once, during a keyhole peek) | `perf: frame gap ... sat in: present-tail (xrEndFrame)` at 80-90 ms on every present, `UNDER-SUBMITTING 0.08x`, the pause menu untagged though it rides stereo; read `gpu/engines` (whose GPU) and `afw/warp: GPU per rebuild` | OPEN 2026-10-07, one occurrence, the mod not cleared; instrument built (top entry) |
 | One eye appears frozen, swapped, or behind after pause/load/rearm | Tag-ring skew, capture freshness, c5 arbitration, or one-sided tag generation | VR-80 late-tag repair confirmed; distinct reload R/0 capture repair headset-confirmed on build 215 (18:01:15), latest record below. Residual generation/timing remains open |
 | Both near hands/weapons flash or lose disparity for a frame | Untagged mono image enters a stereo stream | `HoldUntagged=3` confirmed mitigation; burst generation remains open |
 | Both eyes go black for one frame | Texture-less present ends an XR frame without a scene layer | Previous-layer fallback implemented and historically confirmed |

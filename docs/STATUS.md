@@ -8,13 +8,16 @@ heading (expressed in the head-look scope's composed-yaw frame, so turning the h
 push sideways), on top of the head's own offset. 15 cm is a starting value, not a measured door
 depth. `camera/keyhole: peeking - eye pushed ...` logs it once per peek. (2) After a keyhole peek one
 eye froze and the other ran at a few fps: FLICKER_REFERENCE's top entry. Every `xrEndFrame` blocked
-about 85 ms from 2 s into the second peek until the game was quit, in mono menus too, while the mod's
-own counters stayed flat and both eyes went out on every submit; the GPU slowed for every process.
-OPEN, one occurrence, nothing changed for it. Built and installed, NOT run.
+about 85 ms from 2 s into the second peek until the game was quit; the pause menu, which rides stereo,
+went out untagged. The mod is NOT cleared (a first reading that took those menu presents as normal
+mono, and so cleared afw, was retracted). Nothing on disk says which process held the GPU or what the
+afw rebuild cost, so both are instrumented now: `gpu/engines (gap): ...` (per-process GPU engine
+utilization from Windows' counters, on its own thread when a frame gap is reported, at most every
+10 s, follows `[Perf] GpuMem`) and `afw/warp: GPU per rebuild ...`. Built and installed, NOT run.
 
 **Next.** In the headset: peek through a keyhole and set the slider until the door is behind the
-view; put the value in the ini default if 15 is wrong. If the stall recurs: reconnect the VD stream
-without restarting the game (the test in the FLICKER entry) and copy the log out first.
+view; put the value in the ini default if 15 is wrong. If the stall recurs: copy the log out before
+relaunching and read the `gpu/engines` and `afw/warp: GPU per rebuild` lines from inside the stall.
 ## 2026-10-07: the grip takes what the engine focuses (claude/grab-reticle, PR #194, not merged; the Linear ticket is owed)
 
 **Current state.** Reported: a grabbable the reticle is on cannot be taken by either grip. Read from
