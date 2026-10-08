@@ -155,9 +155,13 @@ static void OvlTabHands()
             bool torso = g_cbTorsoYaw;
             if (dvr::ovl::checkbox("Body faces the torso, not the head", &torso)) { g_cbTorsoYaw = torso; OvlSaveBool("CorvoBody", "TorsoYaw", torso); }
             OvlTip("Uses the arm IK's body yaw: glancing around does not turn the body, turning with your hands does.");
-            bool az = g_cbAnchorZ;
-            if (dvr::ovl::checkbox("Body height from the head too", &az)) { g_cbAnchorZ = az; OvlSaveBool("CorvoBody", "AnchorZ", az); }
-            OvlTip("Off keeps CorvoBody's own height (its crouch, slide and planted feet).");
+            int az = g_cbAnchorZ;
+            if (dvr::ovl::radio_button("Height: CorvoBody's", &az, 0)) { g_cbAnchorZ = 0; OvlSaveInt("CorvoBody", "AnchorZ", 0); }
+            ImGui::SameLine();
+            if (dvr::ovl::radio_button("the head's", &az, 1)) { g_cbAnchorZ = 1; OvlSaveInt("CorvoBody", "AnchorZ", 1); }
+            ImGui::SameLine();
+            if (dvr::ovl::radio_button("CorvoBody's, corrected standing", &az, 2)) { g_cbAnchorZ = 2; g_cbDzOk = false; OvlSaveInt("CorvoBody", "AnchorZ", 2); }
+            OvlTip("The head's height drops the legs through the floor in a crouch; the corrected one keeps CorvoBody's crouch and feet and only fixes the standing shoulder height.");
             dvr::ovl::slider_float("Body forward trim (cm)", &g_cbBodyFwdCm, -40.0f, 40.0f, "%.0f");
             OvlSaveOnRelease("CorvoBody", "BodyForwardCm", g_cbBodyFwdCm, "%.0f");
             dvr::ovl::slider_float("Body up trim (cm)", &g_cbBodyUpCm, -40.0f, 40.0f, "%.0f");

@@ -324,7 +324,7 @@ static void CbDrop(const char* why)
         CbReleaseControls();
     }
     for (int h = 0; h < 2; h++) { g_cbCtl[h] = NULL; g_cbArmLen[h] = 0.0f; }
-    for (int i = 0; i < 8; i++) g_cbBoneIdx[i] = -1;
+    for (int i = 0; i < 10; i++) g_cbBoneIdx[i] = -1;
     if (g_cbBody) Log("corvobody: body %p released (%s)", (void*)g_cbBody, why);
     g_cbBody = NULL; g_cbPawn = NULL; g_cbBodyName = 0; g_cbAppliedMode = 0; g_cbWidthDone = false;
     CbWhy(why);
@@ -424,8 +424,10 @@ static bool CbResolveBody(uint8_t* pawn, uint8_t* body)
             g_cbArmLen[h] = (a > 1.0f && b > 1.0f && a < 200.0f && b < 200.0f) ? a + b : 0.0f;
         } else g_cbArmLen[h] = 0.0f;
     }
-    static const char* boneNames[8] = { "hand_L_jnt", "hand_R_jnt", "shoulder_L_jnt", "shoulder_R_jnt", "upper_arm_L_jnt", "upper_arm_R_jnt", "lower_arm_L_jnt", "lower_arm_R_jnt" };
-    for (int i = 0; i < 8; i++) { g_cbBoneIdx[i] = CbMatchBone(body, boneNames[i]); g_cbNameIdx[i] = FindNameIdx(boneNames[i]); }
+    static const char* boneNames[10] = { "hand_L_jnt", "hand_R_jnt", "shoulder_L_jnt", "shoulder_R_jnt", "upper_arm_L_jnt", "upper_arm_R_jnt", "lower_arm_L_jnt", "lower_arm_R_jnt", "neck_jnt", "spine_3_jnt" };
+    for (int i = 0; i < 10; i++) { g_cbBoneIdx[i] = CbMatchBone(body, boneNames[i]); if (i < 8) g_cbNameIdx[i] = FindNameIdx(boneNames[i]); }
+    g_bcProbeUntil = MaimNowMs() + 6000.0; g_bcProbeN = 0;   // the render lane logs the big skinned draws it sees for 6 s
+    g_cbDzOk = false; g_cbDz = 0.0f;
     g_cbBody = body; g_cbPawn = pawn; g_cbBodyName = *(uint32_t*)(body + kNameOff);
     g_cbAppliedMode = CbEffectiveMode();
     CbApplyHides(body, g_cbAppliedMode, true);
@@ -651,7 +653,10 @@ static void CorvoRewriteParms(void* fn, void* parms)
     const float* cu = (const float*)(g_camObj + 0x70);
     const float* cp = (const float*)(g_camObj + 0x80);
     if (!(cf[0] == cf[0] && cf[1] == cf[1]) || (fabsf(cf[0]) + fabsf(cf[1])) < 1e-4f) return;
-    float head[3] = { cp[0] - cu[0]*g_crouchDropUU, cp[1] - cu[1]*g_crouchDropUU, cp[2] - cu[2]*g_crouchDropUU };
+    const float* crt = (const float*)(g_camObj + 0x60);
+    const float eye = (g_mpEyeOffset && g_mpEyeState) ? (float)g_mpEyeState * 0.5f * g_ipdM * (g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) : 0.0f;
+    float head[3];   // the camera object minus the crouch eye drop minus this eye's half-IPD (the arm IK's body origin does the same)
+    for (int i = 0; i < 3; i++) head[i] = cp[i] - cu[i]*g_crouchDropUU - crt[i]*eye;
     float viewYaw = atan2f(cf[1], cf[0]), delta = 0.0f;
     if (g_cbTorsoYaw) {
         unsigned long long ms = g_cbIkYawMs.load();
@@ -680,7 +685,17 @@ static void CorvoRewriteParms(void* fn, void* parms)
     float P1[3] = { C[0]-ro[0], C[1]-ro[1], C[2]-ro[2] };
     float rel[3] = { P1[0]-pawnLoc[0], P1[1]-pawnLoc[1], P1[2]-pawnLoc[2] }, T1[3];
     CbRotYaw(-pawnYaw, rel, T1);
-    if (!g_cbAnchorZ) T1[2] = theirs[2];
+    if (g_cbAnchorZ == 0) T1[2] = theirs[2];
+    else if (g_cbAnchorZ == 2) {
+        // CorvoBody's own height (its crouch, slide and planted feet) plus the correction that puts the
+        // shoulder centre where the IK fit says, learned only while standing and held through a crouch.
+        const float want = T1[2] - theirs[2];
+        if (!g_pawnCrouched && fabsf(g_crouchDropUU) < 1.0f) {
+            if (!g_cbDzOk) { g_cbDz = want; g_cbDzOk = true; }
+            else g_cbDz += (want - g_cbDz) * 0.05f;
+        }
+        T1[2] = theirs[2] + (g_cbDzOk ? g_cbDz : 0.0f);
+    }
     for (int i = 0; i < 3; i++) if (!(T1[i] == T1[i]) || fabsf(T1[i]) > 400.0f) return;   // leave theirs
     t[0] = T1[0]; t[1] = T1[1]; t[2] = T1[2];
     g_cbRewrites++;
@@ -746,10 +761,11 @@ static void CorvoTick()
     // arm geometry past the deltoid is cut at draw time (body_cut.cpp) and the stub that stays
     // follows the real arm's direction instead of the holstered swing. The point is this
     // dispatch's (ApplyHandToMesh ran just before); a stale or non-world point releases the arm.
+    const bool cutLive = g_bcN > 0;   // vr mode: the body's arms reach the hands only while they are cut to a stub (else they hang: four reaching arms were worse)
     for (int h = 0; h < 2; h++) {
         uint8_t* c = g_cbCtl[h];
         if (!c || !RangeReadable(c, g_cbOffEffSpace + 1)) continue;
-        bool fresh = g_cbHandMs[h] > 0.0 && (now - g_cbHandMs[h]) < 500.0;
+        bool fresh = g_cbHandMs[h] > 0.0 && (now - g_cbHandMs[h]) < 500.0 && (mode == 2 || cutLive);
         if (!fresh || g_cbHandSpace[h] != 0 || dvr::anim::hand_owned(h)) {
             *(float*)(c + kSkcStr) = 0.0f; *(float*)(c + g_cbOffStrT) = 0.0f;
             if (fresh && g_cbHandSpace[h] != 0 && now - g_cbLogMs > 5000.0) {
@@ -849,7 +865,11 @@ static void CorvoConfigure(const char* ini)
     if (g_cbReach < 0.0f) g_cbReach = 0.0f;
     if (g_cbReach > 1.2f) g_cbReach = 1.2f;
     g_cbHeadAnchor = IniFloat(ini, "CorvoBody", "HeadAnchor", 1) != 0.0f;
-    g_cbAnchorZ    = IniFloat(ini, "CorvoBody", "AnchorZ", 1) != 0.0f;
+    g_cbAnchorZ    = (int)IniFloat(ini, "CorvoBody", "AnchorZ", 2);
+    if (g_cbAnchorZ < 0 || g_cbAnchorZ > 2) g_cbAnchorZ = 2;
+    g_bcNeckCut    = IniFloat(ini, "CorvoBody", "NeckCut", 1) != 0.0f;
+    g_bcNeckUu     = IniFloat(ini, "CorvoBody", "NeckCutUu", 0.0f);
+    if (g_bcNeckUu < -30.0f) g_bcNeckUu = -30.0f; if (g_bcNeckUu > 30.0f) g_bcNeckUu = 30.0f;
     g_bcOn         = IniFloat(ini, "CorvoBody", "ArmCut", 1) != 0.0f;
     g_bcRadius     = IniFloat(ini, "CorvoBody", "ArmCutRadiusUu", 12.0f);
     g_bcStartUu    = IniFloat(ini, "CorvoBody", "ArmCutStartUu", 11.0f);
@@ -868,7 +888,7 @@ static void CorvoConfigure(const char* ini)
     char key[32] = ""; GetPrivateProfileStringA("Overlay", "Key", "", key, sizeof(key), ini);
     g_cbOverlayVk = CbParseKey(key);
     if (key[0] && !g_cbOverlayVk) DVR_WARN("config: [Overlay] Key='%s' is not a key name this build knows (F1..F24, Insert, Delete, Home, End, Pause, ScrollLock, PageUp, PageDown, Backspace, Tab) - default used", key);
-    Log("config: [CorvoBody] ArmCut=%d radius %.0f start %.0f minVerts %d", (int)g_bcOn, g_bcRadius, g_bcStartUu, g_bcMinArm);
+    Log("config: [CorvoBody] ArmCut=%d radius %.0f start %.0f minVerts %d NeckCut=%d NeckCutUu=%.0f", (int)g_bcOn, g_bcRadius, g_bcStartUu, g_bcMinArm, (int)g_bcNeckCut, g_bcNeckUu);
     Log("config: [CorvoBody] Enabled=%d ArmMode=%s HeadAnchor=%d AnchorZ=%d TorsoYaw=%d Body fwd/right/up cm %.1f/%.1f/%.1f MatchShoulderWidth=%d "
         "HideBodyHands=%d ArmStrength=%.2f ReachClamp=%.2f; [Overlay] Key=%s - acts only when the CorvoBody mod (Nexus 453) is next to the exe",
         (int)g_cbEnabled, g_cbArmMode == 0 ? "auto" : g_cbArmMode == 1 ? "vr" : "body", (int)g_cbHeadAnchor, (int)g_cbAnchorZ, (int)g_cbTorsoYaw,
@@ -890,6 +910,7 @@ static void CorvoStatus(dvr::status::Writer& w)
     w.kv("placements", (unsigned long)g_cbPlacements);
     w.kv("rewrites", (unsigned long)g_cbRewrites);
     w.kv("jointOffOk", g_cbShoulderOffOk);
+    w.kv("dzUu", (double)g_cbDz);
     w.kv("bodyYawDeg", (double)g_cbLastYawDeg);
     w.kv("ikDeltaDeg", (double)g_cbLastDeltaDeg);
     w.kv("shoulderCm", (double)g_cbShoulderCm);

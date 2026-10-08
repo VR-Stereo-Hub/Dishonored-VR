@@ -30,7 +30,15 @@ build, for CorvoBody too) and the body's upper-arm joints sat at eye height. 2.3
 `hands/body_cut.cpp` draws the body without its arms at draw time (recognised by the shader's
 LocalToWorld, classified against the RefSkeleton arm chains, 3,572 triangles dropped on the PSK, verified
 in Blender with `tools/blender/cut_preview.py`); AnchorZ=1 default; the author gave permission
-(Nexus message, 2026-10-07) to modify and redistribute; his 1.2 is due. CorvoBody.ini on the dev
+(Nexus message, 2026-10-07) to modify and redistribute; his 1.2 is due. 2.3 ran: NO `bodycut:` line (the
+cutter never recognised the body's draw), the body's own arms reached the hands beside the IK arms (four
+hands), the user looked down into the collar ring (the AFW capture in dumpsfw-20261007-190631 shows it),
+the head sat a little to the right, and a crouch put the legs through the floor. 2.4 (installed, not run):
+a 6 s draw probe after the body is found logs every big skinned draw with the shader's LocalToWorld
+against the component's (`bodycut/probe:`), identification thresholds 300; the body's arms are driven
+only while the cut is live; the head anchor subtracts this eye's half-IPD like the arm IK does; AnchorZ=2
+keeps CorvoBody's height plus a standing-learned correction; NeckCut=1 drops the geometry above the neck
+base once the cut works. CorvoBody.ini on the dev
 PC: `RigidCamera=0 HideBodyArms=0 TurnStepThreshold=45` (three bytes from the author's). NOT RUN.
 
 **Next steps.** Run it. In `dishonored_vr.log`: `corvobody: offsets resolved and cross-checked`

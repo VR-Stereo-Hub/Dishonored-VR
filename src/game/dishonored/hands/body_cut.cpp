@@ -71,6 +71,15 @@ static bool BcIsArm(const float* p, const float chain[2][4][3])
     return false;
 }
 
+// Above the base of the neck (the collar ring, the standing collar): dropped with NeckCut=1.
+// CorvoBody's own HideTorso hid bones with no vertices on them, so the ring was always there.
+static bool BcIsNeck(const float* p)
+{
+    if (!g_bcNeckCut) return false;
+    float d[3] = { p[0]-g_bcNeck[0], p[1]-g_bcNeck[1], p[2]-g_bcNeck[2] };
+    return d[0]*g_bcNeckUp[0] + d[1]*g_bcNeckUp[1] + d[2]*g_bcNeckUp[2] > g_bcNeckUu - 2.0f;
+}
+
 static void BcQMul(const float* a, const float* b, float* o)
 {   // (x,y,z,w)
     o[0] = a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1];
@@ -91,8 +100,9 @@ static void BcQRot(const float* q, const float* v, float* o)
 // ParentIndex 60, Color 64) and REFUSED unless the names at the indices MatchRefBone gave and the
 // parent chain (hand -> lower arm -> upper arm -> shoulder) read as expected. `variant` picks the
 // quaternion convention: bit 0 conjugates the root, bit 1 conjugates every child.
-static bool BcRefChain(uint8_t* body, int variant, float out[2][4][3], char* why, size_t whyN)
+static bool BcRefChain(uint8_t* body, int variant, float out[2][4][3], float* neckOut, float* neckUpOut, bool* neckOk, char* why, size_t whyN)
 {
+    *neckOk = false;
     if (!RangeReadable(body + g_cbOffSkelMesh, 4)) { _snprintf(why, whyN, "body unreadable"); return false; }
     uint8_t* mesh = *(uint8_t**)(body + g_cbOffSkelMesh);
     if (!mesh || !RangeReadable(mesh + 0xEC, 12)) { _snprintf(why, whyN, "SkeletalMesh unreadable"); return false; }
@@ -133,6 +143,13 @@ static bool BcRefChain(uint8_t* body, int variant, float out[2][4][3], char* why
             BcQMul(wq[par], q, wq[b]);
         }
     }
+    // the neck joint and the spine direction for the neck cut (indices 8, 9 may be -1: then no neck cut)
+    if (g_cbBoneIdx[8] >= 0 && g_cbBoneIdx[8] < num && g_cbBoneIdx[9] >= 0 && g_cbBoneIdx[9] < num) {
+        memcpy(neckOut, wp[g_cbBoneIdx[8]], 12);
+        float up[3] = { wp[g_cbBoneIdx[8]][0]-wp[g_cbBoneIdx[9]][0], wp[g_cbBoneIdx[8]][1]-wp[g_cbBoneIdx[9]][1], wp[g_cbBoneIdx[8]][2]-wp[g_cbBoneIdx[9]][2] };
+        float L = sqrtf(up[0]*up[0] + up[1]*up[1] + up[2]*up[2]); if (L < 1e-3f) L = 1.0f;
+        neckUpOut[0] = up[0]/L; neckUpOut[1] = up[1]/L; neckUpOut[2] = up[2]/L; *neckOk = true;
+    } else *neckOk = false;
     int chain[2][3] = { { iUpL, iLoL, iHandL }, { iUpR, iLoR, iHandR } };
     for (int arm = 0; arm < 2; arm++) {
         for (int j = 0; j < 3; j++) memcpy(out[arm][j], wp[chain[arm][j]], 12);
@@ -183,8 +200,9 @@ static bool BcBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex, UINT n
         if (ibOff + ibLen > id.Size || vbOff + vbLen > vd.Size) { BcWhy("refused: draw range past the buffers"); break; }
         // the chain: compose the four conventions, the vertex buffer picks
         float chains[4][2][4][3]; bool chainOk[4]; char why[160] = "";
+        float necks[4][3], neckUps[4][3]; bool neckOks[4];
         int anyOk = 0;
-        for (int v = 0; v < 4; v++) { chainOk[v] = BcRefChain(g_cbBody, v, chains[v], why, sizeof(why)); anyOk += chainOk[v]; }
+        for (int v = 0; v < 4; v++) { chainOk[v] = BcRefChain(g_cbBody, v, chains[v], necks[v], neckUps[v], &neckOks[v], why, sizeof(why)); anyOk += chainOk[v]; }
         if (!anyOk) { char w2[200]; _snprintf(w2, sizeof(w2), "refused: RefSkeleton - %s", why); w2[sizeof(w2)-1] = 0; BcWhy(w2); break; }
         void* p = NULL;
         const DWORD vbFlag = (vd.Usage & D3DUSAGE_WRITEONLY) ? 0 : D3DLOCK_READONLY;
@@ -207,10 +225,16 @@ static bool BcBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex, UINT n
             chains[best][0][0][0], chains[best][0][0][1], chains[best][0][0][2], chains[best][0][1][0], chains[best][0][1][1], chains[best][0][1][2],
             chains[best][0][2][0], chains[best][0][2][1], chains[best][0][2][2]);
         if (counts[best] < 200) { vb->Unlock(); BcWhy("refused: no convention places the arm chains in the vertex buffer (fewer than 200 arm vertices)"); break; }
+        if (neckOks[best]) { memcpy(g_bcNeck, necks[best], 12); memcpy(g_bcNeckUp, neckUps[best], 12); }
+        const bool neck = g_bcNeckCut && neckOks[best];
+        int neckN = 0;
         for (UINT i = 0; i < numVertices; i++) {
             const float* pos = (const float*)((const uint8_t*)p + (size_t)i * stride + posOff);
             armv[i] = BcIsArm(pos, chains[best]) ? 1 : 0;
+            if (neck && !armv[i] && BcIsNeck(pos)) { armv[i] = 2; neckN++; }
         }
+        Log("bodycut: neck cut %s: %d vertices above the neck base (neck joint %.1f %.1f %.1f, up %.2f %.2f %.2f, offset %.0f)",
+            neck ? "on" : "off", neckN, g_bcNeck[0], g_bcNeck[1], g_bcNeck[2], g_bcNeckUp[0], g_bcNeckUp[1], g_bcNeckUp[2], g_bcNeckUu);
         vb->Unlock(); p = NULL;
         memcpy(g_bcChain, chains[best], sizeof(g_bcChain)); g_bcChainOk = true; g_bcChainVariant = best; g_bcArmVerts = counts[best];
         if (FAILED(ib->Lock(ibOff, ibLen, &p, ibFlag)) || !p) { BcWhy("refused: the index buffer would not lock"); break; }
@@ -226,7 +250,7 @@ static bool BcBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex, UINT n
             for (int k = 0; k < 3; k++) {
                 uint32_t vi = idx[t*3 + k];
                 if (vi < minIndex || vi - minIndex >= numVertices) { oob = true; break; }
-                arm += armv[vi - minIndex];
+                arm += armv[vi - minIndex] ? 1 : 0;
             }
             if (oob) { bad++; }
             if (!oob && arm >= g_bcMinArm) { dropped++; continue; }
@@ -285,13 +309,25 @@ static bool BodyCutDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     }
     if (g_bcN >= 4 || g_bcRefused) return false;
     // identification: a big skinned draw whose LocalToWorld is the body's
-    if (numVertices < 1000 || primCount < 1000) return false;
+    if (numVertices < 300 || primCount < 300) return false;
     if (!RangeReadable(body + 0x60 + 48, 12)) return false;
     PcRefreshLayout(dev);
-    if (g_pcLayL2W < 0) return false;
-    float l2w[16];
-    if (FAILED(dev->GetVertexShaderConstantF((UINT)g_pcLayL2W, l2w, 4))) return false;
+    const double nowMs = MaimNowMs();
+    const bool probe = nowMs < g_bcProbeUntil && g_bcProbeN < 40;
+    float l2w[16] = { 0 };
+    const bool haveL2w = g_pcLayL2W >= 0 && SUCCEEDED(dev->GetVertexShaderConstantF((UINT)g_pcLayL2W, l2w, 4));
     const float* bodyT = (const float*)(body + 0x60 + 48);
+    if (probe) {
+        // The census that says WHY a body draw is or is not recognised: every big draw for 6 s
+        // after the body is found, with the shader's LocalToWorld against the component's.
+        IDirect3DVertexDeclaration9* dcl = NULL; UINT posOff = 0xffffffffu; bool skinned = false;
+        if (SUCCEEDED(dev->GetVertexDeclaration(&dcl)) && dcl) { skinned = BcPositionOff(dcl, &posOff); dcl->Release(); }
+        g_bcProbeN++;
+        Log("bodycut/probe: draw %u verts / %u tris base %d min %u start %u: %s, POSITION off %d, L2W reg %d %s (%.1f %.1f %.1f) vs body (%.1f %.1f %.1f)",
+            numVertices, primCount, baseVertex, minIndex, startIndex, skinned ? "skinned" : "not skinned or no FLOAT3 position", (int)posOff,
+            g_pcLayL2W, haveL2w ? "read" : "unavailable", l2w[12], l2w[13], l2w[14], bodyT[0], bodyT[1], bodyT[2]);
+    }
+    if (!haveL2w) return false;
     float d[3] = { l2w[12]-bodyT[0], l2w[13]-bodyT[1], l2w[14]-bodyT[2] };
     if (fabsf(d[0]) > 1.5f || fabsf(d[1]) > 1.5f || fabsf(d[2]) > 1.5f) return false;
     g_bcIdentTries++;

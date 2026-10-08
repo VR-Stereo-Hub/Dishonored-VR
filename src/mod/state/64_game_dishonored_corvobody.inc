@@ -8,7 +8,14 @@ static bool     g_cbHideHands = true;    // body mode: hide the body's hand bone
 static float    g_cbStrength  = 1.0f;    // body mode: the arm controls' ControlStrength
 static float    g_cbReach     = 0.98f;   // body mode: effector kept within this fraction of the arm's length (0 = off)
 static bool     g_cbHeadAnchor = true;   // [CorvoBody] HeadAnchor: the body's shoulders sit on the arm IK's shoulder centre (head-relative, body yaw)
-static bool     g_cbAnchorZ   = true;    // [CorvoBody] AnchorZ: the height from the head too (measured 2026-10-07: CorvoBody's own placement put the shoulder joints AT eye height); 0 = CorvoBody's own height
+static int      g_cbAnchorZ   = 2;       // [CorvoBody] AnchorZ: 0 = CorvoBody's own height; 1 = the head's (dropped the legs through the floor in a crouch, 2026-10-07); 2 = CorvoBody's height plus a correction learned while standing (its placement put the shoulder joints AT eye height)
+static float    g_cbDz        = 0.0f;    // AnchorZ=2: the standing correction (uu), smoothed
+static bool     g_cbDzOk      = false;
+static bool     g_bcNeckCut   = true;    // [CorvoBody] NeckCut: geometry above the base of the neck (the collar ring, the standing collar) is dropped too
+static float    g_bcNeckUu    = 0.0f;    // [CorvoBody] NeckCutUu: the cut plane moved up (+) or down (-) from the neck joint
+static float    g_bcNeck[3] = { 0, 0, 0 }, g_bcNeckUp[3] = { 0, 0, 1 };   // the chosen convention's neck joint and spine direction
+static double   g_bcProbeUntil = 0.0;    // render lane logs every big skinned draw until this time (set when a body is found)
+static int      g_bcProbeN = 0;
 static bool     g_cbTorsoYaw  = true;    // [CorvoBody] TorsoYaw: the body faces the arm IK's body yaw (25 deg deadzone to the head), 0 = the head
 static float    g_cbBodyFwdCm = 0.0f;    // [CorvoBody] BodyForwardCm / BodyRightCm / BodyUpCm: trims on top of the IK shoulder centre
 static float    g_cbBodyRightCm = 0.0f;
@@ -27,7 +34,7 @@ static uint8_t* g_cbBody      = NULL;    // their visible SkeletalMeshComponent 
 static uint32_t g_cbBodyName  = 0;       // its name index (identity, with IsLiveObject)
 static uint8_t* g_cbCtl[2]    = { NULL, NULL };   // SkelControlLimb hand_L_jnt / hand_R_jnt on that body
 static float    g_cbArmLen[2] = { 0.0f, 0.0f };   // upper arm + forearm segment lengths (uu), measured once per body
-static int      g_cbBoneIdx[8] = { -1, -1, -1, -1, -1, -1, -1, -1 };   // hand_L, hand_R, shoulder_L, shoulder_R, upper_arm_L, upper_arm_R, lower_arm_L, lower_arm_R (MatchRefBone)
+static int      g_cbBoneIdx[10] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };   // hand_L, hand_R, shoulder_L, shoulder_R, upper_arm_L, upper_arm_R, lower_arm_L, lower_arm_R, neck, spine_3 (MatchRefBone)
 static uint32_t g_cbNameIdx[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };          // the same eight, as GNames indices (for the render lane's RefSkeleton read)
 // The body's arms cut at draw time (hands/body_cut.cpp, render lane)
 static bool     g_bcOn = true;           // [CorvoBody] ArmCut
