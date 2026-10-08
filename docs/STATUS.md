@@ -24,7 +24,13 @@ per-tick transform write and the chain's second write both reached the engine an
 disagreed. 2.2 (installed, not run): the placement rides CorvoBody's own SetTranslation/SetRotation
 call (its parameters rewritten in the ProcessEvent hook), one update per tick; the anchor is the
 upper-arm joint midpoint (shoulder_X_jnt are the clavicle roots, 21.5 cm apart; the IK width is
-matched to the upper-arm spacing instead). CorvoBody.ini on the dev
+matched to the upper-arm spacing instead). 2.2 ran: placement right, arms still there, torso still clipping;
+the scan proved no BoneVisibilityStates array exists on the component (bone hiding is a no-op in this
+build, for CorvoBody too) and the body's upper-arm joints sat at eye height. 2.3 (installed, not run):
+`hands/body_cut.cpp` draws the body without its arms at draw time (recognised by the shader's
+LocalToWorld, classified against the RefSkeleton arm chains, 3,572 triangles dropped on the PSK, verified
+in Blender with `tools/blender/cut_preview.py`); AnchorZ=1 default; the author gave permission
+(Nexus message, 2026-10-07) to modify and redistribute; his 1.2 is due. CorvoBody.ini on the dev
 PC: `RigidCamera=0 HideBodyArms=0 TurnStepThreshold=45` (three bytes from the author's). NOT RUN.
 
 **Next steps.** Run it. In `dishonored_vr.log`: `corvobody: offsets resolved and cross-checked`

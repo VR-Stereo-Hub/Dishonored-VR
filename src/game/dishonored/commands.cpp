@@ -891,6 +891,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.obj("frameid"); dvr::frameid::status(w); w.end_obj();   // 41.1 (session 9): the frame-identity trace
     w.obj("camera"); dvr::camera::status(w); w.end_obj();
     w.obj("corvobody"); CorvoStatus(w); w.end_obj();   // CorvoBody (Nexus 453): the shoulder attach
+    w.obj("bodycut"); BodyCutStatus(w); w.end_obj();   // CorvoBody: the body drawn without its arms
     w.obj("draws"); dvr::hudclass::status(w); w.end_obj();   // VR-117: the HUD draw census
     w.obj("hud"); dvr::hudcap::status(w); w.end_obj();       // VR-117: the redirect and the layout
     { const dvr::vr::HudQuadStats hq = dvr::vr::hud_quad_stats(); w.obj("hudQuads"); w.kv("submitted", (unsigned long)hq.submitted);

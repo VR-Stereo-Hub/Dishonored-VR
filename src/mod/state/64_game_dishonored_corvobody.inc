@@ -8,7 +8,7 @@ static bool     g_cbHideHands = true;    // body mode: hide the body's hand bone
 static float    g_cbStrength  = 1.0f;    // body mode: the arm controls' ControlStrength
 static float    g_cbReach     = 0.98f;   // body mode: effector kept within this fraction of the arm's length (0 = off)
 static bool     g_cbHeadAnchor = true;   // [CorvoBody] HeadAnchor: the body's shoulders sit on the arm IK's shoulder centre (head-relative, body yaw)
-static bool     g_cbAnchorZ   = false;   // [CorvoBody] AnchorZ: also take the height from the head (0 = CorvoBody's own height: crouch, slide, feet on the floor)
+static bool     g_cbAnchorZ   = true;    // [CorvoBody] AnchorZ: the height from the head too (measured 2026-10-07: CorvoBody's own placement put the shoulder joints AT eye height); 0 = CorvoBody's own height
 static bool     g_cbTorsoYaw  = true;    // [CorvoBody] TorsoYaw: the body faces the arm IK's body yaw (25 deg deadzone to the head), 0 = the head
 static float    g_cbBodyFwdCm = 0.0f;    // [CorvoBody] BodyForwardCm / BodyRightCm / BodyUpCm: trims on top of the IK shoulder centre
 static float    g_cbBodyRightCm = 0.0f;
@@ -27,7 +27,22 @@ static uint8_t* g_cbBody      = NULL;    // their visible SkeletalMeshComponent 
 static uint32_t g_cbBodyName  = 0;       // its name index (identity, with IsLiveObject)
 static uint8_t* g_cbCtl[2]    = { NULL, NULL };   // SkelControlLimb hand_L_jnt / hand_R_jnt on that body
 static float    g_cbArmLen[2] = { 0.0f, 0.0f };   // upper arm + forearm segment lengths (uu), measured once per body
-static int      g_cbBoneIdx[6] = { -1, -1, -1, -1, -1, -1 };   // hand_L, hand_R, shoulder_L, shoulder_R, upper_arm_L, upper_arm_R (MatchRefBone)
+static int      g_cbBoneIdx[8] = { -1, -1, -1, -1, -1, -1, -1, -1 };   // hand_L, hand_R, shoulder_L, shoulder_R, upper_arm_L, upper_arm_R, lower_arm_L, lower_arm_R (MatchRefBone)
+static uint32_t g_cbNameIdx[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };          // the same eight, as GNames indices (for the render lane's RefSkeleton read)
+// The body's arms cut at draw time (hands/body_cut.cpp, render lane)
+static bool     g_bcOn = true;           // [CorvoBody] ArmCut
+static float    g_bcRadius = 12.0f;      // [CorvoBody] ArmCutRadiusUu: a vertex this close to the arm chain is arm geometry (PSK census: all within 11.2)
+static float    g_bcStartUu = 11.0f;     // [CorvoBody] ArmCutStartUu: the first part of the upper arm stays (the deltoid; torso vertices sit there too)
+static int      g_bcMinArm = 2;          // [CorvoBody] ArmCutMinVerts: arm vertices a triangle needs to be dropped (1..3)
+static int      g_bcN = 0;               // contracts built for the current body
+static bool     g_bcRefused = false;
+static bool     g_bcChainOk = false;     // the reference-pose chains were composed and agreed with the vertex buffer
+static int      g_bcChainVariant = -1;   // which quaternion convention won
+static float    g_bcChain[2][4][3] = {};
+static uint8_t* g_bcBodyFor = NULL;      // the body the contracts belong to
+static long     g_bcDraws = 0, g_bcMisses = 0, g_bcIdentTries = 0;
+static int      g_bcDropped = 0, g_bcKept = 0, g_bcArmVerts = 0;
+static char     g_bcWhy[96] = "waiting for the body";
 static int      g_cbAppliedMode = 0;     // 1 vr (shoulders hidden), 2 body (hands hidden or not), 0 nothing applied yet
 static long     g_cbRehides   = 0;       // times a hide had to be re-issued (their UnHide on a weapon change)
 static int      g_cbShadowSeen = 0;      // HiddenGame copies that matched the mesh name (their shadow body)

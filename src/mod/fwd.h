@@ -874,3 +874,6 @@ static bool CorvoCommand(const char* args);
 static void CorvoArmModeSet(int mode, const char* who);
 static int  CbEffectiveMode();                             // 1 vr, 2 body (overlay)
 static void CorvoRewriteParms(void* fn, void* parms);      // ProcessEvent hook: their SetTranslation/SetRotation on the body carries our placement
+static bool BodyCutDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex, UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);   // hands/body_cut.cpp, render lane
+static void BodyCutStatus(dvr::status::Writer& w);
+static void BodyCutReset(const char* why);

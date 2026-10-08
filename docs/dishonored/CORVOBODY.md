@@ -306,7 +306,40 @@ toggles park and the overlay opens on Insert. Lanes: detection, lookup and body-
 in the ProcessEvent hook right after `ApplyHandToMesh`; the placement on the game thread in the
 Tick chain after CorvoBody; the IK publication on the render lane through two atomics.
 
-### 7b. The seam: the body's shoulder and our arm, at mesh level (not built)
+### 7b. The seam: the body's arms removed at draw time (BUILT 2026-10-07, not run)
+
+*The 2.2 run* placed the body correctly (their SetTranslation rewritten, 7 placements logged
+per 5 s, IK delta within a few degrees) but the arms stayed and the user still clipped into the
+torso. Two measurements decided the next build: the scan found NO byte array of bone-count
+length with 0..2 values anywhere on the component, so `BoneVisibilityStates` does not exist in
+this engine build and `HideBoneByName` is a no-op for everyone, CorvoBody's own hides included;
+and the first placements showed the body's upper-arm joints AT eye height (joint mid z 63, head
+z 63), so `AnchorZ=1` is now the default (the shoulders 25 cm below the eyes, as the IK fit says).
+
+*The cut* (`hands/body_cut.cpp`, render lane, `[CorvoBody] ArmCut=1`): the body's draws are
+recognised by the vertex shader's `LocalToWorld` constant (register from the shader's own
+constant table, as the palette capture does) against the body component's `LocalToWorld`
+(`UPrimitiveComponent+0x60`); the vertex and index windows are read once; a vertex is arm
+geometry when it lies within `ArmCutRadiusUu` (12) of the reference-pose polyline upper_arm ->
+lower_arm -> hand -> +20 uu of fingers of either arm and more than `ArmCutStartUu` (11) from the
+upper-arm joint along the arm; a triangle with `ArmCutMinVerts` (2) such vertices is dropped and
+the rest go into our index buffer, drawn in the game's place for every pass that uses the same
+buffers (depth and shadow included). The polylines are composed from the engine's own
+`USkeletalMesh::RefSkeleton` (+0xEC, 68-byte FMeshBone, names and parent chain verified at the
+indices `MatchRefBone` gave); the quaternion convention is not assumed: all four are composed
+and the one the vertex buffer agrees with (most vertices within the radius) is used and logged.
+No mesh data is shipped. Measured on the PSK with `tools/psk_arm_census.py` and shown with
+`tools/blender/cut_preview.py` (Blender, the same rule): 1,817 of 6,130 vertices are arm, zero
+torso vertices are misclassified, 3,572 of 11,646 triangles go, and 19-20 upper-arm vertices per
+side stay as the sleeve cap. Blender's bone heads equal the census composition exactly.
+
+The body's own arm IK keeps being driven with the hand point in vr mode too, so the sleeve cap
+follows the real arm direction instead of the holstered swing. The IK width is matched to the
+upper-arm joint spacing (45.7 cm on this rig) and the body is anchored on the upper-arm joint
+midpoint; `shoulder_X_jnt` (21.5 cm apart) are the clavicle roots.
+
+Earlier note, kept: a mesh-level cap for the sleeve is still open; the stub is what CorvoBody
+itself ships for `HideBodyArms` (which, measured, never worked either).
 
 `HideBoneByName(shoulder_X_jnt)` collapses the arm's vertices onto the shoulder joint: a
 pinched stump under the sleeve, acceptable at a glance and what CorvoBody itself ships for

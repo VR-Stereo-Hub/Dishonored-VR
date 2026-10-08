@@ -324,7 +324,7 @@ static void CbDrop(const char* why)
         CbReleaseControls();
     }
     for (int h = 0; h < 2; h++) { g_cbCtl[h] = NULL; g_cbArmLen[h] = 0.0f; }
-    for (int i = 0; i < 6; i++) g_cbBoneIdx[i] = -1;
+    for (int i = 0; i < 8; i++) g_cbBoneIdx[i] = -1;
     if (g_cbBody) Log("corvobody: body %p released (%s)", (void*)g_cbBody, why);
     g_cbBody = NULL; g_cbPawn = NULL; g_cbBodyName = 0; g_cbAppliedMode = 0; g_cbWidthDone = false;
     CbWhy(why);
@@ -424,8 +424,8 @@ static bool CbResolveBody(uint8_t* pawn, uint8_t* body)
             g_cbArmLen[h] = (a > 1.0f && b > 1.0f && a < 200.0f && b < 200.0f) ? a + b : 0.0f;
         } else g_cbArmLen[h] = 0.0f;
     }
-    static const char* boneNames[6] = { "hand_L_jnt", "hand_R_jnt", "shoulder_L_jnt", "shoulder_R_jnt", "upper_arm_L_jnt", "upper_arm_R_jnt" };
-    for (int i = 0; i < 6; i++) g_cbBoneIdx[i] = CbMatchBone(body, boneNames[i]);
+    static const char* boneNames[8] = { "hand_L_jnt", "hand_R_jnt", "shoulder_L_jnt", "shoulder_R_jnt", "upper_arm_L_jnt", "upper_arm_R_jnt", "lower_arm_L_jnt", "lower_arm_R_jnt" };
+    for (int i = 0; i < 8; i++) { g_cbBoneIdx[i] = CbMatchBone(body, boneNames[i]); g_cbNameIdx[i] = FindNameIdx(boneNames[i]); }
     g_cbBody = body; g_cbPawn = pawn; g_cbBodyName = *(uint32_t*)(body + kNameOff);
     g_cbAppliedMode = CbEffectiveMode();
     CbApplyHides(body, g_cbAppliedMode, true);
@@ -666,7 +666,7 @@ static void CorvoRewriteParms(void* fn, void* parms)
     while (relYaw < -3.14159265f) relYaw += 6.2831853f;
     if (fn == g_cbFnSetRot) {
         int32_t* r = (int32_t*)parms;
-        r[1] = (int32_t)(relYaw * kUEPerRad);
+        r[0] = 0; r[1] = (int32_t)(relYaw * kUEPerRad); r[2] = 0;   // upright: their copy of the 1P mesh rotation carried whatever pitch it had
         return;
     }
     float* t = (float*)parms;
@@ -742,9 +742,10 @@ static void CorvoTick()
         static double visMs = 0.0;
         if (now - visMs > 250.0) { visMs = now; CbApplyHides(g_cbBody, mode, false); }
     }
-    if (mode != 2) return;
-    // Body mode: the drive. The point is this dispatch's (ApplyHandToMesh ran just before);
-    // a stale or non-world point releases that arm back to CorvoBody's own animation.
+    // The drive, in BOTH modes: in body mode the body's arm reaches the hand; in vr mode the
+    // arm geometry past the deltoid is cut at draw time (body_cut.cpp) and the stub that stays
+    // follows the real arm's direction instead of the holstered swing. The point is this
+    // dispatch's (ApplyHandToMesh ran just before); a stale or non-world point releases the arm.
     for (int h = 0; h < 2; h++) {
         uint8_t* c = g_cbCtl[h];
         if (!c || !RangeReadable(c, g_cbOffEffSpace + 1)) continue;
@@ -848,7 +849,14 @@ static void CorvoConfigure(const char* ini)
     if (g_cbReach < 0.0f) g_cbReach = 0.0f;
     if (g_cbReach > 1.2f) g_cbReach = 1.2f;
     g_cbHeadAnchor = IniFloat(ini, "CorvoBody", "HeadAnchor", 1) != 0.0f;
-    g_cbAnchorZ    = IniFloat(ini, "CorvoBody", "AnchorZ", 0) != 0.0f;
+    g_cbAnchorZ    = IniFloat(ini, "CorvoBody", "AnchorZ", 1) != 0.0f;
+    g_bcOn         = IniFloat(ini, "CorvoBody", "ArmCut", 1) != 0.0f;
+    g_bcRadius     = IniFloat(ini, "CorvoBody", "ArmCutRadiusUu", 12.0f);
+    g_bcStartUu    = IniFloat(ini, "CorvoBody", "ArmCutStartUu", 11.0f);
+    g_bcMinArm     = (int)IniFloat(ini, "CorvoBody", "ArmCutMinVerts", 2);
+    if (g_bcRadius < 4.0f) g_bcRadius = 4.0f; if (g_bcRadius > 30.0f) g_bcRadius = 30.0f;
+    if (g_bcStartUu < 0.0f) g_bcStartUu = 0.0f; if (g_bcStartUu > 40.0f) g_bcStartUu = 40.0f;
+    if (g_bcMinArm < 1) g_bcMinArm = 1; if (g_bcMinArm > 3) g_bcMinArm = 3;
     g_cbTorsoYaw   = IniFloat(ini, "CorvoBody", "TorsoYaw", 1) != 0.0f;
     g_cbBodyFwdCm  = IniFloat(ini, "CorvoBody", "BodyForwardCm", 0.0f);
     g_cbBodyRightCm = IniFloat(ini, "CorvoBody", "BodyRightCm", 0.0f);
@@ -860,6 +868,7 @@ static void CorvoConfigure(const char* ini)
     char key[32] = ""; GetPrivateProfileStringA("Overlay", "Key", "", key, sizeof(key), ini);
     g_cbOverlayVk = CbParseKey(key);
     if (key[0] && !g_cbOverlayVk) DVR_WARN("config: [Overlay] Key='%s' is not a key name this build knows (F1..F24, Insert, Delete, Home, End, Pause, ScrollLock, PageUp, PageDown, Backspace, Tab) - default used", key);
+    Log("config: [CorvoBody] ArmCut=%d radius %.0f start %.0f minVerts %d", (int)g_bcOn, g_bcRadius, g_bcStartUu, g_bcMinArm);
     Log("config: [CorvoBody] Enabled=%d ArmMode=%s HeadAnchor=%d AnchorZ=%d TorsoYaw=%d Body fwd/right/up cm %.1f/%.1f/%.1f MatchShoulderWidth=%d "
         "HideBodyHands=%d ArmStrength=%.2f ReachClamp=%.2f; [Overlay] Key=%s - acts only when the CorvoBody mod (Nexus 453) is next to the exe",
         (int)g_cbEnabled, g_cbArmMode == 0 ? "auto" : g_cbArmMode == 1 ? "vr" : "body", (int)g_cbHeadAnchor, (int)g_cbAnchorZ, (int)g_cbTorsoYaw,

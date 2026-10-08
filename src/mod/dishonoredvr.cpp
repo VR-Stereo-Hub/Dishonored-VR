@@ -281,6 +281,7 @@
 #include "game/dishonored/aim_source.cpp"     // VR-166: who shares the power-aim helper
 #include "game/dishonored/rain_control.cpp"   // VR-136: after the trace's camera-cache layout
 #include "game/dishonored/corvobody.cpp"      // CorvoBody (Nexus 453): the body mod meets the VR hands at the shoulder
+#include "game/dishonored/hands/body_cut.cpp" // CorvoBody: the body drawn without its arms (render lane)
 #include "game/dishonored/stereo_occlusion.cpp"   // VR-79: per-eye occlusion culling
 #include "game/dishonored/delta_clamp.cpp"        // VR-39: AER's delta clamp; after cinematic_trace (identity helpers)
 #include "game/dishonored/trail_control.cpp"  // VR-171: the sword's swing trail; after anim_state and reflect
