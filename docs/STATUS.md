@@ -1,3 +1,13 @@
+## 2026-10-07: release 1.0.4
+
+**Current state.** `staging` carries #186-#191, #194 and #195 on top of 1.0.3; the owner declared
+1.0.4. `docs/RELEASE_NOTES.md` has the player-facing notes (full-arm IK first; fixes to features new
+in this release are not listed as fixes). The release PR #188 (staging -> VR-Main) is merged by the
+owner's instruction, the package is built from the VR-Main tip, tagged `v1.0.4` and published.
+Open after the release: the Heart desync after a wheel switch from the crossbow (contract never
+re-matched; see the keyhole entry below), and the Virtual Desktop decoder freeze (FLICKER_REFERENCE
+top entry). PR #192 (the grab-reticle brief) is superseded by #194.
+
 ## 2026-10-07: keyhole view pushed through the door; a post-keyhole stall recorded (claude/keyhole-peek, stacked on #194, not merged)
 
 **Current state.** Two reports from one run (v1.0.3-140-gf67e46430). (1) While peeking through a

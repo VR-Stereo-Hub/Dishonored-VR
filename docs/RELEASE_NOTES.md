@@ -1,61 +1,36 @@
 # Dishonored VR 1.0.4
 
 ## Full-arm IK
+- **Your whole arms now follow your controllers,** shoulders to fingers, instead of floating hands. It's on by default.
+- **The game still borrows your arms** for takedowns, chokes and climbing, then hands them back smoothly.
+- **Fit it to your body:** F10 > IK > *IK shoulder position and arm length*. Adjust shoulder height, depth and width, then arm length, until the virtual arm meets your hand.
+- Prefer floating hands? Turn **Full-arm IK** off in the same tab.
 
-- **Your whole arms now follow your controllers,** shoulders to fingers, instead of floating hands. It is on by default and works out of the box.
-- **The game still takes your arms for its own moves** (takedowns, chokes, climbing) and blends smoothly back to your hands afterwards.
-- **Set it up for your body (one minute):** press L3 + R3 (or F10) to open the menu, go to the **IK** tab and open **IK shoulder position and arm length**. Stand straight with your arms relaxed, then:
-  1. **Up / down** and **Forward / backward:** move the shoulders until they sit where yours are.
-  2. **Shoulder width:** widen or narrow until your elbows bend in the right place.
-  3. **Arm length:** stretch an arm out fully; the virtual arm should just reach your hand without stretching or bunching up.
-  4. Changes save on their own. **Reset IK adjustments** starts over.
-- Don't want it? Turn **Full-arm IK** off in the same tab to get the floating hands back.
-
-## Grab like Alyx
-
-- **Reach for things and squeeze the grip to take them:** coins, elixirs, keys and other loot, books and notes, doors, and things you can carry and throw (bottles, tanks, grenades, limbs). Levers, switches, valves and placed traps work the same way.
-- **Each hand grabs for itself:** the hand nearest an item takes it, and a book or note opens on the hand that grabbed it.
-- **Your hand gets ready:** close enough to grab, it opens and hides what it is holding, then closes into a fist when you squeeze.
-- **Carry in either hand:** whatever you pick up stays in the hand that grabbed it, and that hand's trigger throws it.
-- **It all lives in the new F10 > Interact tab,** including how far you can reach. The Interact button still works as before.
+## Grab things with your hands
+- **Reach out and squeeze the grip** to take loot, read books and notes, open doors, pull levers, and pick up things to throw.
+- **Each hand grabs for itself,** and your hand opens as it gets close. Settings are in the new F10 > Interact tab. The Interact button still works.
 
 ## New
-
-- **The Heart has a back:** it is a complete object now when you turn it in your hand.
-- **DLSS is a choice in the launcher** too (Off, DLSS or FSR, every quality mode and model), next to resolution.
-- **Cutscene arms (experimental):** keep your own arms in cutscenes and let the game take them only while it animates them. Off by default, in F10 Advanced.
-- **Capture setting for fast GPUs:** if one eye stutters about once a second with AFW, lower "Capture: deeper ring at timeouts" in F10 Display.
+- **The Heart is a complete object:** it has a back now.
+- **DLSS and FSR in the launcher,** next to resolution.
+- **Cutscene arms (experimental):** keep your own arms in cutscenes. Off by default, in F10.
 
 ## Improved
-
-- **A cleaner F10 menu:** grabbing has its own tab, button mapping is under Controls, every section starts closed and is named for what is in it, and test tools moved to Debug.
-- **DLSS defaults to the Transformer K model,** the sharpest one. The faster model is still in the list.
-- **Takedowns show the game's hands without the forearms** by default.
-- **Hands keep up better with fast head turns** in AFW.
-- **Crouch toggle is on by default.**
-- **Smoother hand-backs:** your hands ease into and out of the game's animations instead of snapping.
-- **Smoother AFW:** a small hitch every 5 seconds is gone.
-- **Your settings carry over.** The new defaults are applied once to an existing install; nothing else you set is changed.
+- **Keyhole peeking:** your view now goes through the keyhole instead of sitting inside the door. Adjustable in F10 > Comfort.
+- **The HUD sits more centred** by default.
+- **A cleaner F10 menu,** with grabbing on its own tab and test tools moved to Debug.
+- **Crouch toggle is on by default,** and **takedowns no longer show the game's forearms.**
+- **Smoother AFW:** a small hitch every 5 seconds is gone, and hands keep up better with fast head turns.
 
 ## Fixed
-
-- **One eye stuttering or lagging on slower GPUs** (since 1.0.2).
-- **A rare sideways flicker in one eye** of the hands and weapon while moving.
-- **SteamVR picked in the launcher but the game opening in Virtual Desktop** when Steam or the game ran as administrator.
-- **VR not starting at all** when ReShade's VR layer was installed on the PC.
-- **ReShade not starting** after installing it from the launcher, and F10 > ReShade listing every effect instead of your preset's (its settings now apply too).
-- **Objective marker text flickering** and HUD pieces splitting apart.
-- **The Heart's glow and the Possession and Blink effects sliding off your hand** while walking.
-- **The still arms pointing behind you on the opening boat ride** are hidden, whichever way you look.
-- **The view shrinking into a small box for a moment when a conversation turns into a shop.**
-- **The mask's zoom (the spyglass upgrade) works in VR**: hold the right controller at your right eye and pull the trigger, as if clicking the mask's lens, or tap the right stick. Press again to step or stop. It magnifies the view like a scope instead of shrinking the picture. All three are in F10 (Controls, and Display > Field of view) if you prefer the old behaviour.
-- **The view dropping to a flat rectangle for a second when you choose a merchant's shop** in the conversation.
-- **Shoulders in front of you during takedowns and scripted scenes** with full-arm IK: the game's arm now reaches back to your own shoulder (F10 > IK > Game arm stretch limit if it still shows, or looks too long).
-
-## Known issues
-
-- **A short hitch about every 6 seconds on Virtual Desktop** is the Wi-Fi link to the headset, not the game. A dedicated 5/6 GHz router or another channel is the thing to try.
-- ReShade presets that need depth still need non-manual ReShade mode. The mod's own spacewarp is still Debug-only.
+- **The mask's zoom (spyglass) now works in VR:** hold the right controller to your right eye and pull the trigger, or tap the right stick.
+- **One eye stuttering on slower GPUs** (since 1.0.2), and a rare sideways flicker in one eye.
+- **The view shrinking into a small box, or going flat,** when a conversation opens a shop.
+- **The still arms pointing behind you on the opening boat ride.**
+- **The Heart's glow, and the Blink and Possession effects, sliding off your hand** while walking.
+- **Objective text flickering** and HUD pieces splitting apart.
+- **SteamVR chosen in the launcher but Virtual Desktop opening** when the game ran as administrator.
+- **VR not starting** when ReShade's VR layer was installed, and **ReShade problems:** it now starts after a launcher install, and F10 shows and applies your preset.
 
 # Dishonored VR 1.0.3
 
