@@ -954,6 +954,10 @@ static void OvlTabComfort()
         bool specialHead = SpecialHeadEnabled();
         if (dvr::ovl::checkbox("Natural head look in lean / keyholes", &specialHead)) { SpecialHeadSet(specialHead); OvlSaveBool("Cine", "SpecialHeadLook", specialHead); }
         OvlTip("Keeps the game's peek position, and lets your head look around past the game's limits.");
+        float keyholeCm = KeyholeForwardCm();
+        if (dvr::ovl::slider_float("Keyhole view forward (cm)", &keyholeCm, 0.0f, 60.0f, "%.0f")) KeyholeForwardSet(keyholeCm);
+        OvlSaveOnRelease("Cine", "KeyholeForwardCm", KeyholeForwardCm(), "%.1f");
+        OvlTip("Moves your eyes forward through the keyhole while peeking, so you do not see the inside of the door. 0 = the game's own spot.");
         bool borders = CineBordersEnabled();
         if (dvr::ovl::checkbox("Hide cinematic black borders", &borders)) { CineBordersSet(borders); OvlSaveBool("Cine", "HideBorders", borders); }
         OvlTip("Removes the letterbox bars in scenes. The picture under them is really there.");

@@ -320,6 +320,8 @@ static float CineFovScopeTarget();
 static bool CineHeadOwnsInput();
 static bool SpecialHeadEnabled();
 static void SpecialHeadSet(bool on);
+static float KeyholeForwardCm();
+static void KeyholeForwardSet(float cm);
 static bool SpecialHeadResumeYaw(int32_t& delta);
 static void CineHeadNoteDispatch();
 static bool CineHeadDispatchFresh();

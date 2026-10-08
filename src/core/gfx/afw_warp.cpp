@@ -1035,6 +1035,16 @@ void beat() {
                  gpu, g_bodyDepth.load(), dvr::clarity::depth_scale() / g_worldScale.load(),
                  g_stereo.load() ? "" : " | fresh-eye source OFF (afw stereo off)");
     }
+    // 2026-10-07: the beat line above is cut by the log's line limit before its GPU field, so the
+    // rebuild's own GPU time was invisible during a stall. Its own short line.
+    if (warps) {
+        if (g_gpuN)
+            DVR_INFO("afw/warp: GPU per rebuild %.3f ms mean, %.3f max over %u timed (D3D11 timestamps around the rebuild)",
+                     g_gpuSum / g_gpuN, g_gpuMax, (unsigned)g_gpuN);
+        else
+            DVR_INFO("afw/warp: GPU per rebuild n/a - no timestamp query resolved this beat (%s)",
+                     g_tsOk ? "queries pending or disjoint" : "timing unavailable on this device");
+    }
     // Run 17: which classification the hands and weapon got (the beat line above is cut in the log before its end).
     if (g_maskDrawn + g_maskMissing + g_maskFg + g_maskNone + g_maskEmpty)
         DVR_INFO("afw/warp: foreground from the DRAWN mask on %u images, %u drawn masks EMPTY (not trusted: the depth "
