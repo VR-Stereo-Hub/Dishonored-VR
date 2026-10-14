@@ -1,3 +1,26 @@
+## 2026-10-14: a capacitive touch as a modifier that zeroes the move stick
+
+`[Controllers] DpadModifier=1` (right thumbrest) turned the left stick into D-pad presses and
+zeroed it whenever the rest read touched. On the owner's rig the rest reads touched about one
+second per session; on a tester's Quest 3 with Virtual Desktop it read touched 544 s of a 1252 s
+session in 123 segments, with the thumb on the stick the whole time by the tester's account. Every
+push to walk past 0.65 became `special=0x0001` and a zeroed stick: 83 presses, 31.5 s of dead
+stick, in the session reported as movement stopping at random (67 presses in the session before,
+29 in the one before that). The signal is a sensor next to the stick, and a sensor is not a
+gesture. The default is R3 now and a stored 1 migrates once (`[Meta] DefaultsRev` 5). The lesson:
+a modifier that takes the move stick must come from an input that cannot fire by itself, and the
+log must count how often it did - `pad/controls: ... held=1` transitions were the count, and
+nothing summed them until this bundle was read by hand.
+
+Same bundle, second trap: the motion wheel wrote the hand's direction into the left stick on the
+grip alone (`g_wheelHeld`), trusting the game to open its wheel and consume the stick. With no
+weapon yet (`primary=none` for the whole session) the game received `Dis_Wheel_Open` and showed
+nothing, and the stick carried the hand's direction at full deflection for every hold: the left
+grip walked the player wherever the hand pointed. The healthy signature is `ui/surface:
+context=Wheel` within 15-30 ms of `xbtn=0x0100`; its absence is a verdict, not silence, and
+`[Controllers] WheelOpenGraceMs` now acts on it (HUD_ANCHORS, the motion wheel). A lever that
+trusts the game to consume an input must check that the game did.
+
 ## 2026-10-07: a "rendered FOV" sensor that only echoes the render in gameplay
 
 `camera+0x53c` (`m_fCurFOV`) was the projection layer's claim because in plain gameplay it reads

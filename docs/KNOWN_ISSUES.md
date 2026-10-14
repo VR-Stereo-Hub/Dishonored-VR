@@ -1,5 +1,9 @@
 # Known issues
 
+- The D-pad modifier is the right stick click (R3) by default since the 2026-10-14 hotfix; while
+  it is, that click's health-elixir hold is taken. The launcher's Controller shortcuts page can put
+  a thumbrest back, with the risk described there (a thumbrest can read as touched while your
+  thumb is on the stick, which stops walking).
 - Full-arm IK is on by default and its reference data now ships inside the mod (1.0.4); a
   missing or incompatible reference still falls back to floating hands and reports the reason
   in the IK tab.

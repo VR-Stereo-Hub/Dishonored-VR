@@ -40,7 +40,7 @@ inline constexpr Preference kPreferences[] = {
     { L"VR", L"DesktopMirrorOff", L"--mirror", "Desktop mirror", 1, true },
     { L"Tracking", L"PhysicalCrouch", L"--physical-crouch", "Physical crouching", 1, false },
     { L"Rain", L"Hide", L"--hide-rain-overlay", "Hide close rain overlay", 0, false },
-    { L"Controllers", L"DpadModifier", L"--dpad-modifier", "D-pad modifier", 1, false },
+    { L"Controllers", L"DpadModifier", L"--dpad-modifier", "D-pad modifier", 2, false },   // R3 since 2026-10-14
     { L"Controllers", L"DpadFlip", L"--dpad-flip", "Use right stick for D-pad", 0, false },
     { L"Controllers", L"PauseChord", L"--pause-chord", "X + Y pause shortcut", 1, false },
     { L"Turning", L"SnapTurn", L"--snap-turn", "Snap turning", 0, false },   // VR-219; off = the game's smooth turn

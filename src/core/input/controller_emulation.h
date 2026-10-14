@@ -7,10 +7,14 @@
 namespace dvr::controller {
 // BioShock trilogy s63 numbering, adapted to Dishonored's held shortcuts.
 enum Modifier { Off=0, RightRest=1, R3=2, LeftRest=4 }; // value3 retired: grips stay gameplay inputs
-struct Config { int modifier=RightRest; bool flip=false, pauseChord=true; };
+// Default R3 (2026-10-14). A thumbrest is a capacitive touch: on a tester's Quest 3 rig the right
+// rest read touched 43% of the time with the thumb on the stick, so every push past the threshold
+// became a D-pad press and the stick was zeroed - "walking stops". A stick click is deliberate.
+// An ini still holding 1, the old shipped default, is moved once ([Meta] DefaultsRev 5).
+struct Config { int modifier=R3; bool flip=false, pauseChord=true; };
 inline Config normalize(Config c) {
     if(c.modifier==3)c.modifier=Off; // old grip configs must never steal the wheel
-    if(c.modifier<Off || c.modifier>LeftRest)c.modifier=RightRest;
+    if(c.modifier<Off || c.modifier>LeftRest)c.modifier=R3;
     if(c.modifier==RightRest)c.flip=false;
     if(c.modifier==LeftRest)c.flip=true;
     return c;
@@ -91,6 +95,29 @@ struct WheelOwnerRelease {
         if(!eligible){pending=false;return false;}
         if(!pending || now<since){pending=true;since=now;}
         return now-since>=250;
+    }
+};
+// The hand may steer the wheel's stick only while the game SHOWS its wheel. A fresh grip is
+// trusted on its own for graceMs - the wheel movie reports open within ~30 ms of the press when
+// it opens at all (measured 2026-10-07) - and past that a wheel the game refused (nothing to
+// select yet, a state that forbids it) leaves the sticks to gameplay. Before this a refused
+// wheel turned the hand's direction into locomotion: a tester in the prologue, no weapon yet,
+// walked wherever the hand pointed for as long as the grip was held (2026-10-14). No UI surface
+// to consult, or graceMs<=0, = trust the grip for as long as it is held (the 1.0.4 behaviour).
+struct WheelHandGate {
+    uint64_t since=0;
+    bool was=false, noted=false;
+    // justRefused: set once per press, on the poll where the grace ran out with no wheel on screen.
+    bool update(bool held,bool reported,bool surfaceKnown,uint64_t now,int graceMs,bool* justRefused=nullptr) {
+        if(justRefused)*justRefused=false;
+        if(held && !was){since=now;noted=false;}
+        was=held;
+        if(!held) return false;
+        if(reported) return true;
+        if(!surfaceKnown || graceMs<=0) return true;
+        if(now>=since && now-since<(uint64_t)graceMs) return true;
+        if(!noted){noted=true;if(justRefused)*justRefused=true;}
+        return false;
     }
 };
 // Final boundary after menu shaping: preserve native vertical menu scrolling,

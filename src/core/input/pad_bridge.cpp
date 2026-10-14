@@ -9,6 +9,19 @@
 #include <shlobj.h>   // VR-204: SHGetFolderPathA for the game's DishonoredInput.ini
 
 static dvr::controller::Composer g_controllerComposer;
+// 2026-10-14: [Controllers] WheelOpenGraceMs. The motion wheel's hand steering is trusted on the grip alone for this
+// long after the press; past it the game must be showing its wheel (ui/surface context=Wheel) or the sticks stay with
+// gameplay. A wheel the game refuses (no weapon or power yet) used to walk the pawn wherever the hand pointed for the
+// whole hold. 0 = trust the grip for as long as it is held (1.0.4). Policy: controller_emulation.h, WheelHandGate.
+static dvr::controller::WheelHandGate g_wheelHandGate;
+static std::atomic<int> g_wheelOpenGraceMs{250};
+static void WheelOpenGraceSet(int ms, const char* who) {
+    if (ms < 0) ms = 0;
+    g_wheelOpenGraceMs.store(ms);
+    Log("pad/wheel: [Controllers] WheelOpenGraceMs=%d (%s) - %s", ms, who,
+        ms ? "the hand steers the wheel's stick only while the game shows its wheel, once this grace has passed"
+           : "the grip alone is trusted for as long as it is held (the 1.0.4 behaviour)");
+}
 // 2026-10-07: [Controllers] ZoomTap. A TAP of the right stick click is the game's own zoom (the mask lens, the
 // "spyglass" upgrade: XboxTypeS_RightThumbstick -> GBA_Zoom -> Dis_Zoom, toggled inside m_fCurZoomToggleTime).
 // The click never reached the pad: the R3 D-pad modifier consumes it and the health elixir takes the hold, so a
@@ -563,8 +576,19 @@ static void UpdateVirtualPad()
     // the renderer to AGREE a menu is showing. A real menu is unchanged; a
     // ghost flag during stereo gameplay can no longer eat the sticks.
     const bool releasedWheel=dvr::controller::released_wheel(active,UiSurfaceWheel(),g_wheelHeld,g_menuOpen,CineActive());
+    // 2026-10-14: the grip alone owns the sticks only for WheelOpenGraceMs. A wheel the game refused (no weapon
+    // or power yet - the prologue; a state that forbids it) used to keep the hand's direction on the move stick
+    // for the whole hold, so the pawn walked wherever the hand pointed (a tester's log: 13 holds, up to 5 s,
+    // never a Wheel context). LB still reaches the game; only the hand's claim on the stick waits for the wheel.
+    bool wheelRefused=false;
+    const bool gripTrusted=g_wheelHandGate.update(active && g_wheelHeld,UiSurfaceWheel(),UiSurfaceEnabled(),
+        GetTickCount64(),g_wheelOpenGraceMs.load(),&wheelRefused);
+    if(wheelRefused)
+        Log("pad/wheel: the wheel grip has been held %d ms and the game has not shown its wheel (nothing to select "
+            "yet, or a state that forbids it) - the hand is NOT steering the stick; the sticks stay with gameplay "
+            "until the wheel shows ([Controllers] WheelOpenGraceMs)",g_wheelOpenGraceMs.load());
     const bool wheelInput = active && !releasedWheel && (UiSurfaceWheel() ||
-        (g_wheelHeld && !UiSurfaceBlocks() && !g_menuOpen && !CineActive()));
+        (g_wheelHeld && gripTrusted && !UiSurfaceBlocks() && !g_menuOpen && !CineActive()));
     float handX=0,handY=0; bool handSelected=false;
     dvr::hudlayout::wheel_input(active && g_wheelHeld, wheelInput && !g_ovlVisible,
                                handX,handY,handSelected);

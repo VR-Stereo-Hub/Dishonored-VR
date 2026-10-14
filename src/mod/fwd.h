@@ -796,6 +796,7 @@ static void MaimHaptic(int hand, float amp, float durSec);
 static void HealthElixirTick(bool held);
 static bool ZoomTapGet();                                      // 2026-10-07: [Controllers] ZoomTap (pad_bridge.cpp)
 static void ZoomTapSet(bool on, const char* who);
+static void WheelOpenGraceSet(int ms, const char* who);   // [Controllers] WheelOpenGraceMs (2026-10-14)
 static bool ZoomGestureGet();                                  // 2026-10-07: [Controllers] ZoomGesture (pad_bridge.cpp)
 static void ZoomGestureSet(bool on, const char* who);
 static void ZoomGestureRadiusSet(float cm, const char* who);

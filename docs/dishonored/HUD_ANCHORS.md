@@ -517,6 +517,17 @@ ignored on the wheel (also after the lean remap, which copies the right stick on
 axes), so the stick you run with cannot pick a wedge: `pad/wheel: sticks IGNORED while the motion
 wheel is up`. With the dial off the sticks still point.
 
+**The hand steers only while the game shows its wheel (2026-10-14).** `[Controllers]
+WheelOpenGraceMs` (250): the wheel grip alone is trusted for this long after the press; past it the
+UI surface must report the wheel (`ui/surface: context=Wheel`, which a healthy open does within
+15-30 ms of `pad: xbtn=0x0100`) or the sticks stay with gameplay and the dial closes. A wheel the
+game refuses (nothing to select yet: the prologue before the first weapon; a state that forbids it)
+used to keep the hand's direction on the move stick at full deflection for the whole hold, so the
+pawn walked wherever the hand pointed (a tester's log: 13 holds up to 5 s, never a Wheel context).
+The refusal is logged once per press: `pad/wheel: the wheel grip has been held 250 ms and the game
+has not shown its wheel`. 0 = the 1.0.4 behaviour (the grip alone owns the stick). Policy:
+`WheelHandGate` in `controller_emulation.h`, host-tested; ENGINE_NOTES 2026-10-14 has the evidence.
+
 **Where a draw's layer comes from.** In gameplay a HUD draw ends on one of two layers: the
 anchor its element rides (`window` for most rows here), or the game's own image (`frame`, or a
 native owner that returns -1 so the draw stays where the engine painted it: runes, awareness
