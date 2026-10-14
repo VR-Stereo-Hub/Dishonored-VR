@@ -284,19 +284,19 @@ void preferences_section(ViewState& v, bool controls = false)
     heading("Controller shortcuts");
     const char* names[]={"Off","Right thumbrest","R3 (right stick click)","Left thumbrest"};
     const int modes[]={0,1,2,4};
-    const int modifier=v.choices.preferences[Modifier]<0?1:v.choices.preferences[Modifier];
+    const int modifier=v.choices.preferences[Modifier]<0?2:v.choices.preferences[Modifier];
     int sel=modifier==4?3:modifier>=0 && modifier<=2?modifier:0;
     ImGui::AlignTextToFramePadding();ImGui::TextUnformatted("D-pad modifier");ImGui::SameLine(ImGui::GetContentRegionAvail().x*.55f);ImGui::SetNextItemWidth(-FLT_MIN);
     if(ImGui::Combo("##modifier",&sel,names,4))v.choices.preferences[Modifier]=modes[sel];
     const int old=v.choices.preferences[DpadFlip];
     preference_checkbox(v,DpadFlip,"Choose which stick becomes the D-pad while the modifier is held.");
     if(old!=v.choices.preferences[DpadFlip]) {
-        const int mod=v.choices.preferences[Modifier]<0?1:v.choices.preferences[Modifier];
+        const int mod=v.choices.preferences[Modifier]<0?2:v.choices.preferences[Modifier];
         if(mod==1 || mod==4)v.choices.preferences[Modifier]=v.choices.preferences[DpadFlip]?4:1;
     }
     preference_checkbox(v,PauseChord,"Press X and Y together to pause when the runtime reserves the menu button.");
-    wrapped_faded("Hold the modifier and move a stick for item shortcuts. R3 takes over its health-elixir hold.");
-    wrapped_faded("Touch: thumbrest shortcuts. Index: use R3. Vive and WMR may need SteamVR remapping. Beyond uses the controllers you pair; Pico and PSVR2 need compatible runtime bindings.");
+    wrapped_faded("Hold the modifier and move a stick for item shortcuts. R3 (the default) takes over its health-elixir hold.");
+    wrapped_faded("A thumbrest can read as touched while your thumb is on the stick, which turns walking into shortcuts; R3 is deliberate. Vive and WMR may need SteamVR remapping. Beyond uses the controllers you pair; Pico and PSVR2 need compatible runtime bindings.");
 }
 
 void bindings_section(ViewState& v)
@@ -520,7 +520,7 @@ UiAction draw_guide(ViewState& v)
     page_header("Controller bindings", "Quest 3 default layout. Custom shortcuts and SteamVR bindings can differ.");
     wrapped_faded("Quest 3 default layout. Custom shortcuts and SteamVR bindings can differ.");
     const auto& c = v.guideReturn == Screen::Setup ? v.choices : v.det.suggested;
-    const int mod = c.preferences[Modifier] < 0 ? 1 : c.preferences[Modifier];
+    const int mod = c.preferences[Modifier] < 0 ? 2 : c.preferences[Modifier];
     const int flip = c.preferences[DpadFlip] < 0 ? 0 : c.preferences[DpadFlip];
     const int pause = c.preferences[PauseChord] < 0 ? 1 : c.preferences[PauseChord];
     const char* name = mod == 0 ? "off" : mod == 1 ? "right thumbrest" : mod == 2 ? "R3" : "left thumbrest";

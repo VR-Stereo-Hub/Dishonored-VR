@@ -37,11 +37,11 @@ int main(){
             s=sample();out=p.step(s,c,110);check(!out.buttons,"direction releases on neutral/modifier release");
         }
     }
-    {Composer p;auto s=sample();s.restR=true;s.mv[0]=.4f;auto o=p.step(s,{},0);
+    {Composer p;const Config rest{RightRest,false,true};auto s=sample();s.restR=true;s.mv[0]=.4f;auto o=p.step(s,rest,0);
      check(!o.buttons && s.mv[0]==.4f,"rest alone preserves subthreshold walk");
-     s=sample();s.restR=true;s.mv[0]=.75f;s.mv[1]=.9f;o=p.step(s,{},1);check(o.buttons==Up,"diagonal chooses dominant Y");
-     s=sample();s.restR=true;s.mv[0]=-.9f;s.mv[1]=.75f;o=p.step(s,{},2);check(o.buttons==Left,"diagonal chooses dominant X");
-     s=sample();s.restR=true;s.mv[0]=std::numeric_limits<float>::quiet_NaN();s.mv[1]=1;o=p.step(s,{},3);check(!o.buttons,"invalid axes never fabricate direction");}
+     s=sample();s.restR=true;s.mv[0]=.75f;s.mv[1]=.9f;o=p.step(s,rest,1);check(o.buttons==Up,"diagonal chooses dominant Y");
+     s=sample();s.restR=true;s.mv[0]=-.9f;s.mv[1]=.75f;o=p.step(s,rest,2);check(o.buttons==Left,"diagonal chooses dominant X");
+     s=sample();s.restR=true;s.mv[0]=std::numeric_limits<float>::quiet_NaN();s.mv[1]=1;o=p.step(s,rest,3);check(!o.buttons,"invalid axes never fabricate direction");}
     {Composer p;auto s=sample();s.menu=true;check(!p.step(s,{},100).buttons,"tap waits for release");
      s=sample();check(p.step(s,{},150).buttons==Start,"menu tap pulses start");
      s=sample();check(p.step(s,{},299).buttons==Start,"start survives engine poll interval");
@@ -53,10 +53,10 @@ int main(){
      check(p.step(s,c,100).buttons==Back,"each modifier selects second menu");
      s=sample();s.menu=true;check(p.step(s,c,110).buttons==Back,"release modifier first retains journal gesture");
      s=sample();check(!p.step(s,c,120).buttons,"journal release never pauses");}
-    for(bool mod:{false,true}){Composer p;auto s=sample();s.x=s.y=true;s.restR=mod;auto o=p.step(s,{},100);
+    for(bool mod:{false,true}){Composer p;const Config rest{RightRest,false,true};auto s=sample();s.x=s.y=true;s.restR=mod;auto o=p.step(s,rest,100);
      check(o.buttons==(mod ? Back : 0),"chord obeys menu modifier");check(!s.x && !s.y,"chord consumes face buttons");
-     s=sample();s.y=true;o=p.step(s,{},120);check(!s.y,"trailing Y suppressed");check(o.buttons==(mod ? 0 : Start),"chord release has correct menu output");
-     s=sample();p.step(s,{},300);s=sample();s.y=true;o=p.step(s,{},310);check(s.y && !o.buttons,"fresh Y after chord release remains native");}
+     s=sample();s.y=true;o=p.step(s,rest,120);check(!s.y,"trailing Y suppressed");check(o.buttons==(mod ? 0 : Start),"chord release has correct menu output");
+     s=sample();p.step(s,rest,300);s=sample();s.y=true;o=p.step(s,rest,310);check(s.y && !o.buttons,"fresh Y after chord release remains native");}
     {Composer p;auto s=sample();s.x=s.y=true;auto o=p.step(s,{RightRest,false,false},100);
      check(s.x && s.y && !o.buttons,"disabled pause chord forwards both buttons");}
     {Composer p;auto s=sample();s.menu=true;p.step(s,{},100);s={};check(!p.step(s,{},200).buttons,"focus loss neutralizes pending gesture");
@@ -101,7 +101,21 @@ int main(){
      check(!owner.update(true,902),"new release gets fresh grace");
      check(!owner.update(true,10),"clock reset fails closed");
      check(owner.update(true,260),"release recovers after clock reset");}
-    check(unpack(pack({99,false,true})).modifier==RightRest,"invalid modifier falls back to known default");
+    check(unpack(pack({99,false,true})).modifier==R3,"invalid modifier falls back to known default");
+    check(Config{}.modifier==R3 && normalize(Config{}).modifier==R3,"R3 is the shipped modifier (2026-10-14)");
+    {WheelHandGate g;bool r=false;
+     check(g.update(true,false,true,1000,250,&r) && !r,"fresh grip trusted inside the grace");
+     check(g.update(true,false,true,1249,250,&r) && !r,"grace lasts the configured span");
+     check(!g.update(true,false,true,1250,250,&r) && r,"no wheel on screen past the grace: sticks return to gameplay, noted once");
+     check(!g.update(true,false,true,1300,250,&r) && !r,"the refusal is noted once per press");
+     check(g.update(true,true,true,1400,250,&r) && !r,"a wheel that opens late hands the stick back to the hand");
+     check(!g.update(false,false,true,1500,250,&r) && !r,"release ends the hold");
+     check(g.update(true,false,true,1600,250,&r) && !r,"a new press starts a new grace");
+     check(!g.update(true,false,true,1850,250,&r) && r,"and can be refused again");
+     check(g.update(true,true,true,1860,250,&r),"the game's wheel on screen always owns the stick");
+     WheelHandGate off;check(off.update(true,false,true,0,0) && off.update(true,false,true,5000,0),"grace 0 trusts the grip for the whole hold");
+     WheelHandGate blind;check(blind.update(true,false,false,0,250) && blind.update(true,false,false,5000,250),"no UI surface to consult: the grip is trusted");
+     WheelHandGate clock;clock.update(true,false,true,1000,250);check(!clock.update(true,false,true,10,250),"clock reset fails closed");}
     configure({R3,true,false});auto c=config();check(c.modifier==R3 && c.flip && !c.pauseChord,"settings publish complete tuple");
     std::printf("%d controller emulation checks passed\n",checks);
 }

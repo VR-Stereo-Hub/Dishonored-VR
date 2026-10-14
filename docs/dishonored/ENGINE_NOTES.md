@@ -1,3 +1,19 @@
+## 2026-10-14: Dis_Wheel_Open with nothing to select leaves the wheel closed
+
+From a tester's 1.0.4 log (Quest 3, Virtual Desktop, prologue; no weapon in hand all session,
+the melee gate read `primary=none` throughout). Thirteen left-grip holds, up to 5 s, each
+delivered LB (`pad: xbtn=0x0100`); the player controller received `Dis_Wheel_Open` on the first
+press and `Dis_Wheel_Close` on its release, so the pad binding reached the script. Not once did
+`DisGFxMoviePlayerPowerWheel.m_bWheelIsOpen` set: `ui/surface` never reported `context=Wheel`,
+`hud/layout` never reached visual context 6, `uistate` logged no `'pPowerWheel' bMovieIsOpen
+0 -> 1`. The owner's logs of the same build show all three within 15-30 ms of the press whenever
+the wheel opens. So the open exec is accepted and then refused inside the game when the wheel
+has nothing to show, and the refusal leaves the pad's sticks as ordinary gameplay input, which
+is what let the motion wheel's hand-direction stick walk the pawn (TRAPS, 2026-10-14).
+`OnTogglePowerWheel` on the pawn fired once at 104 s with no LB press, alongside `OnStartSpawn`
+and the HUD's cinematic flag clearing, so it is not the player's toggle. Read-only observation,
+no address derived. Consumer: `[Controllers] WheelOpenGraceMs` (HUD_ANCHORS, the motion wheel).
+
 ## 2026-10-05: Attached hand effects drift during locomotion, corrected candidate
 
 Scope: the attached Heart glow, not the Heart backing material or a stereo

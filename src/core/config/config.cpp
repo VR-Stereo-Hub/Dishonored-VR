@@ -18,7 +18,7 @@ static bool WriteDefaultIni(const char* ini)
         "; (auto-refreshed when the mod's defaults change)\n"
         "[Meta]\n"
         "Version=%d\n"
-        "DefaultsRev=4\n"
+        "DefaultsRev=5\n"
         "[Tracking]\n"
         "; head tracking drives the game camera via mouse emulation.\n"
         "; Calibrate: pick a landmark, turn your head 90 degrees; if the\n"
@@ -437,11 +437,19 @@ static bool WriteDefaultIni(const char* ini)
         "[Controllers]\n"
         "; A jump, B stealth, X interact, Y lean/adrenaline.\n"
         "; Menu tap pauses; modifier+menu (or hold menu) opens journal.\n"
-        "; Modifier:0 off,1 right thumbrest,2 R3,4 left thumbrest (3 retired).\n"
+        "; Modifier:0 off,1 right thumbrest,2 R3,4 left thumbrest (3 retired). Default 2: a\n"
+        "; thumbrest can read as touched with the thumb on the stick, and then every push of\n"
+        "; the stick is a D-pad press and walking stops. R3 takes over the health-elixir hold.\n"
         "; Flip:0 left stick D-pad,1 right stick D-pad. Chord: X+Y as menu.\n"
-        "DpadModifier=1\n"
+        "DpadModifier=2\n"
         "DpadFlip=0\n"
         "PauseChord=1\n"
+        "; WheelOpenGraceMs: with the motion wheel ([Hud] WeaponDial) the hand steers the wheel's\n"
+        "; stick only while the game shows its wheel. The wheel grip is trusted on its own for this\n"
+        "; long after the press; past it a wheel the game refused (nothing to select yet) leaves\n"
+        "; the sticks to gameplay instead of walking you where the hand points. 0 = trust the grip\n"
+        "; for as long as it is held.\n"
+        "WheelOpenGraceMs=250\n"
         "; ZoomTap=1: a tap of the right stick click (released before the health elixir's hold, no\n"
         "; D-pad pick) is the game's own zoom, the mask lens. 0 = a tap does nothing. Live: zoomtap\n"
         "; on|off, F10 Controls.\n"
@@ -1991,6 +1999,19 @@ static void LoadConfig()
         Log("config: defaults revision 4 applied once to this ini - HUD Element.default.WinX %s. Every other key is unchanged",
             atOld ? "moved 0.184 -> 0.004" : "kept as placed");
     }
+    // 2026-10-14: the D-pad modifier's default moves from the right thumbrest to R3. A thumbrest is a capacitive
+    // touch: a tester's Quest 3 rig read it touched 43% of the time with the thumb on the stick, so every push to
+    // walk became a D-pad press and the stick was zeroed (83 times in one session). Only a stored 1, the old shipped
+    // default that the launcher and every save wrote, moves; 0 or 4 is a choice and stays.
+    if (!missing && GetPrivateProfileIntA("Meta", "DefaultsRev", 0, ini) < 5) {
+        const int was = GetPrivateProfileIntA("Controllers", "DpadModifier", 2, ini);
+        if (was == 1) WritePrivateProfileStringA("Controllers", "DpadModifier", "2", ini);
+        WritePrivateProfileStringA("Meta", "DefaultsRev", "5", ini);
+        Log("config: defaults revision 5 applied once to this ini - [Controllers] DpadModifier %s. Every other key is unchanged",
+            was == 1 ? "1 (right thumbrest) -> 2 (R3): the right stick click is the D-pad modifier now; the launcher's "
+                       "Controller shortcuts page or the ini can put a thumbrest back"
+                     : "kept as chosen");
+    }
     {   // [Paths] DataDir: where the harness files go. Applied before any of
         // them is written (the command seam and status.json start after the
         // config); the dev PC's tool sandbox virtualizes writes under the user
@@ -2313,13 +2334,14 @@ static void LoadConfig()
             "tracked head displacement, so modelling it here counted it twice.",
             (int)g_neckRollArc, g_neckRollArc ? "ROLLED head (pre-VR-91)" : "roll-free");
     }
-    dvr::controller::configure({int(GetPrivateProfileIntA("Controllers","DpadModifier",1,ini)),
+    dvr::controller::configure({int(GetPrivateProfileIntA("Controllers","DpadModifier",2,ini)),
         GetPrivateProfileIntA("Controllers","DpadFlip",0,ini)!=0,
         GetPrivateProfileIntA("Controllers","PauseChord",1,ini)!=0});
     ZoomTapSet(GetPrivateProfileIntA("Controllers","ZoomTap",1,ini)!=0,"ini");   // 2026-10-07: the mask lens zoom
     ZoomGestureSet(GetPrivateProfileIntA("Controllers","ZoomGesture",1,ini)!=0,"ini");
     ZoomGestureRadiusSet(IniFloat(ini,"Controllers","ZoomGestureRadiusCm",25.0f),"ini");
     ZoomGestureRightSet(IniFloat(ini,"Controllers","ZoomGestureRightCm",8.0f),"ini");
+    WheelOpenGraceSet(GetPrivateProfileIntA("Controllers","WheelOpenGraceMs",250,ini),"ini");   // 2026-10-14
     const auto controller=dvr::controller::config();
     Log("controls: modifier=%d dpad=%s X+Y=%d; Y=native, menu tap=START, modifier/hold+menu=BACK",
         controller.modifier,controller.flip ? "right" : "left",int(controller.pauseChord));

@@ -48,9 +48,17 @@ follow it because they read the logical sticks.
 
 - **The both-stick-clicks chord** (tap = F10 panel, hold = recenter). It is resolved in the runtime
   layer before the snapshot is published, so it stays physical and cannot be lost by a remap.
-- **The thumbrests.** They are the D-pad modifier's gesture and already have their own setting.
-- **The R3 D-pad modifier** always reads the physical right stick click. It takes Health's slot as
-  before; an action bound to the right stick click while R3 is the modifier is warned about.
+- **The thumbrests.** They are the D-pad modifier's gesture and already have their own setting
+  (`[Controllers] DpadModifier`: 0 off, 1 right rest, 2 R3, 4 left rest). **R3 is the shipped
+  default since 2026-10-14.** A thumbrest is a capacitive touch: a tester's Quest 3 rig (Virtual
+  Desktop) read the right rest touched 43% of the time with the thumb on the stick, so every push
+  past 0.65 became a D-pad press and the move stick was zeroed, 83 times in one 21-minute session,
+  reported as walking stopping at random (the game's D-pad is the wheel shortcuts, so with items it
+  also swaps the equipped one). A stick click is deliberate. An ini still holding 1 moves to 2 once
+  (`[Meta] DefaultsRev` 5); 0 or 4 is a choice and stays. TRAPS, 2026-10-14.
+- **The R3 D-pad modifier** (the default) always reads the physical right stick click. It takes
+  Health's slot as before; an action bound to the right stick click while R3 is the modifier is
+  warned about.
 - **The zoom (2026-10-07)** is not an action in the layout: the game's zoom button is the right stick
   click, which the modifier and the elixir hold both consume, so nothing ever sent it. A TAP of the
   physical right stick click (released before `[Input] HealthElixirHoldMs`, no D-pad pick, not the

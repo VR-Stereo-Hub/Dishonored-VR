@@ -1,3 +1,34 @@
+## 2026-10-14: a tester's dead move stick and grip-walk (claude/wheel-gate-r3-default, PR to staging, not merged)
+
+**Current state.** A support bundle from a Quest 3 / Virtual Desktop tester on 1.0.4 (ten
+sessions) explained two reports, neither a code fault beyond the shipped defaults: (1) the right
+thumbrest read touched 43% of the time with the thumb on the stick, so `[Controllers]
+DpadModifier=1` turned 83 pushes of the move stick in one session into D-pad presses and zeroed
+the stick (31.5 s dead); (2) with no weapon yet the game refused `Dis_Wheel_Open` on all 13
+left-grip holds and the motion wheel kept the hand's direction on the move stick, so the grip
+walked the player wherever the hand pointed. The owner's own logs of the same build show the rest
+touched about 1 s per session and the wheel reported within 30 ms of the press. This branch: R3 is
+the shipped D-pad modifier (`controller_emulation.h`, the default ini, the launcher's fallback) and
+an ini still at 1 migrates once (`[Meta] DefaultsRev` 5, config.cpp); the hand steers the wheel's
+stick only while the UI surface reports the wheel, after a `[Controllers] WheelOpenGraceMs` (250)
+grace on the grip alone (`WheelHandGate` in controller_emulation.h, pad_bridge.cpp), the refusal
+logged once per press; `release/dishonored_vr.ini` is byte-identical with the writer again (it had
+lacked #195's `KeyholeForwardCm`). Host checks: controller emulation 223, controller binds 32948,
+default profile byte-identical, lint clean, the installer hosts. Not run in a game, a simulator
+or a headset. A hotfix launcher was built for the tester (`output/hotfix-1.0.4-wheel/`, local
+only); its banner reads `build v1.0.3-149-g<hash>` because `staging` does not carry the `v1.0.4`
+tag (VR-Main is a squash of it). The Linear ticket is owed (no Linear access from this session).
+TRAPS and ENGINE_NOTES 2026-10-14 carry the evidence; CONTROLLER_BINDS section 2 and HUD_ANCHORS
+(the motion wheel) the new behaviour.
+
+**Next steps.** The tester's next bundle decides both: `pad/controls ... special=` should stop
+appearing on walks, and a grip hold with no weapon should log `pad/wheel: the wheel grip has been
+held 250 ms and the game has not shown its wheel` once and leave the stick alone. Then the owner
+decides whether R3 stays the default for everyone (it takes the right-click health hold) and
+whether this ships as 1.0.5. Deliberately not here: a per-session count of thumbrest-touched time
+in the log; a modifier that arms only when the touch began with the stick centred (which would let
+a thumbrest stay usable); why one Quest 3 rig reads the rest touched and another does not.
+
 ## 2026-10-07: release 1.0.4
 
 **Current state.** `staging` carries #186-#191, #194 and #195 on top of 1.0.3; the owner declared

@@ -1,3 +1,9 @@
+# Dishonored VR - unreleased (hotfix candidate, 2026-10-14)
+
+## Fixed
+- **Walking stopped at random, and quick-select items changed on their own, on some Quest controllers.** The D-pad modifier was the right thumbrest, which can read as touched while your thumb is on the stick; every push of the stick then became a D-pad press. The modifier is now the right stick click (R3) by default, and an existing install moves to it once. Prefer a thumbrest? The launcher's Controller shortcuts page sets it back. R3 as the modifier takes over that click's health-elixir hold.
+- **Holding the left grip walked you wherever your hand pointed** when the game had no wheel to open yet (before your first weapon). The hand now steers the wheel only while the game is showing it.
+
 # Dishonored VR 1.0.4
 
 ## Full-arm IK
