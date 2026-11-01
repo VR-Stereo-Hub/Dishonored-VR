@@ -23,6 +23,10 @@ Config g_config;
 Ray g_ray;
 std::mutex g_fireMutex;
 FireFrame g_fireFrame;
+FireFrame g_fireFrame2;                         // 2026-10-21: the other hand's ray (PointGrab), under g_fireMutex
+std::atomic<int> g_pointDots{0};                // 2026-10-21: request_point_ray (0 off, 1 both, 2 weapon hand, 3 other hand)
+std::atomic<int> g_pointMain{0};                // the main (weapon) hand the dots were last decided for
+std::atomic<unsigned> g_pointOffer{0};          // 2026-10-29: game hands whose dot rests on something their grip takes
 std::atomic<bool> g_fireRequested{false};
 std::atomic<bool> g_blinkRequested{false};
 std::atomic<bool> g_interactRequested{false};   // VR-166
@@ -65,6 +69,22 @@ void set_hand_override(int hand) {
 int hand_override() { return g_handOverride.load(); }
 bool model_ray_requested() { return g_modelRequested.load(); }
 FireFrame fire_frame() { std::lock_guard<std::mutex> lock(g_fireMutex); return g_fireFrame; }
+FireFrame fire_frame_hand(int hand) {
+    std::lock_guard<std::mutex> lock(g_fireMutex);
+    if (g_fireFrame2.ray.ok && g_fireFrame2.ray.hand == hand) return g_fireFrame2;
+    if (g_fireFrame.ray.hand == hand) return g_fireFrame;
+    FireFrame none; none.ray.hand = hand; none.ray.why = "no ray for this hand";
+    return none;
+}
+void request_point_ray(int dots) { g_pointDots.store(dots >= 0 && dots <= 3 ? dots : 0); }
+// 2026-10-29 (headset): with one reticle the other hand could not point at all, so the sword hand grabbed within 60 cm
+// while the gun hand reached 2.5 m (35 pointed grabs, all on the gun hand, in one run). Both hands point now; the
+// reticle setting only decides which dot is always up, and a hidden dot shows while its hand rests on something its
+// grip would take (set_point_offer).
+bool point_allowed(int hand) {
+    return g_pointDots.load() != 0 && (hand == 0 || hand == 1);
+}
+void set_point_offer(unsigned mask) { g_pointOffer.store(mask & 3u); }
 Ray ray() { return fire_frame().ray; }
 void request_fire_ray(bool enabled) { g_fireRequested.store(enabled); }
 void request_blink_ray(bool enabled) { g_blinkRequested.store(enabled); }
@@ -323,6 +343,68 @@ void tick(bool gameplay, bool projectionWanted) {
         frame.headQuat[2] = fireHead.qz; frame.headQuat[3] = fireHead.qw;
     }
     { std::lock_guard<std::mutex> lock(g_fireMutex); g_fireFrame = frame; }
+    // 2026-10-21: THE OTHER HAND'S RAY (PointGrab, physical_pickup.cpp: point either hand at a thing and its grip
+    // takes it), published beside the main frame, so the dot drawn below and the grab it drives are one ray.
+    // It is the WEAPON hand's dot carried across: the main ray's final direction (the measured model axis, turned by
+    // the other-items offset when that hand holds something other than a gun - the dot the player sees on it),
+    // expressed in the main grip's frame, reflected across x (left and right controllers are mirror images in their
+    // local frames, as in the right-hand carry above) and placed on the other grip, so both dots leave their hands
+    // at the same angle. The first build turned the other controller's AIM pose by the other-items offset instead;
+    // that offset (-48 deg) is tuned against the model axis, not the AIM pose, and the sword hand's dot pointed
+    // nearly straight down in the headset. With no main ray yet, the other controller's own AIM forward, untouched.
+    // [Aim] PointGrabReticles picks the dots: both, the weapon hand's alone (no second ray), or the other hand's alone
+    // (the main dot hidden; the main ray still aims everything it aims).
+    Ray ray2; ray2.hand = 1 - hand; ray2.why = "off";
+    const int dots = g_pointDots.load();
+    g_pointMain.store(hand);
+    const unsigned offer = g_pointOffer.load();
+    const bool point = dots != 0;                                        // both hands point while PointGrab is on
+    const bool mainDot = dots != 3 || (offer & (1u << hand)) != 0;       // hidden by "hand": back while it can take something
+    const bool otherDot = dots != 2 || (offer & (1u << (1 - hand))) != 0;   // hidden by "weapon": the same
+    if (point && gameplay && projectionWanted && dvr::vr::session_live()) {
+#if DVR_WITH_OPENXR
+        const dvr::vr::HandAimSample s2 = dvr::vr::input_hand_aim_sample(1 - hand);
+        ray2 = from_pose(1 - hand, s2.aimValid, s2.aimPos, s2.aimQuat, s2.generation, s2.stampMs, now);
+        if (ray2.ok) {
+            ray2.why = "the other controller's aim pose (no weapon ray to carry across yet)";
+            const float* base = g_ray.dirXr;   // the weapon hand's dot as drawn
+            auto unit = [](const float* q) {
+                const float n = std::sqrt(q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3]);
+                return std::isfinite(n) && n > 0.5f && n < 2.0f;
+            };
+            float wd[3];
+            if (g_ray.ok && sample.gripValid && s2.gripValid && unit(sample.gripQuat) && unit(s2.gripQuat) &&
+                dvr::xrmath::mirror_dir_between(sample.gripQuat, base, s2.gripQuat, wd)) {
+                for (int i = 0; i < 3; ++i) ray2.dirXr[i] = wd[i];
+                ray2.why = "the weapon hand's ray, mirrored onto this hand";
+            }
+            for (int i = 0; i < 3; ++i) ray2.baseDirXr[i] = ray2.dirXr[i];
+            ray2.baseOk = true;
+        }
+#endif
+    }
+    {   // which hand's ray this second dot carries, said on change (the headset report was about its angle)
+        static const char* whyWas = "";
+        if (std::strcmp(whyWas, ray2.why)) {
+            whyWas = ray2.why;
+            DVR_INFO("crosshair: the other hand's dot (PointGrab, hand=%s) - %s; dots shown: %s", (1 - hand) ? "right" : "left",
+                     ray2.why, dots == 1 ? "both hands" : dots == 2 ? "the weapon hand only" : dots == 3 ? "the other hand only" : "PointGrab off");
+        }
+    }
+    {
+        FireFrame frame2; frame2.ray = ray2; frame2.distanceM = g_config.distanceM;
+        frame2.headValid = frame.headValid;
+        memcpy(frame2.headPos, frame.headPos, sizeof(frame2.headPos)); memcpy(frame2.headQuat, frame.headQuat, sizeof(frame2.headQuat));
+        if (ray2.ok && !frame2.headValid) {
+            dvr::vr::HeadPose h2;
+            if (dvr::vr::peek_head_pose(h2)) {
+                frame2.headValid = true;
+                frame2.headPos[0] = h2.px; frame2.headPos[1] = h2.py; frame2.headPos[2] = h2.pz;
+                frame2.headQuat[0] = h2.qx; frame2.headQuat[1] = h2.qy; frame2.headQuat[2] = h2.qz; frame2.headQuat[3] = h2.qw;
+            }
+        }
+        std::lock_guard<std::mutex> lock(g_fireMutex); g_fireFrame2 = frame2;
+    }
     // controlDot never reaches this publication: it is built in the runtime from the
     // located views, so it cannot borrow the hand ray's freshness or its validity.
     // VR-166: the reticle row (the cook ring) rides this dot; while it draws, the dot
@@ -342,7 +424,7 @@ void tick(bool gameplay, bool projectionWanted) {
                  gaugeUp ? "ON" : "off", gaugeUp ? "hidden" : "back");
     }
     const bool dotNow = g_config.dot && !gaugeUp;
-    auto out = visual(g_ray, dotNow, g_config.laser, g_config.distanceM, g_config.sizeDeg);
+    auto out = visual(g_ray, dotNow && mainDot, g_config.laser, g_config.distanceM, g_config.sizeDeg);
     if (g_config.bothPoses) {
         // BOTH rays, with the two ENDPOINTS published first so a tight layer
         // budget cannot drop the second one and hide half the comparison.
@@ -373,6 +455,11 @@ void tick(bool gameplay, bool projectionWanted) {
                      carrying ? "carrying an object" : "carry ended");
         }
         if (!carrying && (dvr::anim::active() || dvr::anim::weight() < 1.0f)) out = {};
+        // PointGrab: the other hand's dot, beside the main one (the same look, the same distance).
+        else if (point && ray2.ok && dotNow && otherDot) {
+            if (out.valid && out.enabled) visual_append(out, ray2, true, false, g_config.distanceM, g_config.sizeDeg);
+            else out = visual(ray2, true, false, g_config.distanceM, g_config.sizeDeg);
+        }
     }
     dvr::vr::set_aim_visual(out);
     if (std::strcmp(g_lastWhy, g_ray.why)) {

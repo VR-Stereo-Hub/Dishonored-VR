@@ -371,6 +371,10 @@ static volatile bool g_mpItemInHand[2] = { false, false };
 // VR-184: [Hands] RigidWrist=1 (default) - in OUR vertex copy, a hand vertex's forearm-bone influences
 // are pointed at that side's hand bone, so arm and wrist-twist animation cannot bend the cut and cap.
 static bool g_msRigidWrist = true;
+// 2026-10-29: [Hands] LensUndo=1 - a hand mesh scaled by the arms' lens (a conversation with tracked cutscene
+// arms; not the zoom) is placed with the scale divided out instead of refused (mesh_split.cpp MpAcquireCtx).
+static volatile bool g_mpLensUndo = true;
+static LONG g_mpLensUndone = 0;   // draws placed through a lens scale, since start
 static bool g_ohOn = true;   // [Hands] OpenEmptyRightHand: the empty right hand takes the left hand's open pose (mesh_split.cpp)
 static int  g_msIdxOff = -1, g_msIdxType = 0;       // the BLENDINDICES element, kept from the read
 

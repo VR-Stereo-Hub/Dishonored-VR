@@ -1,3 +1,37 @@
+## 2026-10-31: a screen on the window keeps the horizon (`[Hud] WindowLevel`)
+
+A journal on the head-locked window was reported sitting a few degrees clockwise. The window is a
+VIEW-space quad, so it turns with every degree of headset roll, while the game renders head roll and
+keeps the world level. The reporting run's head roll read median +3.2 deg, p90 +5.6 (`neck/upright
+roll=`, positive = clockwise), which is the tilt seen.
+
+`[Hud] WindowLevel=1` (default; `hud window level on|off`, F10 HUD "Keep screens level with the horizon", status.json `hud.layout.windowLevel`)
+turns every window quad that belongs to a SCREEN (any window quad while a screen rides, the screen
+rows, the wheel's side panels) by the head's roll about the gaze: the quad, its base offset
+(`WindowUp`, `WindowLateral`) and its in-plane axes together, so the group turns rigidly about the
+line of sight and keeps its distance. The angle is `hud_anchor.h window_level_roll`: the turn that
+takes the head's right onto forward x world up, fading to 0 between 70 and 85 deg of pitch where
+that degenerates. The gameplay HUD is NOT leveled: objective markers, the reticle and prompts are
+drawn by the game where their world targets project in the head's frame. The pause menu (`world`)
+and the mono screen were already level (yaw-only parks).
+
+Log: `xr: HUD window level - head roll +8.0 deg (+ = tilted clockwise, the neck/upright sign) taken
+out of 1 of 1 window quad(s) asking` on the first present a screen asks and every 5 s while it does;
+`no window quad asks now` when it stops. Verified: host (`tools\hud-anchor-host.ps1`, the leveled
+right on the horizon across yaw, pitch and roll, the unleveled one off it); simulator, the journal at
+8 and 20 deg of roll (`head rot 0 0 20`): the quad pose turned by the roll and the journal's edges ran
+parallel to the room's in the eye capture, square to the eye with the key off.
+
+## 2026-10-21: the wheel side panels moved toward the centre
+
+The wheel's two side panels were reported hard to see at their old window places (the D-pad
+shortcuts rode the left hand by default, the potions sat at `WinX=0.566 WinY=0.547` in one
+player's ini). New defaults, code (`hud_layout.cpp`, both default tables) and writer alike:
+`Element.wheelshortcuts=window`, `WinX=-0.230 WinY=0.100`; `Element.wheelpotions` `WinX=0.250
+WinY=0.100`; `WinScale` unchanged at 0.900 (the panels stay 0.23 m and 0.28 m wide times that). On the simulator with the wheel open they sit either side of the view centre,
+clear of the dial at the hand. An ini that already carries the keys keeps its values; the F10 HUD
+tab moves them, and `WinScale` is the size if they still read small in a headset.
+
 ## 2026-10-04: widgets came apart again - native ownership had been off since 2026-09-27
 
 Reported on staging-based builds: HUD elements separate onto different layers again, and
@@ -1983,6 +2017,7 @@ the window (the VR-117 picture) until the headset judges the split.
 Seam words: `hud on|off|status|scale <f>`, `hud regions on|off`, `hud anchor
 <el|all> off|frame|window|world|handL|handR`, `hud window view|world|recenter|
 dist|width|height|up|lateral <v>` (`view`/`world` move every window-kind row),
+`hud window level on|off` (2026-10-31: a screen on the window keeps the horizon; F10 HUD has the checkbox),
 `hud hand l|r billboard|grip|x|y|z|lift|width|tilt <v>`, `hud place <el>
 window|hand <x> <y> [scale]`, `hud region <el> x0,y0,x1,y1`, `hud alpha mode
 repair|captured|mix`, `hud alpha gain|floor|gamma|mix <f>`, `hud alpha backdrop

@@ -13,6 +13,26 @@ struct CinematicRecovery {
         return bridge.update(cinematic, walking, sensor, requested, now) ? requested : 0;
     }
 };
+// 2026-10-21: the keyhole's exit. A peek narrows the game's own FOV (103 -> about 87 in the headset run) and,
+// when the natural base is at or above the target (ratio 1), every lever pass copies that narrowing into the
+// resting fields, so after the exit the game has nothing wider to blend back to and the view stays magnified.
+// Primed by the peek but silent during it (the peek keeps the game's zoom); from the exit the target is returned
+// until the sensor is back within kPeekBackDeg, for 3 s at most, while tailAllowed holds. Headset (2026-10-21):
+// the first build let go within half a degree and the ratio-1 latch then held 102.58 against 103 for the rest of
+// the run (back in 437 ms from 93.34); the blend is exponential, so 0.05 costs about 0.3 s more.
+constexpr float kPeekBackDeg = 0.05f;
+struct PeekExit {
+    bool primed = false;
+    unsigned long long exiting = 0;
+    float update(bool eligible, bool peeking, bool tailAllowed, float sensor, float requested, unsigned long long now) {
+        if (!eligible) { *this = {}; return 0; }
+        if (peeking) { primed = true; exiting = 0; return 0; }
+        if (!primed || !tailAllowed || !dvr::cine_fov::valid(sensor) || std::fabs(sensor - requested) <= kPeekBackDeg) { *this = {}; return 0; }
+        if (!exiting) exiting = now;
+        if (now < exiting || now - exiting >= 3000) { *this = {}; return 0; }
+        return requested;
+    }
+};
 // The sensor is rendered output, including interpolated echoes of our writes.
 // A contraction ratio repeatedly applied to it has no positive fixed point.
 // Cap the scaling baseline at the requested target: below that baseline retain

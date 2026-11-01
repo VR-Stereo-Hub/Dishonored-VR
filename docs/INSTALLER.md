@@ -411,8 +411,9 @@ one in the zip. The GitHub release carries both files.
 
 - IPD and snap turn: no ini key exists for either (IPD comes from the runtime's view
   poses; turning is the right stick).
-- A left-handed option: six keys plus the mirrored HUD hand panels, nothing in the repo
-  does it yet.
+- A left-handed option: `[Hands] SwapHands` exists (2026-10-20, dishonored/HAND_SWAP.md) and
+  is an in-game choice (F10 Hands, `swaphands`), so the installer does not write it. The HUD
+  hand panels stay on the wrist they were configured on.
 - An online update check: the Manage screen shows both versions and links the Releases page.
 - GOG (a different exe, unsupported) and Epic auto-detection (Browse covers it).
 - The compiled fallback of `D:\dvr-data` for a MISSING `[Paths] DataDir` (`config.cpp`)

@@ -189,6 +189,17 @@ struct FireFrame {
     float distanceM = 8;
 };
 FireFrame fire_frame();
+// 2026-10-21 (PointGrab, physical_pickup.cpp): the OTHER hand's ray, published beside the main one so
+// both hands can point at things to grab them. `hand` is a game hand; the main hand gets the main
+// frame (fire_frame), the other hand the second one. Its dot is drawn while the second ray is asked for.
+FireFrame fire_frame_hand(int hand);
+// Which dots are always up: 0 = PointGrab off (the main dot alone, as before); [Aim] PointGrabReticles 1 = both,
+// 2 = the weapon (main) hand's, 3 = the other hand's (the main ray still aims). Since 2026-10-29 both hands point
+// whatever the setting (point_allowed is true for both while PointGrab is on), and a hidden dot comes back while
+// its hand rests on something its grip would take: set_point_offer(mask of game hands), from the pickup gate.
+void request_point_ray(int dots);
+bool point_allowed(int hand);
+void set_point_offer(unsigned mask);
 void request_fire_ray(bool enabled); // sampling independent of Dot/Laser toggles
 // VR-36: Blink is a second engine consumer of the published ray, and it must be able
 // to keep the ray sampled on its own. A single shared request flag would have the two

@@ -63,4 +63,19 @@ inline void xr_local_trim_quat(float pitchRad, float yawRad, float rollRad, floa
     quat_mul(qy, t, out);
 }
 
+// A direction held by one controller, carried to the OTHER controller as its mirror image: expressed in
+// `from`'s local frame, reflected across local x (left and right controllers are mirror images in their
+// local frames) and placed in `to`'s. Unit quaternions (xyzw). Held symmetrically about the body's
+// centre plane, the result is the world mirror of `dir`. False on a degenerate result.
+inline bool mirror_dir_between(const float from[4], const float dir[3], const float to[4], float out[3]) {
+    float l[3];
+    quat_rotate(-from[0], -from[1], -from[2], from[3], dir, l);
+    l[0] = -l[0];
+    quat_rotate(to[0], to[1], to[2], to[3], l, out);
+    const float n = std::sqrt(out[0] * out[0] + out[1] * out[1] + out[2] * out[2]);
+    if (!std::isfinite(n) || n < 0.5f) return false;
+    for (int i = 0; i < 3; ++i) out[i] /= n;
+    return true;
+}
+
 } // namespace dvr::xrmath

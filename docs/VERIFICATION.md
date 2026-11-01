@@ -7,6 +7,49 @@ question the simulator could answer is a wasted session.
 
 ## 1. The decision table
 
+The hand swap (`[Hands] SwapHands`, dishonored/HAND_SWAP.md): `tools\hand-swap-host.ps1` builds
+frame_test (the four `swap_mirror_*` cases: the mirrored hand lands on its controller, the plane
+cancels, X is required, the palette reflection commutes with skinning) and `hand-swap-tests.cpp`
+(9 checks, each with a negative control: the aim ray on the drawn barrel, the view-aligned trim
+step, a weapon rigid on the mirrored hand by the rebased and the native route, the IK plane mapping
+shoulder to shoulder, the effect frame made proper); `tools\fx-follow-host.ps1` drives a mirrored
+effect through the real `fx_follow.cpp`. In the game (simulator, 2026-10-20): `swaphands on`, then an
+`xrsim-shot` with the left controller raised and the `hands/swap:` counters climbing.
+
+Menus, the sword-hand throw and the lens undo (2026-10-29): simulator in the foreground with the
+player's custom layout. Hold the PauseJournal source to open the journal: `input/binds: a menu is
+open ... inputs still held from before are ignored until let go` and no `pad: xbtn=0x4000` with it;
+then `grip l squeeze 150` / `grip r squeeze 150` must print `script: Req_<tab>` (LB/RB), `btn y
+press 150` on the Objectives tab `script: OnToggleObjectivesListHistory`, `trigger l pull 200` a
+sub-tab request, `btn b` `CloseJournal`. The throw: a right-grip pickup (`carry/aim: carrying a
+movable in the RIGHT hand`), then `trigger r pull 300` prints `carried object thrown along the
+HAND`. The lens undo: `tools\hand-swap-host.ps1` (`lens_undo_places_through_scale`); in the game it
+needs a conversation with `[Anim] CinematicArms=1` and prints `ms/palette/lens:` (not reached on the
+simulator yet).
+
+PointGrab, the wheel hold and the swap gesture (2026-10-21, CONTROLLER_BINDS.md "Pointing grab"):
+simulator only, each read from a log line. PointGrab: walk within 2.5 m of a `pickup near` row
+(the near list keeps loot within 2.5 m of the CAMERA), then `xrsim-cmd "hand r point <yaw> <pitch>"`
+sweeping until `pickup: target ... POINTED AT by that hand's dot (PointGrab)`, then
+`grip r squeeze 300` must print `pickup: RIGHT grip pressed ... grip swallowed, Interact pressed`
+and the target is released once taken. The beat line `pickup: PointGrab ON ... rays L ok R ok`
+says both rays were solved; its `targets taken by pointing` counter moves only on a pointed take.
+The wheel hold: `grip l squeeze 300` must print `wheel: grip released after N ms, under the
+1000 ms hold - the wheel stays shut` and `grip l squeeze 1500` `wheel: grip held 1001 ms - the
+wheel opens`. The swap gesture: `click r press 80` twice 170 ms apart must print `hands/swap: ON
+(the right stick double click)` and `config: [Hands] SwapHands=1 written`, with NO `zoom:` line;
+one click alone must print the `zoom: right stick click tapped` line about 350 ms later.
+The second dot's angle and the reticle choice (2026-10-21): `tools\hand-swap-host.ps1` checks
+`xrmath::mirror_dir_between` against the world mirror over 12 poses and rays (negative control: no
+reflection misses by 0.6) and models the first build's ray 48 deg off it. In the game: the log says
+`crosshair: the other hand's dot ... the weapon hand's ray, mirrored onto this hand`, and
+`pickup point reticles hand|weapon|both` gives 1, 1 and 2 dot quads in an `xrsim-shot` (layers with
+`sizeM` under 0.1 m) with the beat reading `rays L none R ok` for `hand`. The keyhole's exit:
+`tools\fov-lever-host.ps1` models the game's blend under the lever (negative control: the old lever
+keeps a peek's 60 deg; with PeekExit the view is back at 103 and the peek keeps its zoom). In the game:
+`fovlever: keyhole exit - the FOV is back: ...` after a peek, or the WARN `did NOT come back` with the
+reason; not run on the simulator (no keyhole within reach of a background run, gotcha 23).
+
 VR-37 the motion sword: `tools\swing-core-host.ps1` compiles the pure decision core
 (60 checks: the threshold, one swing one attack, re-arm and cooldown, one verdict
 per swing, a body turn, repeated poses, doubled samples through the median, the
@@ -392,6 +435,59 @@ lines. `docs/INSTALLER.md` has the table.
     launch. The picker's ask travels in `dishonored_vr_launch.txt` next to the exe instead,
     which the launcher does not touch; the game's own ini is inert for the startup size
     anyway (ENGINE_NOTES "The render size").
+21. **An installed ini's `[VR] XrRuntimeJson` beats `XR_RUNTIME_JSON`** (measured 2026-10-20 on
+    an installer-written ini pointing at Virtual Desktop). The log reads `XR_RUNTIME_JSON already in
+    the environment - [VR] XrRuntimeJson ignored` and then `loader property override XR_RUNTIME_JSON
+    -> set ([VR] XrRuntimeJson)`: the second path hands the ini's manifest to the loader as a
+    property and it wins, so a direct `xrsim-launch.ps1` comes up on `VirtualDesktopXR` and throws.
+    Until the override defers to the environment, point `XrRuntimeJson` at the sim manifest for the
+    run (back the ini up and put it back after).
+22. **A game that sits on ONE thread with no window and no `dishonored_vr.log` never got to run.**
+    Missing statically imported runtimes (here `XINPUT1_3.dll` from the DirectX June 2010 runtime
+    and `MSVCP90/MSVCR90` from VC++ 2008 x86) stop the loader before any DllMain, the proxy's
+    included, and the system's error box can sit behind other windows. `dumpbin /dependents` on
+    the exe against SysWOW64 names the missing ones; it reproduces with the proxy removed.
+23. **A simulator run with the game window in the background (2026-10-21).** With the game's own
+    `DishonoredEngine.ini` `bPauseOnLossOfFocus=TRUE` (the shipped value), minimising or covering the
+    window pauses the game (`menu: open (Req_CanSaveGame)` a few hundred ms after every resume) even
+    though the window subclass rewrites the deactivation messages. With it FALSE the game keeps running
+    in the background, but it then takes NO pad input at all: not the menu's A, not the left stick in
+    play (the camera did not move), though the mod logs `pad: xbtn=0x1000`. Key messages posted to the
+    window (`PostMessage WM_KEYDOWN/WM_KEYUP`, no focus change) pass the title's "press any key" and a
+    mission intro, but not the main menu's Continue. So a background run can load a save (one focused
+    key press for Continue, focus handed straight back) and test anything driven by the seam and the
+    simulated poses (the dots, `pickup point reticles`, captures), but nothing that needs the pad to
+    move, grip or press in play. Put the engine ini back after.
+24. **Getting the simulated player to a thing (2026-10-21).** The shipped game keeps UE3's cheat
+    manager, so `game-cmd "console BugItGo <x> <y> <z> 0 0 0"` teleports (run it in gameplay, not on
+    a mission intro screen) and `console playersonly` freezes the AI (toggle). Positions come from
+    `pickup near` (interactables), `pickup pawns` (the nearest NPCs, with Health and controller) and
+    the `rain/weather: ... pos=` line a headset log writes every second. Teleporting next to guards
+    gets the player killed; reload with Return on the game-over screen. `interactaim off` puts the
+    interaction trace on the head, which is far easier to aim with `head rot` than a hand ray (it
+    writes `[Aim] InteractFromHand=0`: restore the ini after). The grip tests that ran this way are
+    in ENGINE_NOTES 2026-10-21 (keyhole hold, body carry, a living person on each grip).
+25. **The wheel and the window's tilt on the simulator (2026-10-31).** With PointGrab on, a held
+    grip with anything takeable in front is Interact, not the wheel (`pad: xbtn=0x4000`): look away
+    first (`head rot 0 55 0`), then `grip l 1`, wait past `[Controllers] WheelHoldMs`, read
+    `pPowerWheel' bMovieIsOpen 0 -> 1` and no `1 -> 0` before `grip l 0`. For the window's roll, `head
+    rot 0 0 20` and open a screen that rides the WINDOW: with a layout that binds PauseJournal to a
+    button, a tap opens the pause menu (world-parked, already level) and a hold of about 1 s the
+    journal. `xrsim-shot.ps1` then gives the quad's pose in the JSON (`space=view`, the base turned
+    by the roll) and the eye PNG shows it against the room; `hud window level off` is the A/B.
+26. **A choke on the simulator (2026-11-01).** Guards patrol and notice a player teleported next to
+    them, and a noticed guard blocks instead of choking. What worked: `choke near` twice a second apart
+    (each person's position, facing in degrees and rotator yaw, Health and controller) and pick one
+    that did not move, with Health above 0 (a choked guard reads `Health 0, controller 1`); press
+    Stealth (`btn b press 120`) BEFORE the teleport so you arrive crouched; `console BugItGo` to
+    220 uu behind it at its rotator yaw (a spot inside a wall keeps only the yaw); step forward with
+    `stick l 0 1` pulses until `choke: a guard to choke` appears; then `grip r 1` (or a left-hand
+    sweep: `hand l to grip -0.55 1.20 -0.35 0 0 0 80`, then back to `0.05 1.20 -0.45` in 80 ms, about
+    7 m/s). Read `choke: HONOURED` and `choke: WON/LOST`. `console god` does nothing in this build:
+    expect to die to the other guards afterwards and resume from the save (Return twice). The Choke
+    grip's tap-or-hold (a key on the guard's belt) is NOT reproducible in this save: both belt keys
+    near the start are on a pair of guards facing each other, who kill a player teleported beside
+    them even after `console playersonly`. It needs another save or level.
 
 
 Comfort, judder, warp, world scale, the mono screen's size and distance, fusion once a

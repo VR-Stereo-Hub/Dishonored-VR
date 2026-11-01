@@ -1,3 +1,70 @@
+## 2026-11-01: a button that reaches the game is not an action the game takes
+
+The Choke grip reached the game as RB in every press (`pad: xbtn=0x0200`), and the bind said "Choke",
+so it looked wired. The game chokes only on a HELD Block with its interaction focus on an unaware guard
+from behind; the focus follows the hand ray in VR, so the grip blocked almost always, and the one press
+that did start a choke was let go at 94 ms and the guard broke free. Three traps in one:
+- **The action has preconditions the pad cannot see** (the focus). Census the presses by what the
+  game focused at that moment, not by whether the button arrived (`choke: status`, the RB census in
+  ENGINE_NOTES 2026-11-01).
+- **Tap versus hold.** Read the game's own prompt text before deciding: `Localization\INT\*.int`
+  answered in one search what three simulator runs had not.
+- **Count events, not lines.** A first reading of "23 chokes" in one log was 23 log lines of ONE
+  choke (each animation-state line names the master state). `StatePlayerMasterChoke` lines are not
+  chokes; `seq=Sword_Choke_In_Master` entries are.
+
+## 2026-10-31: the power wheel is a menu to one flag and gameplay to the player
+
+The 2026-10-29 fix above, in the other direction. "A menu is open" was four terms (`g_menuOpen`,
+`g_inMenu`, `g_mainMenu`, `UiSurfaceBlocks`) and the wheel was excluded from only the last. But
+`g_inMenu` is itself `UiSurfaceBlocks || g_menuOpen || cursor`, so the wheel's own screen raised it
+one frame after the wheel opened: the layout switched, the held-across mask zeroed the grip holding
+the wheel, LB dropped and the game shut the wheel (headset log: `wheel: grip held 208 ms` then
+`input/binds: a menu is open ... inputs still held from before are ignored` 47 ms later, every
+hold-open of the run). Excluding a screen means excluding it from every flag DERIVED from the screen
+state, not from one term; the pad bridge now builds one `menuUp` with the wheel (held, up, or within
+250 ms) taken out, and both the layout and the wheel hold read it. The quick check: hold the grip
+on the simulator looking at nothing grabbable (`head rot 0 55 0`; PointGrab swallows the grip when
+something is in reach) and read `bMovieIsOpen` staying 1 until the release.
+
+## 2026-10-29: a gameplay input rule that reached into the menus
+
+Two things written for gameplay changed the buttons in menus, where the prompts name the pad's own
+buttons. The power wheel's grip hold (2026-10-21) swallowed every quick press of the same grip, LB,
+the journal's previous tab; and a custom bind layout with Lean unbound meant nothing produced pad Y,
+the journal's "Show history". Both read in a headset log as presses that never appear as `pad:
+xbtn` (0x0100 and 0x8000 absent through four journal visits while 0x0200 worked). Any new rule on
+the pad bridge must say whether it applies in menus; since then menus get the shipped layout
+(`MenuDefaultButtons`) and the wheel hold is gameplay only. The quick check: open the journal on the
+simulator and press LB, RB, Y and the triggers (VERIFICATION 2026-10-29).
+
+## 2026-10-21: a stowed weapon is still a member of the hand
+
+The weapon snapshot keeps a put-away pistol or crossbow as a member of its hand, at the transform
+the game left it (2400-3000 uu from the player in one run). The weapon draw path never noticed,
+because it refuses members past `[Hands] AttachRigRadius` before moving them; the hand anchor's
+"holds an item" test counted them, so a left hand on powers stayed on the finger-voted frame and
+bent through every Blink cast (VR-33, VR-183 note of 2026-10-21). Any new consumer of "which hand
+holds something" must apply the rig radius (`FxHeldOnRig`) or read the equipment
+(`rfl/state: equipment`), never count members.
+
+## 2026-10-21: a ratio-1 FOV lever keeps any narrowing the game makes (the keyhole)
+
+The FOV lever writes `target(sensor, natural, requested)` into the controller's FOVAngle, DesiredFOV
+and DefaultFOV and six camera FOV fields every pass. When the natural base it captured is at or above
+the target (105 against 103 on the GOG test PC, every run, `read 105.00, last write 0.00: first
+capture`; where the 105 comes from is not established, and the dev rig's notes record the same with
+108), the ratio is 1 and the write is the sensor itself, so a narrowing the game makes
+for a moment is copied into the fields the game blends back to. A keyhole peek narrowed `m_fCurFOV`
+103 -> 88.14 (first peek) and -> 86.95 (second); after each exit it stayed there for the rest of the
+run (30 s, to the end of the log) and the game kept the player mesh's lens on (`armslens: ...
+m_bUseFOV=1`), so `ms/palette/world` refused the hands (`LocalToWorld column is not unit`). Reported
+in the headset as a view still in the keyhole and broken hand tracking. The lever's own log line had
+been saying so on every run: `RATIO 1: nothing pulls a narrowed view back`. Fixed for the keyhole by
+`fov_lever_policy.h` PeekExit (`[Cine] KeyholeFovRestore`); the general latch remains for any other
+game-made narrowing that has no exit bridge. Before reading a "stuck zoom" as a game bug, read the
+`fovlever: natural base` line: a ratio of 1 means nothing restores.
+
 ## 2026-10-07: a "rendered FOV" sensor that only echoes the render in gameplay
 
 `camera+0x53c` (`m_fCurFOV`) was the projection layer's claim because in plain gameplay it reads

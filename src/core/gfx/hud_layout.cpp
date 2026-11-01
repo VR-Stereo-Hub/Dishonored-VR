@@ -121,6 +121,10 @@ bool g_dialOn = false; // experimental placement: installed test opts in
 float g_dialWidth = .35f, g_dialRadius = .04f;
 float g_dialCropX = .40f, g_dialCropY = .40f;
 WindowCfg  g_win = kPresetWindow;
+// [Hud] WindowLevel (2026-10-31): a screen on the head-locked window keeps the horizon instead of
+// the headset's roll. Only screens: the gameplay HUD's markers and reticle sit where the game drew
+// them in the head's frame and stay there.
+bool       g_windowLevel = true;
 HandCfg    g_hand[2] = { kPresetHand, kPresetHand };
 dvr::hudalpha::Bank g_alphaBank;
 AlphaCfg& g_alpha=g_alphaBank.general;
@@ -572,7 +576,7 @@ void reset_presets(const char* who) {
     DVR_INFO("hud/layout: presets restored (%s)", who);
     for (int e = 0; e < ElCount; ++e) {
         ElementCfg c = { kRows[e].presetAnchor, 0, 0, 1, 0, 0, 1, {0, 0, 0, 0} };
-        if(e==ElWheelShortcuts || e==ElWheelPotions) {c.winX=e==ElWheelShortcuts?-.32f:.32f;c.winY=-.22f;}
+        if(e==ElWheelShortcuts || e==ElWheelPotions) {c.winX=e==ElWheelShortcuts?-.23f:.25f;c.winY=.10f;}   // 2026-10-21: beside the view centre, not the corners
         memcpy(c.rect, kRows[e].rect, sizeof(c.rect));   // the compiled region; a live `hud region` is replaced
         g_el[e] = c;
         char key[64];
@@ -1146,22 +1150,24 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         if(readPanel>=0 && g_readHand[readPanel]) {
             // Which hand: the journal is always the left. A note is the left unless a grip opened
             // it (physical pickup), decided once when the panel appears and kept while it is open.
+            // A CONTROLLER, like every HUD anchor: the grip's game hand is converted, so with the
+            // hands swapped ([Hands] SwapHands) a note still opens on the controller that took it.
             int readHand=0;
             if(readPanel==0) {
                 const uint64_t nowMs=GetTickCount64();
                 if(nowMs-g_noteSeenMs>300) {
                     const int was=g_noteHand;
-                    g_noteHand=(nowMs-g_noteAskMs.load()<=2500) ? g_noteAskHand.load() : 0;
+                    g_noteHand=(nowMs-g_noteAskMs.load()<=2500) ? dvr::vr::input_physical_hand(g_noteAskHand.load()) : 0;
                     DVR_LOG(DVR_CAT,::dvr::log::Level::Info,
                         "hud/reading-hand: the note opens on the %s hand (%s; the hand before was %s)",
-                        g_noteHand?"RIGHT":"LEFT",g_noteHand==g_noteAskHand.load() && nowMs-g_noteAskMs.load()<=2500 ?
+                        g_noteHand?"RIGHT":"LEFT",nowMs-g_noteAskMs.load()<=2500 ?
                         "opened by that hand's grip" : "not opened by a grip: the left hand, as before",was?"right":"left");
                 }
                 g_noteSeenMs=nowMs;
                 readHand=g_noteHand;
             }
             float hp[3],hq[4],attached[4],page[4];
-            if(!dvr::vr::input_get_hand_pose(readHand,false,hp,hq) ||
+            if(!dvr::vr::input_get_physical_hand_pose(readHand,false,hp,hq) ||
                !dvr::hudanchor::reading_grip_reference(hq,attached,page,readHand==1)) {--n;continue;}
             d.anchor=dvr::vr::HudAnchor::LocalBillboard;d.hand=readHand;
             d.orient=dvr::vr::HudOrient::OpeningPlane;
@@ -1206,6 +1212,14 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
             }
         }
     }
+    // A screen on the window (and the wheel's side panels with it) is leveled; see g_windowLevel.
+    if (g_windowLevel)
+        for (int i = 0; i < n; ++i) {
+            const int e = out[i].element;
+            if (out[i].anchor == dvr::vr::HudAnchor::Window &&
+                (g_visualRiding || (e >= 0 && element_is_screen(e)) || e == ElWheelPotions || e == ElWheelShortcuts))
+                out[i].level = true;
+        }
     return n;
 }
 
@@ -1239,7 +1253,7 @@ void configure(const char* ini) {
                  "mapped onto the per-element anchors; the next save writes the new keys", legacyHand, legacyWorld ? "world" : "view");
     for (int e = 0; e < ElCount; ++e) {
         ElementCfg c = { kRows[e].presetAnchor, 0, 0, 1, 0, 0, 1, {0, 0, 0, 0} };
-        if(e==ElWheelShortcuts || e==ElWheelPotions) {c.winX=e==ElWheelShortcuts?-.32f:.32f;c.winY=-.22f;}
+        if(e==ElWheelShortcuts || e==ElWheelPotions) {c.winX=e==ElWheelShortcuts?-.23f:.25f;c.winY=.10f;}   // 2026-10-21: beside the view centre, not the corners
         memcpy(c.rect, kRows[e].rect, sizeof(c.rect));
         if (e == ElDefault && legacyAll >= 0) c.anchor = legacy_anchor(legacyAll);
         else if (element_is_screen(e) && legacyMenu >= 0) c.anchor = legacy_anchor(legacyMenu);
@@ -1278,6 +1292,11 @@ void configure(const char* ini) {
     w.upM = read_f(ini, "WindowUp", w.upM);
     w.latM = read_f(ini, "WindowLateral", w.latM);
     g_win = w;
+    g_windowLevel = read_i(ini, "WindowLevel", 1) != 0;
+    DVR_INFO("hud/layout: [Hud] WindowLevel=%d - %s", g_windowLevel ? 1 : 0, g_windowLevel
+             ? "a screen on the head-locked window keeps the horizon (the head's roll is taken out; `xr: HUD window level` "
+               "names the angle). The gameplay HUD still turns with the head"
+             : "the window turns with every degree of head roll, screens included (before 2026-10-31)");
     for (int k = 0; k < 2; ++k) {
         HandCfg h = kPresetHand;
         char key[64];
@@ -1472,6 +1491,7 @@ void save(const char* ini) {
     write_f("WindowHeight", g_win.heightM);
     write_f("WindowUp", g_win.upM);
     write_f("WindowLateral", g_win.latM);
+    write_i("WindowLevel", g_windowLevel);
     set_hand(0, g_hand[0], "save");
     set_hand(1, g_hand[1], "save");
     set_alpha(g_alpha, "save");
@@ -1575,7 +1595,14 @@ bool command(const char* args) {
             return true;
         }
         if (!strcmp(w2, "recenter")) { dvr::vr::recenter_hud_world_anchor(); DVR_INFO("hud: the world window re-seeded where the head is now"); return true; }
-        if (n < 3) { DVR_WARN("hud: window wants view|world|recenter or dist|width|height|up|lateral <m>"); return true; }
+        if (!strcmp(w2, "level") && n >= 3) {
+            g_windowLevel = !strcmp(w3, "on") || !strcmp(w3, "1");
+            write_i("WindowLevel", g_windowLevel);
+            DVR_INFO("hud: [Hud] WindowLevel=%d (the seam) - screens on the window %s", g_windowLevel ? 1 : 0,
+                     g_windowLevel ? "keep the horizon" : "turn with the head's roll");
+            return true;
+        }
+        if (n < 3) { DVR_WARN("hud: window wants view|world|recenter|level on|off or dist|width|height|up|lateral <m>"); return true; }
         if (!strcmp(w2, "dist")) c.distM = v;
         else if (!strcmp(w2, "width")) c.widthM = v;
         else if (!strcmp(w2, "height")) c.heightM = v;
@@ -1743,6 +1770,7 @@ void log_status() {
 void status(dvr::status::Writer& w) {
     w.kv("windowDist", (double)g_win.distM);
     w.kv("windowWidth", (double)g_win.widthM);
+    w.kv("windowLevel", g_windowLevel);
     w.kv("handLWidth", (double)g_hand[0].widthM);
     w.kv("handRWidth", (double)g_hand[1].widthM);
     w.kv("menuInWindow", g_menuInWindow);
@@ -1900,6 +1928,14 @@ void draw_ui() {
         bool on = g_menuInWindow;
         if (dvr::ovl::checkbox("In-game screens ride their panel", &on)) set_menu_in_window(on, "F10 HUD");
         ov::tip("Off shows every in-game screen on the flat screen.");
+        bool level = g_windowLevel;
+        if (dvr::ovl::checkbox("Keep screens level with the horizon", &level)) {
+            g_windowLevel = level; write_i("WindowLevel", level);
+            DVR_INFO("hud: [Hud] WindowLevel=%d (F10) - screens on the window %s", level ? 1 : 0,
+                     level ? "keep the horizon" : "turn with the head's roll");
+        }
+        ov::tip("A journal or note on the panel in front of you stays level with the world when your head is tilted. "
+                "Off: it tilts with your head. The gameplay HUD always follows your head.");
         uint32_t mask = g_menuMask;
         bool ch = false;
         for (int i = 0; i < kMenuContexts; ++i) {

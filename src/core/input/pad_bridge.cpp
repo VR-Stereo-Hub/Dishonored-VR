@@ -27,6 +27,42 @@ static std::atomic<float> g_zoomGestureRadiusM{0.25f};   // 25 cm: the owner fou
 static std::atomic<float> g_zoomGestureRightM{0.08f};    // the anchor sits this far to the RIGHT of the right eye (the temple), so the
                                                          // hand need not come fully in front of the face (owner, 2026-10-07)
 static double g_zoomPulseUntil = 0.0;   // present lane: the pad's right thumb button is held until this time
+// 2026-10-21: [Controllers] WheelHoldToOpen / WheelHoldMs. The power wheel's grip is also a hand that grabs, so a
+// quick squeeze must not open the wheel: the grip has to stay down WheelHoldMs before LB reaches the game. A grip
+// the physical pickup takes never gets that far (it is zeroed before the remap). Live: wheelhold on|off|<ms>.
+// 2026-10-29: [Controllers] MenuDefaultButtons=1 - a custom bind layout stops at the menus, where the shipped layout
+// applies so every button is the one its on-screen prompt names (the input/binds line says when it switches).
+static std::atomic<bool>  g_menuDefaultButtons{true};
+static bool MenuDefaultButtonsGet() { return g_menuDefaultButtons.load(); }
+static void MenuDefaultButtonsSet(bool on, const char* who) {
+    g_menuDefaultButtons.store(on);
+    Log("input/binds: menus use %s (%s)", on ? "the SHIPPED button layout (every button as its prompt shows)" : "the custom layout too",
+        who ? who : "?");
+}
+static std::atomic<bool>  g_wheelHoldOn{true};
+static std::atomic<float> g_wheelHoldMs{1000.0f};
+static bool  WheelHoldGet() { return g_wheelHoldOn.load(); }
+static float WheelHoldMsGet() { return g_wheelHoldMs.load(); }
+static void WheelHoldSet(bool on, float ms, const char* who) {
+    if (!(ms >= 100.0f && ms <= 3000.0f)) ms = 1000.0f;
+    g_wheelHoldOn.store(on); g_wheelHoldMs.store(ms);
+    Log("wheel: %s (%s)", on ? "HOLD TO OPEN - the grip must stay down before the wheel opens" : "opens on the grip press, as the game does",
+        who ? who : "?");
+    if (on) Log("wheel: hold %.0f ms", ms);
+}
+// 2026-10-21: [Controllers] SwapHandsGesture. A double click of a stick toggles [Hands] SwapHands (the sword in the
+// left hand, HAND_SWAP.md). 0 off, 1 the right stick (default), 2 the left stick. On the right stick a single tap
+// is still the zoom, sent once the double-click window has passed so a double click does not also zoom; on the
+// left stick both clicks still reach sprint. Live: swaphands gesture right|left|off.
+static std::atomic<int> g_swapGesture{1};
+static constexpr double kSwapDoubleMs = 350.0;
+static int  SwapGestureGet() { return g_swapGesture.load(); }
+static void SwapGestureSet(int g, const char* who) {
+    if (g < 0 || g > 2) g = 1;
+    g_swapGesture.store(g);
+    Log("swaphands: %s toggles the hand swap (%s)", g == 1 ? "a double click of the RIGHT stick" : g == 2 ? "a double click of the LEFT stick"
+                                                                                                     : "no stick gesture", who ? who : "?");
+}
 static bool ZoomGestureGet() { return g_zoomGesture.load(); }
 static void ZoomGestureSet(bool on, const char* who) {
     if (g_zoomGesture.exchange(on) != on)
@@ -59,7 +95,9 @@ static float ZoomHandToRightEyeM(float* gripM, float* aimM) {
     const float rx = 1.0f - 2.0f * (head.qy * head.qy + head.qz * head.qz);
     const float ry = 2.0f * (head.qx * head.qy + head.qz * head.qw);
     const float rz = 2.0f * (head.qx * head.qz - head.qy * head.qw);
-    const float h = g_ipdM * 0.5f + g_zoomGestureRightM.load();   // the right eye, then further right to the temple
+    // The right eye, then further right to the temple. With the hands swapped ([Hands] SwapHands) the
+    // sword hand below is the LEFT controller, so the gesture mirrors to the left eye and temple.
+    const float h = (g_ipdM * 0.5f + g_zoomGestureRightM.load()) * (dvr::vr::input_hand_swap() ? -1.0f : 1.0f);
     const float ex = head.px + rx * h, ey = head.py + ry * h, ez = head.pz + rz * h;
     float best = -1.0f;
     for (int aim = 0; aim < 2; ++aim) {
@@ -195,13 +233,56 @@ static void UpdateVirtualPad()
     // while the panel is up (the default layout's pointer mute is the output block further down).
     // The R3 D-pad modifier is a physical gesture: it always reads the right stick click.
     const auto binds=dvr::binds::layout();
+    // PointerHand names a controller; the snapshot's trigger fields name the game's hands ([Hands]
+    // SwapHands), and the swap is its own inverse, so this is the field that controller's trigger is in.
     const dvr::binds::Source bindMuted=(!binds.is_default() && g_ovlVisible && g_ovlPtrEnable)
-        ? (g_ovlPtrHand ? dvr::binds::RightTrigger : dvr::binds::LeftTrigger) : dvr::binds::None;
+        ? (dvr::vr::input_physical_hand(g_ovlPtrHand) ? dvr::binds::RightTrigger : dvr::binds::LeftTrigger) : dvr::binds::None;
     // Physical pickup: a grip pressed with loot in reach is swallowed BEFORE the remap (so whatever
     // is bound to that grip does not fire) and Interact is pressed for a moment instead.
     dvr::vr::InputSnapshot rawForBinds=raw;
     const bool pickupPress=PickupPadFilter(rawForBinds,g_ovlVisible || g_menuOpen || g_inMenu || UiSurfaceBlocks() || CineActive());
-    dvr::vr::InputSnapshot in=dvr::binds::apply(rawForBinds,binds,bindMuted);
+    // 2026-10-29 (headset): a custom layout followed the player into the menus, where the prompts name the pad's own
+    // buttons. With Lean unbound nothing produced pad Y, so the journal's "Show history" could not be pressed (0 Y
+    // presses in four journal visits, the player pressing X on the objectives tab). In a menu (not the power wheel,
+    // which the bound grip opens, and not the F10 panel) the shipped layout applies: every button is the one its
+    // prompt shows. [Controllers] MenuDefaultButtons=0 keeps the custom layout there too.
+    // 2026-10-31 (headset): the wheel's own screen raises g_inMenu (the pad's MENU mode follows UiSurfaceBlocks), which
+    // the wheel exclusion did not cover. The switch masked the grip still holding the wheel open as "held across", LB
+    // dropped one frame after the wheel opened and the game shut it. While the wheel is held or up, and for 250 ms
+    // after (its UI flags settle a frame or two later than the grip), nothing it raises is a menu.
+    static double wheelSeenMs=-1e9;
+    const double layoutNowMs=MaimNowMs();
+    if (UiSurfaceWheel() || g_wheelHeld) wheelSeenMs=layoutNowMs;
+    const bool wheelNear=layoutNowMs-wheelSeenMs<250.0;
+    const bool menuUp=g_menuOpen || g_mainMenu || (!wheelNear && (g_inMenu || UiSurfaceBlocks()));
+    const bool menuLayout=MenuDefaultButtonsGet() && !binds.is_default() && !g_ovlVisible && menuUp;
+    {
+        // A press held across the switch belongs to the layout it began in: the X held to open the journal must not
+        // arrive as the journal's X (simulator, 2026-10-29: it did, 0x4000 in the frame the journal opened), nor the B
+        // that closes a menu as a crouch. Each such input is ignored until it is let go.
+        auto held=[](const dvr::vr::InputSnapshot& s)->unsigned {
+            return (s.a?1u:0u)|(s.b?2u:0u)|(s.x?4u:0u)|(s.y?8u:0u)|(s.menu?16u:0u)|(s.clkL?32u:0u)|(s.clkR?64u:0u)|
+                   (s.gripL>0.5f?128u:0u)|(s.gripR>0.5f?256u:0u)|(s.trigL>0.5f?512u:0u)|(s.trigR>0.5f?1024u:0u);
+        };
+        static bool menuLayoutWas=false; static unsigned heldAcross=0;
+        const unsigned nowHeld=held(rawForBinds);
+        if (menuLayout!=menuLayoutWas) {
+            menuLayoutWas=menuLayout; heldAcross=nowHeld;
+            Log("input/binds: %s%s", menuLayout ? "a menu is open - the shipped button layout applies here (every button as its prompt shows; "
+                                                  "[Controllers] MenuDefaultButtons)" : "back to the custom layout",
+                heldAcross ? " - inputs still held from before are ignored until let go" : "");
+        }
+        heldAcross&=nowHeld;
+        if (heldAcross) {
+            if (heldAcross&1u) rawForBinds.a=false;      if (heldAcross&2u) rawForBinds.b=false;
+            if (heldAcross&4u) rawForBinds.x=false;      if (heldAcross&8u) rawForBinds.y=false;
+            if (heldAcross&16u) rawForBinds.menu=false;  if (heldAcross&32u) rawForBinds.clkL=false;
+            if (heldAcross&64u) rawForBinds.clkR=false;  if (heldAcross&128u) rawForBinds.gripL=0.0f;
+            if (heldAcross&256u) rawForBinds.gripR=0.0f; if (heldAcross&512u) rawForBinds.trigL=0.0f;
+            if (heldAcross&1024u) rawForBinds.trigR=0.0f;
+        }
+    }
+    dvr::vr::InputSnapshot in=dvr::binds::apply(rawForBinds,menuLayout ? dvr::binds::Layout{} : binds,bindMuted);
     if (pickupPress) in.x=true;
     if (controller.modifier==dvr::controller::R3) in.clkR=raw.clkR;
     if (g_ovlVisible && dvr::binds::capture_active(GetTickCount64())) {   // F10 press-to-bind owns the press
@@ -258,11 +339,31 @@ static void UpdateVirtualPad()
         static bool wheelWas = false, chokeWas = false;
         bool wheel = in.gripL > (wheelWas ? 0.7f : 0.9f);
         bool choke = in.gripR > (chokeWas ? 0.7f : 0.9f);
-        wheelWas = wheel; chokeWas = choke;
         bool wheelHeld = wheel;
+        {   // WheelHoldToOpen (g_wheelHoldOn above): the wheel only after the grip has been held, so a grab does not open it
+            // 2026-10-29 (headset): gameplay only. In a menu the same grip is LB, the previous tab, and the hold swallowed
+            // every quick press (0 LB presses in four journal visits while RB switched tabs normally).
+            static double wheelDownMs = 0.0; static bool wheelOpened = false;
+            const double wNow = MaimNowMs();
+            const bool inMenus = menuUp || g_ovlVisible;   // the wheel's own screen is not a menu (menuUp above)
+            if (wheel && !wheelWas) { wheelDownMs = wNow; wheelOpened = inMenus; }
+            if (WheelHoldGet() && wheel && !inMenus && !wheelOpened) {
+                wheelHeld = wNow - wheelDownMs >= (double)WheelHoldMsGet();
+                if (wheelHeld && !wheelOpened) {
+                    wheelOpened = true;
+                    Log("wheel: grip held %.0f ms - the wheel opens", wNow - wheelDownMs);
+                }
+            }
+            if (!wheel && wheelWas && WheelHoldGet() && !wheelOpened)
+                Log("wheel: grip released after %.0f ms, under the %.0f ms hold - the wheel stays shut", wNow - wheelDownMs,
+                    (double)WheelHoldMsGet());
+        }
+        wheelWas = wheel; chokeWas = choke;
         g_wheelHeld = wheelHeld;
         if (wheelHeld)       b |= XINPUT_GAMEPAD_LEFT_SHOULDER;
-        if (choke)           b |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
+        // 2026-11-01: behind a guard, RB waits for the game to focus it (choke_assist.cpp); anywhere else, menus
+        // included (no guard is offered outside gameplay), it is the press as before.
+        if (ChokeAssistRb(choke)) b |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
         if (in.a)            b |= XINPUT_GAMEPAD_A;       // jump
         bool userStealth = in.b;
         if (userStealth)     b |= XINPUT_GAMEPAD_B;       // stealth
@@ -274,18 +375,50 @@ static void UpdateVirtualPad()
             static bool r3Was = false, r3Used = false; static double r3Down = 0.0;
             const double zNow = MaimNowMs();
             const bool gated = g_menuOpen || g_inMenu || g_wheelHeld || g_ovlVisible || UiSurfaceBlocks() || CineActive() || !g_handMesh;
-            if (raw.clkR && !r3Was) { r3Down = zNow; r3Used = gated; }
+            // SwapHandsGesture on the right stick (g_swapGesture above): a tap's zoom waits out the double-click window.
+            static double zoomPendingUntil = 0.0, r3TapUpMs = -1e9; static char zoomPendingWhy[96] = "";
+            const bool swapR3 = SwapGestureGet() == 1;
+            if (raw.clkR && !r3Was) {
+                r3Down = zNow; r3Used = gated;
+                if (swapR3 && !gated && zNow - r3TapUpMs <= kSwapDoubleMs) {   // the second click of a double click
+                    zoomPendingUntil = 0.0; r3Used = true; r3TapUpMs = -1e9;
+                    HsSet(!HsOn(), "the right stick double click");
+                    ConfigWriteKey("Hands", "SwapHands", HsOn() ? "1" : "0", "the right stick double click");
+                }
+            }
             if (raw.clkR && (raw.clkL || (emulation.buttons & 0xF) || gated)) r3Used = true;   // the chord, a D-pad pick, a menu
-            if (!raw.clkR && r3Was && ZoomTapGet() && !r3Used) {
+            if (!raw.clkR && r3Was && !r3Used) {
                 const double held = zNow - r3Down;
                 if (held < (double)g_elixirHoldMs) {
+                    r3TapUpMs = zNow;
                     char why[96]; _snprintf_s(why, _TRUNCATE, "right stick click tapped (%.0f ms, under the %.0f ms elixir hold)", held, g_elixirHoldMs);
-                    ZoomPulse(why);
-                } else {
+                    if (ZoomTapGet()) {
+                        if (swapR3) { zoomPendingUntil = zNow + kSwapDoubleMs; strcpy_s(zoomPendingWhy, why); }
+                        else ZoomPulse(why);
+                    }
+                } else if (ZoomTapGet()) {
                     Log("zoom: right stick click held %.0f ms - the elixir's hold, not a zoom tap", held);
                 }
             }
+            if (zoomPendingUntil > 0.0 && zNow >= zoomPendingUntil && !raw.clkR) {   // no second click came: it was a tap
+                zoomPendingUntil = 0.0;
+                ZoomPulse(zoomPendingWhy);
+            }
             r3Was = raw.clkR;
+            // SwapHandsGesture on the left stick: both clicks still reach sprint.
+            static bool l3Was = false; static double l3Down = 0.0, l3TapUpMs = -1e9;
+            if (SwapGestureGet() == 2) {
+                if (raw.clkL && !l3Was) {
+                    l3Down = zNow;
+                    if (!gated && !raw.clkR && zNow - l3TapUpMs <= kSwapDoubleMs) {
+                        l3TapUpMs = -1e9;
+                        HsSet(!HsOn(), "the left stick double click");
+                        ConfigWriteKey("Hands", "SwapHands", HsOn() ? "1" : "0", "the left stick double click");
+                    }
+                }
+                if (!raw.clkL && l3Was && zNow - l3Down < 300.0) l3TapUpMs = zNow;
+            }
+            l3Was = raw.clkL;
             if (zNow < g_zoomPulseUntil) b |= XINPUT_GAMEPAD_RIGHT_THUMB;
         }
         {   // stick-click edges stay measured facts
@@ -413,13 +546,29 @@ static void UpdateVirtualPad()
         if (carryWas && !carrySwap && hl > 0.2f) ltHeld = true;
         if (ltHeld && hl < 0.1f) ltHeld = false;
         carryWas = carrySwap;
+        // 2026-10-29: a carry in the RIGHT hand throws with that hand's own trigger even when Attack is unbound
+        // (CarryInRightHandNow): the physical trigger of the game's right hand, never the zoom gesture's press.
+        const bool carryRight = !carrySwap && CarryInRightHandNow();
+        {
+            bool rtFree = true;   // no other action uses the right trigger, so it can throw without doing something else too
+            for (int a = 0; a < dvr::binds::ActionCount; ++a)
+                if (a != dvr::binds::Attack && binds.src[a] == dvr::binds::RightTrigger) rtFree = false;
+            static bool saidRight = false;
+            if (carryRight != saidRight) {
+                saidRight = carryRight;
+                if (carryRight && binds.src[dvr::binds::Attack] != dvr::binds::RightTrigger)
+                    Log("carry/aim: the right hand carries and Attack is on %s - %s", dvr::binds::source_key(binds.src[dvr::binds::Attack]),
+                        rtFree ? "the right hand's own trigger throws for the carry" : "the right trigger is bound to another action, so it does not throw");
+            }
+            if (carryRight && rtFree) hr = fmaxf(hr, rawForBinds.trigR);
+        }
         xs.Gamepad.bRightTrigger = (BYTE)((carrySwap ? hl : hr) * 255.0f);
         xs.Gamepad.bLeftTrigger  = (BYTE)((carrySwap ? hr : ltHeld ? 0.0f : hl) * 255.0f);
         // VR-37: a physical swing presses the attack for a moment. It ADDS to the
         // player's own trigger and never replaces it. [Melee] Output=rb is for an
         // install whose pad binding set puts the attack on the right shoulder.
         dvr::swing::note_real_trigger(hr);
-        if (MeleeActive() && !carrySwap) {   // VR-181: a swing must not throw what you carry
+        if (MeleeActive() && !carrySwap && !carryRight) {   // VR-181: a swing must not throw what you carry (either hand)
             if (dvr::swing::output_rb()) xs.Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
             else xs.Gamepad.bRightTrigger = 255;
         }
@@ -430,12 +579,12 @@ static void UpdateVirtualPad()
         {
             const bool rb = dvr::swing::output_rb();
             const bool pulse = MeleeActive();
-            const bool attack = !carrySwap && (rb ? pulse : xs.Gamepad.bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
+            const bool attack = !carrySwap && !carryRight && (rb ? pulse : xs.Gamepad.bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
             const auto drop = dvr::drop::gate(attack, pulse, dvr::swing::pad_polls());
-            if (drop == dvr::drop::Hold) {
+            if (drop == dvr::drop::Hold && !carryRight) {
                 if (rb) xs.Gamepad.wButtons &= (WORD)~XINPUT_GAMEPAD_RIGHT_SHOULDER;
                 else xs.Gamepad.bRightTrigger = 0;
-            } else if (drop == dvr::drop::Press && !carrySwap) {
+            } else if (drop == dvr::drop::Press && !carrySwap && !carryRight) {
                 if (rb) xs.Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
                 else xs.Gamepad.bRightTrigger = 255;
             }
@@ -670,18 +819,22 @@ static void UpdateVirtualPad()
     // zeroing it earlier would leave the panel with nothing to click with. The other
     // hand stays live: walking with the panel open still works.
     if (active && g_ovlVisible && g_ovlPtrEnable) {
-        if (g_ovlPtrHand) {
+        // PointerHand names a CONTROLLER. Its trigger reaches the pad as the game hand that controller
+        // holds ([Hands] SwapHands moves it; the swap is its own inverse), and so does the motion
+        // sword's pulse; its stick never moves.
+        const int ptrGame = dvr::vr::input_physical_hand(g_ovlPtrHand);
+        if (ptrGame) {
             xs.Gamepad.bRightTrigger = 0;
-            xs.Gamepad.sThumbRX = 0; xs.Gamepad.sThumbRY = 0;
             if (dvr::swing::output_rb() && MeleeActive())     // [Melee] Output=rb's swing pulse
                 xs.Gamepad.wButtons &= (WORD)~XINPUT_GAMEPAD_RIGHT_SHOULDER;
         } else {
             xs.Gamepad.bLeftTrigger = 0;
         }
+        if (g_ovlPtrHand) { xs.Gamepad.sThumbRX = 0; xs.Gamepad.sThumbRY = 0; }
         DVR_LOG_EVERY_MS(DVR_CAT, dvr::log::Level::Info, 5000,
-            "pad/overlay: the F10 panel is up - the %s trigger%s reach the panel, not the game "
-            "(raw trigger %.2f)", g_ovlPtrHand ? "right" : "left",
-            g_ovlPtrHand ? " and right stick" : "", g_ovlPtrHand ? in.trigR : in.trigL);
+            "pad/overlay: the F10 panel is up - the %s controller's trigger%s reach the panel, not the game "
+            "(raw trigger %.2f; it drives the game's %s hand)", g_ovlPtrHand ? "right" : "left",
+            g_ovlPtrHand ? " and right stick" : "", ptrGame ? in.trigR : in.trigL, ptrGame ? "right" : "left");
     }
     // Snap turn (VR-219): LAST, after every context that took the right stick for
     // navigation (menu, wheel, reading, pause, lean, the D-pad flip, the F10 pointer) has

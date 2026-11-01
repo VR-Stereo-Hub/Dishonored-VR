@@ -1625,3 +1625,83 @@ the game's zoom (the mask lens, the "spyglass") magnifies the view about its cen
 shrinking the picture. It ships on as a stated exception to "every render lever ships off": the owner
 asked for the zoom and the honest claim is the reported box; `zoommagnify off` is the live A/B.
 Record: dishonored/ENGINE_NOTES.md, 2026-10-07.
+
+### 2026-10-20: left-handed play swaps the GAME's hands and draws them in a mirrored world
+
+`[Hands] SwapHands` puts the sword in the left hand. Two routes were weighed. Re-rigging the game's
+right hand as a left one (swapping skeleton sides, sockets and animations) would need engine data
+the mod does not own and a decompile it does not have. The route taken leaves the game's hands
+exactly as they are and changes two seams: the action layer maps each GAME hand to the other
+controller (poses, triggers, grips, haptics, one switch in `openxr_input.cpp`), and the render
+places each hand on the MIRROR IMAGE of its controller and reflects the finished palette back,
+flipping the cull mode. Because the reflection is applied to the result, everything already built
+on the hand's single correction - calibration, trims, full-arm IK, the weapons, the effects, the
+grab - keeps working unchanged, and the palm-frame records (grip, model axis) mean the same thing in
+both modes. The plane is the body's through the shoulder pair for IK, so the mirrored right
+shoulder IS the left one. HUD anchors and the F10 pointer name a controller and do not move.
+Default off with a live toggle (`swaphands`, F10 Hands): a render lever. Record:
+dishonored/HAND_SWAP.md.
+
+### 2026-10-21: the second dot is the weapon hand's dot mirrored; the keyhole exit restore ships on
+
+PointGrab's second dot could be built from its own controller or carried from the weapon hand. Its
+own controller has no measured axis, and the only tuned angle there is (the other-items offset) is
+relative to the weapon hand's model axis, so applying it to the other controller's AIM pose pointed
+the dot nearly straight down. Carrying the weapon hand's dot as drawn across the controllers' mirror
+symmetry (`xrmath::mirror_dir_between`) reuses the one ray that has been tuned in a headset, keeps
+the dots matched whatever the weapon hand holds, and needs no new tuning. One ray per hand still
+holds: the grab and the dot read the same published frame.
+`[Cine] KeyholeFovRestore` defaults ON although it changes what the lever writes, against the
+default-OFF rule for new render levers: it corrects a measured fault (the view left magnified and
+the hands refused after every peek on a ratio-1 lever), it acts only for at most 3 s after a peek
+and never during one, and the live toggle (`keyholefov`, F10) restores the old behaviour for an A/B.
+
+### 2026-10-29: menus use the shipped button layout; the lens is divided out, not refused
+
+A custom bind layout is a gameplay choice. In menus the game draws prompts with the pad's own
+button names, and a layout that unbinds an action (Lean, Attack) made some menu buttons
+unreachable. So the remap stops at the menus (`[Controllers] MenuDefaultButtons=1`, F10, `binds
+menus`), with inputs held across the switch ignored until released. The alternative, remapping the
+prompts, would mean rewriting the game's Scaleform glyphs.
+`[Hands] LensUndo` replaces the refusal of a lens-scaled hand mesh with exact compensation, since
+the scale is per-axis on an orthogonal matrix. It ships ON despite the default-OFF rule: it removes
+a measured flicker, acts only while the game holds the arms' lens outside a zoom, and
+`armslens undo off` restores the old refusal for an A/B.
+
+### 2026-10-31: the power wheel is not a menu to the pad; a screen on the window keeps the horizon
+
+The wheel is opened by a held grip and lives inside gameplay, so the menu layout and the held-across
+mask must never see it, including through `g_inMenu`, which its screen raises. One `menuUp` in the
+pad bridge takes the wheel out (held, up, or within 250 ms of either) and feeds both the layout
+switch and the wheel hold, so the two cannot disagree again.
+`[Hud] WindowLevel` counter-rolls the head-locked window about the gaze while a screen rides it. The
+game renders head roll (simulator, 20 deg: the room tilts in the eye image), so a head-locked quad
+sits off the world's horizon by the headset's roll. Only screens are leveled: the gameplay HUD's
+markers, reticle and prompts are drawn by the game in the head's frame and would leave their world
+targets. The flag rides the quad descriptor (`HudQuadDesc::level`, default false), so the runtime
+layer behaves as before for any provider that does not ask, and the maths is pure
+(`hud_anchor.h window_level_roll`, host-tested). It ships ON despite the default-OFF rule: it fixes
+a reported tilt, acts only while a screen is on the window, and `hud window level off` restores
+the old behaviour for an A/B.
+
+### 2026-11-01: the choke assist steers the game's focus and holds Block for it
+
+The game's choke needs its own interaction focus on the guard and a held Block (ENGINE_NOTES
+2026-11-01). Three ways were open: press RB and hope (what the grip did; it blocked), call the game's
+choke directly (no script surface known, and it would skip the game's own unaware-and-behind check),
+or make the existing input meet the game's preconditions. The last keeps the game the judge: the
+assist only points the interaction trace at a guard it picked by geometry and presses Block once the
+game itself focuses that guard; if the game will not focus it, or blocks anyway, nothing is forced.
+The trace override sits ahead of the pickup's in `IaHandRay`, since a choke is the more deliberate
+act and the pickup steering a key on the same guard's belt was what stole the focus. The hold is
+latched on the game's choke state, not on the grip, because a swing has no duration and a squeeze is
+shorter than the 2.2 s takedown; it lets go at the ending so a choke does not run on into the game's
+hoist of the body. The ranged swing is a second instance of the sword's edge core on the other hand,
+fed and gated the same way, so the stealth takedown's speed and the ranged swing's speed are one setting, not two.
+Both switches ship ON: they fix a reported fault (the grip choke) and add a requested gesture, act
+only with a candidate in reach, and `choke assist off` / `choke swing off` (and F10) restore the plain
+block. The guard list is `WorldInfo.PawnList`, resolved by name, a few dozen pawns a frame.
+When the Choke grip could also take something there, duration decides (tap takes, hold chokes)
+rather than one job silently winning: the first version gave the grip to the choke outright and lost
+the take (a key on the guard's belt). Because the game's choke is itself a hold, the split costs
+only a 250 ms later choke start, and only when both jobs are on offer.

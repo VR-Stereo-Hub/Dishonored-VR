@@ -295,6 +295,7 @@ static bool CarryThrowLeftEnabled() { return g_ctLeft.load(); }
 // tuned on the left hand, are mirrored for the right. The Interact button (or the lever off) keeps the left.
 static std::atomic<bool> g_ctGrabHand{true};
 static std::atomic<int>  g_ctCarryHand{0};              // the hand holding the current carry (0 left, 1 right)
+static std::atomic<bool> g_ctCarryingRight{false};      // a carry is in the right hand right now
 static bool CarryInGrabHandEnabled() { return g_ctGrabHand.load(); }
 static int  CarryHand() { return g_ctCarryHand.load(); }
 static void CarryInGrabHandSet(bool on, const char* who)
@@ -327,8 +328,14 @@ static bool CarryThrowTriggersSwapped()
             carrying && hand == 0 && g_ctLeft.load() ? "SWAPPED (left trigger throws, right does the left's job)"
                                                      : "the game's layout (the right trigger throws)");
     }
+    g_ctCarryingRight.store(carrying && g_ctCarryHand.load() == 1);
     return carrying && g_ctLeft.load() && g_ctCarryHand.load() == 0;
 }
+// 2026-10-29 (headset): a carry held in the RIGHT hand is thrown by the game's attack (the right trigger), and a
+// layout with Attack unbound (the motion sword swings) left that hand no way to throw at all. While the right hand
+// carries, its own physical trigger is the throw whatever Attack is bound to (pad_bridge.cpp). Valid after
+// CarryThrowTriggersSwapped() has run this poll.
+static bool CarryInRightHandNow() { return g_ctCarryingRight.load(); }
 static void CarryThrowLeftSet(bool on, const char* who)
 {
     g_ctLeft.store(on);
