@@ -5,7 +5,7 @@ VIEW-space quad, so it turns with every degree of headset roll, while the game r
 keeps the world level. The reporting run's head roll read median +3.2 deg, p90 +5.6 (`neck/upright
 roll=`, positive = clockwise), which is the tilt seen.
 
-`[Hud] WindowLevel=1` (default; `hud window level on|off`, status.json `hud.layout.windowLevel`)
+`[Hud] WindowLevel=1` (default; `hud window level on|off`, F10 HUD "Keep screens level with the horizon", status.json `hud.layout.windowLevel`)
 turns every window quad that belongs to a SCREEN (any window quad while a screen rides, the screen
 rows, the wheel's side panels) by the head's roll about the gaze: the quad, its base offset
 (`WindowUp`, `WindowLateral`) and its in-plane axes together, so the group turns rigidly about the
@@ -2017,7 +2017,7 @@ the window (the VR-117 picture) until the headset judges the split.
 Seam words: `hud on|off|status|scale <f>`, `hud regions on|off`, `hud anchor
 <el|all> off|frame|window|world|handL|handR`, `hud window view|world|recenter|
 dist|width|height|up|lateral <v>` (`view`/`world` move every window-kind row),
-`hud window level on|off` (2026-10-31: a screen on the window keeps the horizon),
+`hud window level on|off` (2026-10-31: a screen on the window keeps the horizon; F10 HUD has the checkbox),
 `hud hand l|r billboard|grip|x|y|z|lift|width|tilt <v>`, `hud place <el>
 window|hand <x> <y> [scale]`, `hud region <el> x0,y0,x1,y1`, `hud alpha mode
 repair|captured|mix`, `hud alpha gain|floor|gamma|mix <f>`, `hud alpha backdrop

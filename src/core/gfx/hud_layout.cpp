@@ -1928,6 +1928,14 @@ void draw_ui() {
         bool on = g_menuInWindow;
         if (dvr::ovl::checkbox("In-game screens ride their panel", &on)) set_menu_in_window(on, "F10 HUD");
         ov::tip("Off shows every in-game screen on the flat screen.");
+        bool level = g_windowLevel;
+        if (dvr::ovl::checkbox("Keep screens level with the horizon", &level)) {
+            g_windowLevel = level; write_i("WindowLevel", level);
+            DVR_INFO("hud: [Hud] WindowLevel=%d (F10) - screens on the window %s", level ? 1 : 0,
+                     level ? "keep the horizon" : "turn with the head's roll");
+        }
+        ov::tip("A journal or note on the panel in front of you stays level with the world when your head is tilted. "
+                "Off: it tilts with your head. The gameplay HUD always follows your head.");
         uint32_t mask = g_menuMask;
         bool ch = false;
         for (int i = 0; i < kMenuContexts; ++i) {

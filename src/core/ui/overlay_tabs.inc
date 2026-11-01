@@ -230,6 +230,12 @@ static void OvlTabHands()
             ConfigWriteKey("Anim", "CineHideStaticArms", cineHide ? "1" : "0", "F10 Hands");
         }
         OvlTip("In a cutscene, the game's arms are hidden while they hold still with both hands behind your head.");
+        bool lensUndo = g_mpLensUndo;
+        if (dvr::ovl::checkbox("Keep hands drawn when the game scales the arms", &lensUndo)) {
+            g_mpLensUndo = lensUndo; ConfigWriteKey("Hands", "LensUndo", lensUndo ? "1" : "0", "F10 Hands");
+        }
+        OvlTip("In some conversations the game scales your arms. On: the hands are drawn at their true size anyway. "
+               "Off: they are not drawn while scaled, which can make them blink.");
         bool cineArms = dvr::anim::cinematic_arms();
         if (dvr::ovl::checkbox("Your arms in cutscenes (experimental)", &cineArms)) dvr::anim::set_cinematic_arms(cineArms);
         OvlTip("Off: cutscenes and conversations are left exactly as the game shows them. On: your tracked arms stay visible and "

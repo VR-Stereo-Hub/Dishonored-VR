@@ -23,7 +23,7 @@
    Counterprediction: if the lens were not a pure per-axis scale (a shear, or a scale the placement
    sees elsewhere), the next conversation would print `ms/palette/lens` and still show the hands
    jumping or the wrong size, and the orthogonality check (0.02) would start refusing.
-5. **Change identity:** `[Hands] LensUndo=1` (`armslens undo on|off`, default ON as the fix of a
+5. **Change identity:** `[Hands] LensUndo=1` (`armslens undo on|off`, F10 Hands "Keep hands drawn when the game scales the arms", default ON as the fix of a
    measured fault; ARCHITECTURE decision log): `MpAcquireCtx` divides a lens scale of up to 50% out
    (never while the view is zoomed: the mask zoom keeps its hide), `lens_undo_rows` (hand_frame.h)
    applies diag(1/n) as the last step, after the hand swap's reflection, which does not commute
