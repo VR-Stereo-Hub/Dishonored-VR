@@ -241,6 +241,45 @@ int main() {
         reading_tilt(q,-31,old);reading_alignment(q,0,updated);
         for(int k=0;k<4;++k)check(fabsf(old[k]-updated[k])<.000001f,"rebase retains accepted physical orientation");
     }
+    {   // the level window (2026-10-31): head = yaw * pitch * roll, intrinsic
+        const float d2r=3.14159265f/180.0f;
+        const float yaws[]={-150,-40,0,70,170},pitches[]={-65,-20,0,30,65},rolls[]={-35,-12,-3,0,4,8,30};
+        for(float yw:yaws) for(float pt:pitches) for(float rl:rolls) {
+            float qy[4],qp[4],qr[4],t[4],h[4];
+            dvr::xrmath::quat_axis_angle(0,1,0,yw*d2r,qy);
+            dvr::xrmath::quat_axis_angle(1,0,0,pt*d2r,qp);
+            dvr::xrmath::quat_axis_angle(0,0,1,rl*d2r,qr);
+            dvr::xrmath::quat_mul(qy,qp,t);dvr::xrmath::quat_mul(t,qr,h);
+            const float a=window_level_roll(h);
+            check(std::fabs(a+rl*d2r)<1e-4f,"the level roll is the head's roll, undone");
+            float right[3]={1,0,0},up[3]={0,1,0},wr[3],wu[3];
+            view_roll(a,right);view_roll(a,up);
+            rot(h,right,wr);rot(h,up,wu);
+            check(std::fabs(wr[1])<1e-4f,"the leveled window's right lies on the horizon");
+            check(wu[1]>0,"the leveled window stays upright, not flipped");
+            float raw[3];rot(h,xAxis,raw);
+            if(std::fabs(rl)>=3) check(std::fabs(raw[1])>.02f,"negative control: the head-locked right is off the horizon with the head rolled");
+            const float base[3]={-.02f,-.10f,-1.5f},off[3]={.3f,.2f,0};
+            float b[3]={base[0],base[1],base[2]},po[3]={off[0],off[1],0};
+            view_roll(a,b);view_roll(a,po);
+            check(std::fabs(std::sqrt(po[0]*po[0]+po[1]*po[1])-std::sqrt(off[0]*off[0]+off[1]*off[1]))<1e-5f,
+                  "the in-plane offset keeps its length");
+            check(std::fabs(b[2]+1.5f)<1e-6f,"the roll keeps the window's distance");
+            check(std::fabs(std::sqrt(b[0]*b[0]+b[1]*b[1])-std::sqrt(base[0]*base[0]+base[1]*base[1]))<1e-5f,
+                  "the roll turns the window's offset about the gaze, it does not move it away");
+        }
+        float qp[4];
+        dvr::xrmath::quat_axis_angle(1,0,0,80*d2r,qp);
+        float qr[4],h[4];dvr::xrmath::quat_axis_angle(0,0,1,10*d2r,qr);dvr::xrmath::quat_mul(qp,qr,h);
+        float a=window_level_roll(h);
+        check(a<0 && a>-10*d2r*.5f,"80 degrees of pitch: the correction is fading");
+        dvr::xrmath::quat_axis_angle(1,0,0,89*d2r,qp);dvr::xrmath::quat_mul(qp,qr,h);
+        check(window_level_roll(h)==0,"89 degrees of pitch: no correction (the level right degenerates)");
+        const float zero[4]={0,0,0,0},nan4[4]={NAN,0,0,1},ident[4]={0,0,0,1};
+        check(window_level_roll(zero)==0 && window_level_roll(nan4)==0,"an invalid head turns nothing");
+        check(window_level_roll(ident)==0,"a level head turns nothing");
+        float v[3]={1,0,0};view_roll(90*d2r,v);check(near3(v,0,1,0),"view roll: +90 turns right onto up");
+    }
     std::printf("%u hud-anchor checks passed\n", checks);
     return 0;
 }

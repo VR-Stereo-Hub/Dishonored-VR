@@ -167,5 +167,71 @@ int main() {
             view = (load % 2) ? 37.36f : 60.0f;    // the next load happens during a narrowing
         }
     }
+    // 2026-10-21: the keyhole's exit. A model of the headset run: the lever writes the game's resting FOV every
+    // frame; the game's current FOV (the sensor) blends toward the peek's own narrow FOV while peeking and toward
+    // the resting FOV otherwise. With natural 105 against a 103 target the ratio is 1.
+    {
+        using dvr::fov_lever::PeekExit;
+        struct Run { float sensor; float rest; };
+        auto peek = [](bool fix, float natural, int peekFrames, int afterFrames, bool walkingAfter, float* minDuring) {
+            const float req = 103.0f, keyhole = 60.0f, blend = 0.05f;   // 90 Hz frames, about 1 s to settle
+            Run r{103.0f, 103.0f}; PeekExit bridge; unsigned long long now = 1000;
+            float lowest = 1e9f;
+            for (int i = 0; i < peekFrames + afterFrames; ++i, now += 11) {
+                const bool peeking = i < peekFrames;
+                float t = target(r.sensor, natural, req);
+                const float p = fix ? bridge.update(true, peeking, peeking || walkingAfter, r.sensor, req, now) : 0.0f;
+                if (p > 0) t = p;
+                r.rest = t;                                                   // the lever's resting-field write
+                r.sensor += blend * ((peeking ? keyhole : r.rest) - r.sensor);  // the game's blend
+                if (peeking && r.sensor < lowest) lowest = r.sensor;
+            }
+            if (minDuring) *minDuring = lowest;
+            return r.sensor;
+        };
+        float during = 0;
+        // Negative control: the build the headset ran. The narrowing outlives the peek.
+        const float stuck = peek(false, 105.0f, 360, 900, true, &during);
+        check(stuck < 70.0f, "negative control: a ratio-1 lever keeps the keyhole's narrowing after the exit");
+        // The fix: the peek keeps its zoom, the exit widens back.
+        const float fixedView = peek(true, 105.0f, 360, 900, true, &during);
+        check(during < 61.0f, "the peek itself keeps the game's zoom (PeekExit is silent while peeking)");
+        check(std::fabs(fixedView - 103.0f) <= dvr::fov_lever::kPeekBackDeg, "after the exit the view is back at the target (within 0.05 deg)");
+        // Headset 2026-10-21: released within 0.5 deg the ratio-1 latch kept 102.58. The old tolerance as a negative control.
+        {
+            float s = 93.34f, rest = 93.34f; PeekExit b; unsigned long long t = 1000; bool releasedAt = false; float at = 0;
+            b.update(true, true, true, s, 103.0f, t);
+            for (int i = 0; i < 400; ++i, t += 11) {
+                const float p = b.update(true, false, true, s, 103.0f, t);
+                rest = p > 0 ? p : target(s, 105.0f, 103.0f);
+                if (!releasedAt && p == 0 && i > 0) { releasedAt = true; at = s; }
+                s += 0.07f * (rest - s);
+            }
+            check(releasedAt && std::fabs(at - 103.0f) <= dvr::fov_lever::kPeekBackDeg && std::fabs(s - 103.0f) <= dvr::fov_lever::kPeekBackDeg,
+                  "the bridge holds until 0.05 deg, and the latch then keeps 103");
+            float s2 = 102.58f;   // what a 0.5 release leaves: the ratio-1 lever writes it back unchanged
+            for (int i = 0; i < 400; ++i) s2 += 0.07f * (target(s2, 105.0f, 103.0f) - s2);
+            check(std::fabs(s2 - 102.58f) < 0.01f, "negative control: a 0.5 deg release stays at 102.58 under the ratio-1 lever");
+        }
+        // A lever with a real base (75: ratio 1.37) recovers on its own; the bridge must not disturb it.
+        check(std::fabs(peek(false, 75.0f, 360, 900, true, nullptr) - 103.0f) < 0.5f, "a ratio above one widens back without the bridge");
+        check(std::fabs(peek(true, 75.0f, 360, 900, true, nullptr) - 103.0f) < 0.5f, "and with it");
+        // The tail needs walking: an exit into another state is left as it was (bounded, never forced).
+        check(peek(true, 105.0f, 360, 900, false, nullptr) < 70.0f, "no tail outside walking");
+        // Unit behaviour: silent while peeking, the target on the exit, released at convergence, at 3 s, or when ineligible.
+        PeekExit b;
+        check(b.update(true, true, true, 80.0f, 103.0f, 100) == 0 && b.primed, "primed and silent during the peek");
+        check(near(b.update(true, false, true, 80.0f, 103.0f, 200), 103.0f), "the exit returns the target");
+        check(near(b.update(true, false, true, 90.0f, 103.0f, 2000), 103.0f), "still returning inside 3 s");
+        check(near(b.update(true, false, true, 102.7f, 103.0f, 2050), 103.0f), "0.3 deg short is not back yet");
+        check(b.update(true, false, true, 102.97f, 103.0f, 2100) == 0 && !b.primed, "released once the sensor is back");
+        check(b.update(true, false, true, 80.0f, 103.0f, 2200) == 0, "an unprimed exit returns nothing");
+        b.update(true, true, true, 80.0f, 103.0f, 3000);
+        check(near(b.update(true, false, true, 80.0f, 103.0f, 3100), 103.0f), "re-primed by the next peek");
+        check(b.update(true, false, true, 80.0f, 103.0f, 6100) == 0 && !b.primed, "a stalled sensor is let go after 3 s");
+        b.update(true, true, true, 80.0f, 103.0f, 7000);
+        check(b.update(false, false, true, 80.0f, 103.0f, 7100) == 0 && !b.primed, "a menu or a toggle resets it");
+        check(b.update(true, false, true, std::numeric_limits<float>::quiet_NaN(), 103.0f, 7200) == 0, "an invalid sensor returns nothing");
+    }
     std::printf("FOV feedback: %u checks passed; old writer collapses, fixed writer remains stable.\n",checks);
 }

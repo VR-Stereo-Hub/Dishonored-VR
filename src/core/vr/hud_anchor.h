@@ -89,6 +89,38 @@ inline void wrist_position(const float grip[3], const float gripQ[4], const floa
     out[2] = grip[2] + r[2];
 }
 
+// The head-locked window kept level (2026-10-31). A VIEW-space quad turns with every degree of
+// head roll, so a headset worn a few degrees tilted showed each menu that far off the horizon the
+// projection keeps level (a run's median head roll read +3.2 deg, p90 +5.6). This is the angle
+// about the view's forward axis that takes the head's right onto the level right (forward x world
+// up), positive turning right toward up, as a quad's in-plane rotation. Looking nearly straight
+// up or down the level right degenerates, so it fades to 0 between 70 and 85 degrees of pitch.
+// 0 for an invalid head. tools/hud-anchor-tests asserts the result lands on the horizon.
+inline float window_level_roll(const float head[4]) {
+    float n=0;
+    for(int k=0;k<4;++k){if(!std::isfinite(head[k])) return 0.0f;n+=head[k]*head[k];}
+    if(n<.5f || n>1.5f) return 0.0f;
+    n=std::sqrt(n);
+    const float q[4]={head[0]/n,head[1]/n,head[2]/n,head[3]/n};
+    const float fwd[3]={0,0,-1},rx[3]={1,0,0},uy[3]={0,1,0};
+    float f[3],r[3],u[3];
+    dvr::xrmath::quat_rotate(q[0],q[1],q[2],q[3],fwd,f);
+    dvr::xrmath::quat_rotate(q[0],q[1],q[2],q[3],rx,r);
+    dvr::xrmath::quat_rotate(q[0],q[1],q[2],q[3],uy,u);
+    const float lx=-f[2],lz=f[0];                 // forward x (0,1,0); its y is 0
+    const float len=std::sqrt(lx*lx+lz*lz);
+    if(!(len>1e-4f)) return 0.0f;
+    const float a=std::atan2((lx*u[0]+lz*u[2])/len,(lx*r[0]+lz*r[2])/len);
+    const float s70=.93969262f,s85=.99619470f,ay=std::fabs(f[1]);
+    const float w=ay<=s70 ? 1.0f : ay>=s85 ? 0.0f : (s85-ay)/(s85-s70);
+    return a*w;
+}
+// Turn a VIEW-space vector by `a` about the view's forward axis (x toward y).
+inline void view_roll(float a,float v[3]) {
+    const float c=std::cos(a),s=std::sin(a),x=v[0],y=v[1];
+    v[0]=c*x-s*y;v[1]=s*x+c*y;
+}
+
 // The three hide rules, each answered separately so the log can name which one
 // bit. `toHead` is head - panel (unnormalised); `headFwd` the head's forward.
 inline bool too_near(const float toHead[3], float minM = 0.05f) {

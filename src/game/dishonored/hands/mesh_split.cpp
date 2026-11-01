@@ -2058,7 +2058,8 @@ static inline bool MpFinite(float x)
 // label.
 struct MpDrawCtx {
     float r[3], u[3], f[3];     // camera basis, from the ViewProjection rows
-    float col[3][3], t[3];      // LocalToWorld, columns and translation
+    float col[3][3], t[3];      // LocalToWorld, columns (UNIT: any lens scale divided out) and translation
+    float lensScale[3];         // 2026-10-29: each column's length before that (1 = no lens); see MpAcquireCtx
     float projRight;            // L's translation on the right axis (telemetry)
     float vp[16], l2w[16];      // kept whole so a diagnostic can diff them
     void* target;              // borrowed render-target identity for weapon passes
@@ -2174,6 +2175,16 @@ static void MpPoseViewBeat()
 }
 
 // Read the draw's own constants and validate them. One call per original draw.
+// 2026-10-29: the lens undo's last step. The shader applies the game's (lens-scaled) LocalToWorld,
+// R * diag(n), to whatever palette we hand it; every placement above worked on R alone. Scaling row i of
+// each finished bone matrix by 1/n_i puts diag(1/n) in front of all of it - after the finger work and
+// after the hand swap's reflection, which does not commute with a per-axis scale - so the drawn hand is
+// R * (the placed palette) exactly. Identity when there is no lens.
+static void MpLensUndoPalette(const MpDrawCtx* c, float* pal, UINT count)
+{
+    dvr::hf::lens_undo_rows(c->lensScale, pal, (unsigned)count);   // hand_frame.h, host-tested
+}
+
 static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
 {
     memset(c, 0, sizeof(*c));
@@ -2239,15 +2250,39 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
         float n3[3];
         for (int j = 0; j < 3; j++)
             n3[j] = sqrtf(c->col[j][0]*c->col[j][0] + c->col[j][1]*c->col[j][1] + c->col[j][2]*c->col[j][2]);
+        // 2026-10-29 (headset, a dialogue with [Anim] CinematicArms=1): the game holds the arms' lens on through a
+        // conversation (m_bUseFOV=1 while the camera narrows to about 81 deg) and the column norms sat at
+        // 1.026 / 1.022, either side of the 0.02 refusal from one frame to the next, so the tracked hands were drawn
+        // and not drawn by turns: a flicker. The lens is a per-axis scale of an orthogonal LocalToWorld
+        // (L2W = R * diag(n)), so it is divided out here and the placement works on R; the draw puts diag(1/n) in
+        // front of the correction (MpLensUndo), which lands the hand exactly where an unscaled mesh would. Not while
+        // the view is zoomed (the mask lens, where the world is magnified on purpose and the hand stays hidden as
+        // before), and never past a 50% scale.
+        const float claim = CineFovClaim();
+        const bool zoomed = claim > 0.0f && claim < dvr::camera::fov_deg() - 0.5f;
+        bool scaled = false;
         for (int j = 0; j < 3; j++) {
-            if (fabsf(n3[j] - 1.0f) > 0.02f) {
+            c->lensScale[j] = 1.0f;
+            if (fabsf(n3[j] - 1.0f) <= 0.02f) continue;
+            if (!g_mpLensUndo || zoomed || !(n3[j] > 0.5f && n3[j] < 1.5f)) {
                 // 2026-10-07: the game's arm lens (a lock-arms zoom, m_bUseFOV=1) scales the arm mesh's LocalToWorld;
                 // the norms are logged so the next run says what the scale is and along which local axis.
-                static char why[160];
-                _snprintf_s(why, _TRUNCATE, "LocalToWorld column is not unit (column norms %.3f %.3f %.3f; the arms' lens scaling the mesh during a lock-arms zoom reads here)",
-                            n3[0], n3[1], n3[2]);
+                static char why[200];
+                _snprintf_s(why, _TRUNCATE, "LocalToWorld column is not unit (column norms %.3f %.3f %.3f; the arms' lens scaling the mesh during a lock-arms zoom reads here; %s)",
+                            n3[0], n3[1], n3[2], !g_mpLensUndo ? "[Hands] LensUndo=0" : zoomed ? "the view is zoomed" : "past the 50% the lens undo accepts");
                 c->why = why; return false;
             }
+            scaled = true;
+        }
+        if (scaled) {
+            for (int j = 0; j < 3; j++) {
+                c->lensScale[j] = n3[j];
+                for (int i = 0; i < 3; i++) c->col[j][i] /= n3[j];
+            }
+            InterlockedIncrement(&g_mpLensUndone);
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                "ms/palette/lens: the arms' lens scales the hand mesh by %.3f %.3f %.3f (not zoomed) - divided out, the hand is placed "
+                "and drawn at its true size ([Hands] LensUndo; %ld draw(s) so far)", n3[0], n3[1], n3[2], (long)g_mpLensUndone);
         }
     }
     for (int j = 0; j < 3; j++)
@@ -2830,9 +2865,18 @@ static void MpDrawCompare(const MpDrawCtx* c)
 // Place one hand through an already-acquired draw context. Reads no device
 // state of its own, so both hands of a draw are guaranteed to use identical
 // constants rather than merely expected to.
+//
+// THE HAND SWAP: with `mirrorN` (a direction in this draw's camera-relative
+// world) the hand is placed in the MIRRORED WORLD - its target reflected across
+// the plane with that normal through the head's centre, moved `mirrorShift`
+// units along it (hand_frame.h, "the hand swap") - and the plane is returned in
+// `mirrorOut`. *outD is then the mirrored-world correction; the CALLER reflects
+// the finished palette back (HsReflectPalette) and flips the cull mode. The
+// weapons get the plane with the correction (WaPublishCommon).
 static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
                           const float* qLocal, dvr::hf::Xform* outD,
-                          const char** why)
+                          const char** why, const float* mirrorN = nullptr,
+                          dvr::hf::Plane* mirrorOut = nullptr, float mirrorShift = 0.0f)
 {
     const char* dummy = NULL; if (!why) why = &dummy;
     if (!c || !c->ok)                { *why = c ? c->why : "no context"; return false; }
@@ -2876,6 +2920,24 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         if (g_mpEyeState > 0) g_mpEyeSeen[1]++; else g_mpEyeSeen[0]++;
     } else {
         g_mpEyeUnclassified++;
+    }
+
+    // THE HAND SWAP: the target into the mirrored world. The plane passes
+    // through the head's CENTRE - the eye offset above, undone - so both eyes
+    // mirror about one physical plane and the hand cannot split between them.
+    // The physical target is kept for the history and the diagnostics.
+    const float dcamPhys[3] = { dcam[0], dcam[1], dcam[2] };
+    dvr::hf::Plane mplane;
+    const bool mirror = mirrorN != nullptr;
+    if (mirror) {
+        float centre[3] = { 0.0f, 0.0f, 0.0f };
+        if (g_mpEyeOffset && g_mpEyeState != 0)
+            for (int i = 0; i < 3; i++) centre[i] = -(float)g_mpEyeState * 0.5f * g_ipdM * k * c->r[i];
+        if (!dvr::hf::plane_from(mirrorN, centre, &mplane)) {
+            *why = "hand swap: the mirror plane's normal is degenerate"; return false;
+        }
+        for (int i = 0; i < 3; i++) mplane.c[i] += mirrorShift * mplane.n[i];
+        dvr::hf::mirror_target(mplane, dcam, nullptr);
     }
 
     // ---- the rotational half ------------------------------------------------
@@ -2931,6 +2993,9 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
             g_mpSrcAniso[hand] = sr.aniso;
             g_mpSrcOrtho[hand] = sr.ortho;
             O_C = dvr::hf::head_orient_to_camera(c->B, c->pose.inHead[hand]);
+            // THE HAND SWAP: the mirrored controller, S_r * O_C * X. Its parity is O_C's, so the grip
+            // default below and a SHIFT+F7 capture taken now are both in the frame this hand is placed in.
+            if (mirror) dvr::hf::mirror_target(mplane, nullptr, &O_C);
 
             // THE GRIP CAPTURE. Consumed ONCE, from a qualified original draw,
             // against ONE coherent pose snapshot, per side, and always from the
@@ -3095,7 +3160,7 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         // AFTER the model scale, so that factor is carried exactly once.
         D = dvr::anim::blend(D, hand, palmLocal); // blend once, PER HAND (VR-220); weapons inherit this same correction.
                                                   // SmoothBlend moves the palm on a straight line (anim_policy.h)
-        WaPublishCommon(hand, c, D);
+        WaPublishCommon(hand, c, D, mirror ? &mplane : nullptr);
     } else {
         D = dvr::hf::delta_local(c->R_L, c->t, O_C, Guse, dcam, R_src, qLocal,
                                  false);
@@ -3107,6 +3172,7 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
     for (int i = 0; i < 9; i++)
         if (!MpFinite(D.r.m[i])) { *why = "non-finite rotation"; return false; }
     *outD = D;
+    if (mirror && mirrorOut) *mirrorOut = mplane;
 
     // The instrument's three SEPARATELY NAMED quantities. They are different
     // measurements and conflating them is what made the previous plan's motion
@@ -3136,11 +3202,11 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
 
     float targetLocal[3];
     { float d[3];
-      for (int i = 0; i < 3; i++) d[i] = dcam[i] - c->t[i];
+      for (int i = 0; i < 3; i++) d[i] = dcamPhys[i] - c->t[i];
       for (int j = 0; j < 3; j++)
           targetLocal[j] = c->col[j][0]*d[0] + c->col[j][1]*d[1] + c->col[j][2]*d[2]; }
     memcpy(g_mpLastTargetLocal[hand], targetLocal, sizeof(targetLocal));
-    memcpy(g_mpLastPCam[hand], dcam, sizeof(dcam));
+    memcpy(g_mpLastPCam[hand], dcamPhys, sizeof(dcamPhys));
     if(UiSurfaceContext()==3) {
         static double nextDepth[2]{};const double now=MaimNowMs();
         if(now>=nextDepth[hand]) {
@@ -3155,7 +3221,7 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
                 hand,g_mpEyeState,(unsigned)dvr::frame::count(),c->pose.gen,g_mpSrcScale[hand],sqrtf(norm/3),depth,targetDepth,c->vp[15],sqrtf(focal),dvr::anim::weight());
         }
     }
-    MfNoteHand(hand, c, dcam);                   // VR-76: the flicker history
+    MfNoteHand(hand, c, dcamPhys);               // VR-76: the flicker history (where the hand IS)
     return true;
 }
 
@@ -4214,6 +4280,88 @@ static bool MsQualify(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVert
 }
 
 
+// ---- THE HAND SWAP ([Hands] SwapHands; docs/dishonored/HAND_SWAP.md) -------------------------
+// The action layer hands the game's sword hand the LEFT controller (openxr_input.cpp). Drawn there
+// as it is, it would be a right hand on the left arm. So both draw paths place each hand in the
+// mirrored world (MpWorldTarget's mirrorN), reflect the finished palette back here and flip the
+// cull mode, because the reflection turns every triangle around (hand_frame.h, "the hand swap").
+// The sword, the pistol and the hand effects take the same plane (weapon_attach.cpp, fx_follow.cpp).
+// One switch: default off (a render lever), live with `swaphands on|off` and in F10 Hands.
+static volatile LONG g_hsHand = 0, g_hsIk = 0, g_hsWeapon = 0, g_hsFx = 0, g_hsCull = 0;
+
+// The action layer owns the switch, so the poses, the buttons and the drawing cannot disagree.
+static bool HsOn() { return dvr::vr::input_hand_swap(); }
+
+// The winding. A reflected palette turns every triangle around, so the draw culls the other side;
+// put back on scope exit like every other piece of device state here. NONE culls nothing and is
+// left alone. Holds the device POINTER only - no reference is taken inside the detour.
+struct HsCull {
+    IDirect3DDevice9* dev = nullptr; DWORD saved = 0; bool changed = false;
+    void flip(IDirect3DDevice9* d) {
+        if (changed || !d) return;
+        DWORD c = 0;
+        if (FAILED(d->GetRenderState(D3DRS_CULLMODE, &c)) || (c != D3DCULL_CW && c != D3DCULL_CCW)) return;
+        if (SUCCEEDED(d->SetRenderState(D3DRS_CULLMODE, c == D3DCULL_CW ? D3DCULL_CCW : D3DCULL_CW))) {
+            dev = d; saved = c; changed = true; InterlockedIncrement(&g_hsCull);
+        }
+    }
+    void restore() { if (changed) { dev->SetRenderState(D3DRS_CULLMODE, saved); changed = false; } }
+    ~HsCull() { restore(); }
+};
+
+// Step 3 for a whole palette: the plane MpWorldTarget returned (camera-relative world) into this
+// draw's local space, then rows' = S * rows. Runs AFTER the finger work (the open hand, the grab),
+// which composes relative to the wrist and must see the unreflected rows.
+static void HsReflectPalette(const MpDrawCtx* c, const dvr::hf::Plane& camPlane, float* pal, UINT regs)
+{
+    dvr::hf::reflect_palette_left(dvr::hf::plane_to_local(c->R_L, c->t, camPlane), pal, regs);
+}
+
+static void HsSet(bool on, const char* who)
+{
+    dvr::vr::input_set_hand_swap(on);
+    Log("hands/swap: %s (%s) - %s", on ? "ON" : "off", who,
+        on ? "the game's sword hand is drawn as a LEFT hand on the left controller and its gadget, pistol and "
+             "power hand as a RIGHT hand on the right one, each mirrored with what it holds; the triggers and "
+             "grips follow the hands (left trigger attacks, right trigger fires), the sticks and face buttons do not"
+           : "the game's own hands: the sword on the right controller");
+}
+static void HsConfigure(const char* ini)
+{
+    HsSet(IniFloat(ini, "Hands", "SwapHands", 0) != 0.0f, "ini [Hands] SwapHands");
+}
+// Seam: swaphands on|off (saved), anything else prints the state.
+static bool HsCommand(const char* args)
+{
+    bool b = false;
+    if (args && DvrOnOff(args, &b)) {
+        HsSet(b, "seam"); ConfigWriteKey("Hands", "SwapHands", b ? "1" : "0", "the seam");
+        return true;
+    }
+    if (args && !strncmp(args, "gesture ", 8)) {   // swaphands gesture right|left|off ([Controllers] SwapHandsGesture)
+        const char* g = args + 8;
+        const int v = !_stricmp(g, "left") ? 2 : (!_stricmp(g, "off") || !_stricmp(g, "0")) ? 0 : 1;
+        SwapGestureSet(v, "the seam");
+        ConfigWriteKey("Controllers", "SwapHandsGesture", v == 2 ? "left" : v == 0 ? "off" : "right", "the seam");
+        return true;
+    }
+    Log("hands/swap: %s | mirrored so far: hand draws %ld, full-arm IK draws %ld, weapon passes %ld, effect "
+        "writes %ld, cull flips %ld. All read 0 while the swap is off, by design; with it ON and the hands "
+        "drawn, the hand or IK count must climb, or the mirror is not running.",
+        HsOn() ? "ON" : "off", (long)g_hsHand, (long)g_hsIk, (long)g_hsWeapon, (long)g_hsFx, (long)g_hsCull);
+    return true;
+}
+static void HsBeat()
+{
+    if (!HsOn()) return;
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+        "hands/swap: ON | mirrored so far: hand draws %ld, full-arm IK draws %ld, weapon passes %ld, effect "
+        "writes %ld, cull flips %ld (a hand or IK count that stops climbing while the hands are drawn means "
+        "the mirror stopped; a refused placement draws the game's own, unmirrored hand)",
+        (long)g_hsHand, (long)g_hsIk, (long)g_hsWeapon, (long)g_hsFx, (long)g_hsCull);
+}
+
+
 #include "arm_ik_draw.inc"
 
 // [Anim] CineHideStaticArms (2026-10-05): in a cutscene the game draws its own full arms, and some leave
@@ -4260,7 +4408,8 @@ static bool MsCineHideStatic(IDirect3DDevice9* dev)
         measured = true;
         for (int k = 0; k < 2; ++k) {
             const float* p = local[k]; float w[3];
-            for (int i = 0; i < 3; ++i) w[i] = c.col[0][i] * p[0] + c.col[1][i] * p[1] + c.col[2][i] * p[2] + c.t[i];
+            for (int i = 0; i < 3; ++i)   // the columns are unit: the lens scale goes back on (1 without a lens)
+                w[i] = c.col[0][i] * p[0] * c.lensScale[0] + c.col[1][i] * p[1] * c.lensScale[1] + c.col[2][i] * p[2] * c.lensScale[2] + c.t[i];
             depth[k] = w[0] * c.f[0] + w[1] * c.f[1] + w[2] * c.f[2];
         }
     }
@@ -4368,6 +4517,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         }
     }
     MsSampleArmSpeed();   // CinematicArms: the game's own arm motion (cheap, once per frame)
+    HsBeat();             // the hand swap's counters, while it is on (rate-limited)
     if(ik && IkTryDraw(dev,type))return true;
     int lo, hi;
     switch ((nativeHands || ik) ? MS_MODE_HANDS : g_msMode) {
@@ -4500,6 +4650,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
 
     if (SUCCEEDED(dev->SetIndices(g_msIb))) {
         for (int r = 0; r < nrng; r++) {
+            dvr::hf::Plane swapPlane; bool mirrored = false;   // THE HAND SWAP: this range is drawn reflected
             // The palette this range draws under. The delta is applied to the
             // class the tester selected and to no other, so the OTHER hand is
             // the control: if both move, the per-class scoping is not working
@@ -4527,9 +4678,14 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                     const int hIdx = (rng[r].cls == MS_CLS_HAND_B) ? 1 : 0;
                     float q[3];
                     const char* why = "anchor refused";
+                    // THE HAND SWAP: placed in the mirrored world about the view's own vertical plane
+                    // through the head (a hand alone does not care which plane: hand_frame.h).
+                    const bool swapHands = HsOn();
                     if (MpAnchorPos(rng[r].cls, g_mpCache, g_mpCacheN, q) &&
-                        MpWorldTarget(&ctx, hIdx, rng[r].cls, q, &T, &why)) {
+                        MpWorldTarget(&ctx, hIdx, rng[r].cls, q, &T, &why,
+                                      swapHands ? ctx.r : nullptr, &swapPlane)) {
                         useT = true;
+                        mirrored = swapHands;
                         InterlockedIncrement(&g_mpWorldOk);
                     } else {
                         // Refusing draws the engine's own hand. That is the
@@ -4560,12 +4716,19 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                         GrReadyApply(buf, g_mpCache, g_mpCacheN, rng[r].cls);   // in reach of a grab: the hand opens
                         GrApply(buf, g_mpCache, g_mpCacheN, rng[r].cls);        // a grab closes the hand flat -> fist
                     }
+                    if (mirrored) {   // THE HAND SWAP: back out of the mirrored world, after the finger work
+                        HsReflectPalette(&ctx, swapPlane, buf, g_mpCacheN);
+                        InterlockedIncrement(&g_hsHand);
+                    }
+                    MpLensUndoPalette(&ctx, buf, g_mpCacheN);   // the arms' lens, last (identity without one)
                     dvr::frame::orig_set_vs_const(dev, 6, buf, g_mpCacheN);
                 } else {
                     dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);
                 }
                 InterlockedIncrement(&g_mpDraws);
             }
+            HsCull swapCull;                         // THE HAND SWAP: the reflection reversed the winding
+            if (mirrored) swapCull.flip(dev);
             dvr::depthprobe::fgmask_mark_piece();   // VR-39 run 20: the player's arms and hands, as the split draws them
             if (boundVb)
                 dvr::frame::orig_draw_indexed(dev, type, 0, 0,
@@ -4893,6 +5056,10 @@ TrimSnapshot trim_snapshot(int hand)
         s.p0[r] = g_devPose[3 + hand][r][3];
         s.headPos[r] = g_devPose[0][r][3];
     }
+    // THE HAND SWAP: the drawn hand is the mirror image, whose palm frame is R_C * X * G * Trim at the
+    // controller's own position (hand_frame.h; the plane cancels). So the ray rides R_C * X, and a
+    // measured model axis (a palm-frame constant) still sits on the mirrored barrel.
+    if (HsOn()) for (int r = 0; r < 3; r++) s.R_C[r * 3 + 0] = -s.R_C[r * 3 + 0];
     for (int i = 0; i < 9; i++) s.G[i] = cal.G.m[i];
     for (int i = 0; i < 3; i++) { s.trimRdeg[i] = cal.trimRdeg[i]; s.trimTm[i] = cal.trimTm[i]; }
     s.handToWorldScale = ((g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f) * g_mpDriveGain) / g_posScaleUU;
@@ -4920,6 +5087,7 @@ static bool MpTrimViewStep(int hand, bool rot, int axis, float amount, float* T,
     if (!g_devPoseOk[0] || !g_devPoseOk[3 + hand]) { *why = "the head or the controller is not tracking"; return false; }
     dvr::hf::Mat3 RC;
     for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c) RC.m[r * 3 + c] = g_devPose[3 + hand][r][c];
+    if (HsOn()) RC = dvr::hf::mul3(RC, dvr::hf::controller_mirror());   // THE HAND SWAP: the drawn palm is R_C*X*G
     const dvr::hf::Mat3 base = dvr::hf::mul3(RC, g_mpGrip[hand]);
     const dvr::hf::Mat3 baseT = dvr::hf::transpose3(base);
     // The head's yaw frame in XR LOCAL (+Y up, -Z forward): forward flattened, right = fwd x up.

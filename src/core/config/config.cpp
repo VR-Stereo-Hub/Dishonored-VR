@@ -454,6 +454,16 @@ static bool WriteDefaultIni(const char* ini)
         "; ZoomGestureRightCm: the gesture's anchor sits this far to the right of the right eye (the temple),\n"
         "; so the hand need not come fully in front of the face.\n"
         "ZoomGestureRightCm=8\n"
+        "; WheelHoldToOpen=1: the power wheel opens only once its grip has been held WheelHoldMs, so a quick\n"
+        "; squeeze to grab something never opens it. 0 = it opens on the press. Live: wheelhold on|off|<ms>.\n"
+        "WheelHoldToOpen=1\n"
+        "WheelHoldMs=1000\n"
+        "; SwapHandsGesture: a double click of this stick toggles [Hands] SwapHands (the sword in the left\n"
+        "; hand): right (default), left or off. On the right stick a single tap still zooms, a moment later.\n"
+        "SwapHandsGesture=right\n"
+        "; MenuDefaultButtons=1: menus use the controller's shipped button layout even when [ControllerBinds]\n"
+        "; moves actions in play, so every button is the one its prompt shows. Live: binds menus on|off.\n"
+        "MenuDefaultButtons=1\n"
         "Enabled=1\n"
         "Deadzone=0.12\n"
         "Haptics=1\n"
@@ -649,6 +659,16 @@ static bool WriteDefaultIni(const char* ini)
         "; and the Interact button works on all of them as before. Live: pickup carry|usables on|off.\n"
         "PhysicalCarry=1\n"
         "PhysicalUsables=1\n"
+        "; PointGrab=1: both hands carry a dot. Point either hand at something within PointGrabRangeCm and\n"
+        "; squeeze that hand's grip to take it; while the dot is on it the grip is Interact instead of\n"
+        "; block or the power wheel. The main hand also takes anything else the game offers on its dot,\n"
+        "; except a person. Live: pickup point on|off, pickup point range <cm>.\n"
+        "PointGrab=1\n"
+        "PointGrabRangeCm=250\n"
+        "; PointGrabReticles: which dots are always up - both (default), weapon (the gun hand's) or hand (the\n"
+        "; sword hand's; the gun hand still aims). Both hands point and grab at range either way, and a hidden\n"
+        "; dot shows while its hand rests on something it can take. Live: pickup point reticles both|weapon|hand.\n"
+        "PointGrabReticles=both\n"
         "; ThrowFromHand=1 (VR-166): grenades leave along the weapon ray instead of your view.\n"
         "; The spawn point, speed and arc stay the game's; 0 = head.\n"
         "ThrowFromHand=1\n"
@@ -710,6 +730,23 @@ static bool WriteDefaultIni(const char* ini)
         "; your wrist (off by default).\n"
         "Depth=1\n"
         "WristRoll=0\n"
+        "[Choke]\n"
+        "; The game chokes only while it focuses the guard; otherwise the Choke grip blocks.\n"
+        "; Assist=1: the Choke grip near a guard you are behind turns the game's focus onto\n"
+        "; it and presses once it is focused (at most FocusWaitMs; then it blocks as before).\n"
+        "; RangedSwing=1: swinging the ranged hand (pistol, powers) as fast as a sword swing\n"
+        "; ([Melee] EdgeSpeed) chokes the same guard; with no guard it does nothing.\n"
+        "; A guard counts within ReachCm, with you within BehindDeg of its back and it within\n"
+        "; FrontDeg of where you look. `choke status|assist|swing|reach|behind|front|wait`.\n"
+        "; HoldToChokeMs: when the grip could also take something there (a key on the guard's\n"
+        "; belt), letting go sooner takes it and holding this long chokes. `choke hold <ms>`.\n"
+        "Assist=1\n"
+        "RangedSwing=1\n"
+        "ReachCm=150\n"
+        "BehindDeg=90\n"
+        "FrontDeg=60\n"
+        "FocusWaitMs=250\n"
+        "HoldToChokeMs=250\n"
         "[Melee]\n"
         "; Swing the RIGHT controller to attack with the sword. Your trigger still\n"
         "; attacks as before: a swing ADDS a short press of the attack, it never\n"
@@ -1002,6 +1039,10 @@ static bool WriteDefaultIni(const char* ini)
         "; RigidWrist=1 (VR-184): the wrist cut and cap stay rigid with the hand, so arm animation\n"
         "; cannot bend them; the fingers still animate. 0 = the game's own weights.\n"
         "RigidWrist=1\n"
+        "; LensUndo=1: in a conversation with tracked cutscene arms the game scales the hand mesh (its arm\n"
+        "; lens); the scale is divided out so the hands stay drawn. 0 = refused and hidden, which flickered.\n"
+        "; Live: armslens undo on|off.\n"
+        "LensUndo=1\n"
         "; Full-arm IK (experimental). Shared resting shoulders, independent reach correction.\n"
         "; Requires locally prepared dishonored_vr_arm_rig.bin in Paths/DataDir.\n"
         "; Native hands/fingers still animate; IK replaces the arm pose. L3+R3 / F10: IK tab.\n"
@@ -1027,6 +1068,12 @@ static bool WriteDefaultIni(const char* ini)
         "; OpenEmptyRightHand=1: with nothing in the right hand (the sword holstered) its fingers\n"
         "; take the left hand's open pose, mirrored, instead of the game's loose fist. 0 = the fist.\n"
         "OpenEmptyRightHand=1\n"
+        "; SwapHands=1: left-handed play. The sword is held in your LEFT hand and the pistol, crossbow,\n"
+        "; gadgets and powers in your RIGHT; both hands, the arms and what they hold are drawn mirrored\n"
+        "; so they look like the hands holding them. The triggers and grips swap with the hands (the left\n"
+        "; trigger attacks, the right fires); sticks and face buttons stay. 0 = the game's own hands.\n"
+        "; Live: swaphands on|off, F10 Hands.\n"
+        "SwapHands=0\n"
         "; GrabAnim=1: a grip that picks something up or uses it (PhysicalPickup) plays a grab on that\n"
         "; hand: the fingers shape flat, close into a fist, stay closed while the grip is held and\n"
         "; return. On by default (accepted in a headset 2026-10-05). The times are in ms: shape (to\n"
@@ -1315,6 +1362,9 @@ static bool WriteDefaultIni(const char* ini)
         "; door's view (physical cm), so they do not sit inside the door. 0 = the game's own spot.\n"
         "; F10 Comfort > Cutscenes and special cameras (Advanced).\n"
         "KeyholeForwardCm=15\n"
+        "; KeyholeFovRestore=1: leaving a keyhole, the view is widened back to the gameplay FOV (the peek\n"
+        "; narrows it, and without this it could stay narrowed, with the hands gone). Live: keyholefov on|off.\n"
+        "KeyholeFovRestore=1\n"
         "Trace=0\n"
         "LockRoll=1\n"
         "; SkipHoldMs (VR-165): during a cutscene the pad is parked - sticks and triggers to\n"
@@ -1667,6 +1717,10 @@ static bool WriteDefaultIni(const char* ini)
         "WindowHeight=0.000\n"
         "WindowUp=-0.100\n"
         "WindowLateral=-0.020\n"
+        "; 1 = a screen on the window (journal, note, wheel, store, a pause menu in the window) keeps\n"
+        "; the horizon instead of the headset's roll; 0 = it turns with the head. The gameplay HUD\n"
+        "; turns with the head either way. `hud window level on|off`.\n"
+        "WindowLevel=1\n"
         "; The two hand panels (38.92's values): X/Y/Z an offset in the grip's own frame; Lift\n"
         "; along world up; Width in metres; Orient billboard (faces the head, never rolls: what\n"
         "; 38.92 did) or grip (a watch face on the back of the hand, Tilt degrees toward the\n"
@@ -1836,11 +1890,11 @@ static bool WriteDefaultIni(const char* ini)
         "WheelPotions.Crop1=0.947\n"
         "WheelPotions.Crop2=0.948\n"
         "WheelPotions.Crop3=0.082\n"
-        "Element.wheelpotions.WinX=0.566\n"
-        "Element.wheelpotions.WinY=0.547\n"
+        "Element.wheelpotions.WinX=0.250\n"
+        "Element.wheelpotions.WinY=0.100\n"
         "Element.wheelpotions.WinScale=0.900\n"
-        "Element.wheelshortcuts.WinX=-0.474\n"
-        "Element.wheelshortcuts.WinY=0.545\n"
+        "Element.wheelshortcuts.WinX=-0.230\n"
+        "Element.wheelshortcuts.WinY=0.100\n"
         "Element.wheelshortcuts.WinScale=0.900\n"
         "", kConfigVersion);
     const int closed = fclose(f);
@@ -2318,6 +2372,12 @@ static void LoadConfig()
         GetPrivateProfileIntA("Controllers","PauseChord",1,ini)!=0});
     ZoomTapSet(GetPrivateProfileIntA("Controllers","ZoomTap",1,ini)!=0,"ini");   // 2026-10-07: the mask lens zoom
     ZoomGestureSet(GetPrivateProfileIntA("Controllers","ZoomGesture",1,ini)!=0,"ini");
+    WheelHoldSet(GetPrivateProfileIntA("Controllers","WheelHoldToOpen",1,ini)!=0,IniFloat(ini,"Controllers","WheelHoldMs",1000.0f),"ini");
+    MenuDefaultButtonsSet(GetPrivateProfileIntA("Controllers","MenuDefaultButtons",1,ini)!=0,"ini");
+    {   // 2026-10-21: the hand swap's stick gesture: right (default), left or off
+        char g[24] = ""; GetPrivateProfileStringA("Controllers","SwapHandsGesture","right",g,sizeof(g),ini);
+        SwapGestureSet(!_stricmp(g,"left") ? 2 : (!_stricmp(g,"off") || !_stricmp(g,"0")) ? 0 : 1, "ini");
+    }
     ZoomGestureRadiusSet(IniFloat(ini,"Controllers","ZoomGestureRadiusCm",25.0f),"ini");
     ZoomGestureRightSet(IniFloat(ini,"Controllers","ZoomGestureRightCm",8.0f),"ini");
     const auto controller=dvr::controller::config();
@@ -3012,6 +3072,9 @@ static void LoadConfig()
     g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 1) != 0.0f;
     g_mpAnchorHandBone = IniFloat(ini, "Hands", "AnchorBone", 1) != 0.0f;   // VR-183: palm frame from the hand bone
     g_msRigidWrist = IniFloat(ini, "Hands", "RigidWrist", 1) != 0.0f;         // VR-184: the wrist cut and cap rigid with the hand
+    g_mpLensUndo = IniFloat(ini, "Hands", "LensUndo", 1) != 0.0f;             // 2026-10-29: the arms' lens divided out, not refused
+    Log("config: [Hands] LensUndo=%d - a hand mesh scaled by the arms' lens outside a zoom (a conversation with tracked cutscene "
+        "arms) is %s", g_mpLensUndo ? 1 : 0, g_mpLensUndo ? "placed with the scale divided out" : "refused and not drawn, as before 2026-10-29");
     g_ikOn = IniFloat(ini, "Hands", "ArmIK", 1) != 0.0f;
     auto ikFloat = [&](const char* key, float def, float lo, float hi) {
         const float v=IniFloat(ini,"Hands",key,def);
@@ -3062,6 +3125,7 @@ static void LoadConfig()
     Log("config: [Hands] OpenEmptyRightHand=%d (%s)", g_ohOn ? 1 : 0,
         g_ohOn ? "an empty right hand takes the left hand's open pose, mirrored" : "the empty right hand keeps the game's fist");
     GrabAnimConfigure(ini);   // [Hands] GrabAnim and its times
+    HsConfigure(ini);         // [Hands] SwapHands: the sword in the left hand (HAND_SWAP.md)
     // VR-33: attachment matches owned component transforms independently of
     // the optional hide sweep. Installed test configuration enables it;
     // a fresh configuration leaves this render lever off.
@@ -3176,6 +3240,7 @@ static void LoadConfig()
     AimSourceConfigure(ini);  // VR-166: [Aim] SourceProbe
     InteractAimConfigure(ini); // VR-166: [Aim] InteractFromHand
     PickupConfigure(ini);      // [Aim] PhysicalPickup, PhysicalPickupReachCm
+    ChokeAssistConfigure(ini); // [Choke] Assist, RangedSwing (2026-11-01)
     ThrowAimConfigure(ini);    // VR-166: [Aim] ThrowFromHand
     GadgetAimConfigure(ini);   // VR-166: [Aim] GadgetFromHand
     CarryThrowAimConfigure(ini); // VR-181: [Aim] CarryThrowFromHand
@@ -4158,6 +4223,11 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Controllers","PauseChord",controller.pauseChord ? "1" : "0",ini);
     WritePrivateProfileStringA("Controllers","ZoomTap",ZoomTapGet() ? "1" : "0",ini);
     WritePrivateProfileStringA("Controllers","ZoomGesture",ZoomGestureGet() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Controllers","WheelHoldToOpen",WheelHoldGet() ? "1" : "0",ini);
+    _snprintf(v,64,"%.0f",WheelHoldMsGet());
+    WritePrivateProfileStringA("Controllers","WheelHoldMs",v,ini);
+    WritePrivateProfileStringA("Controllers","SwapHandsGesture",SwapGestureGet()==2 ? "left" : SwapGestureGet()==0 ? "off" : "right",ini);
+    WritePrivateProfileStringA("Controllers","MenuDefaultButtons",MenuDefaultButtonsGet() ? "1" : "0",ini);
 
     _snprintf(v, 64, "%.1f", g_posScaleUU);
     WritePrivateProfileStringA("PosTrack", "Scale", v, ini);
@@ -4519,6 +4589,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Cine","HeadLook",CineHeadEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","SpecialHeadLook",SpecialHeadEnabled() ? "1" : "0",ini);
     { char v[32]; _snprintf(v,sizeof(v),"%.1f",KeyholeForwardCm()); WritePrivateProfileStringA("Cine","KeyholeForwardCm",v,ini); }
+    WritePrivateProfileStringA("Cine","KeyholeFovRestore",KeyholeFovRestoreGet() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","HideBorders",CineBordersEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","PossessionStereo",PossessionStereoEnabled() ? "1" : "0",ini);

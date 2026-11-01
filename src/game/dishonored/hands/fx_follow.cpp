@@ -152,6 +152,15 @@ static bool FxWorldCorrection(const WaCommon& v, const WaComp& parent,
         !dvr::fx::world_correction(v.D, drawParent, liveParent, W)) {
         *why = "parent frame invalid"; return false;
     }
+    // THE HAND SWAP (HAND_SWAP.md): D is the mirrored-world correction; the effect follows the hand as
+    // DRAWN, so the reflection goes on after it, carried into the native world the same way.
+    if (v.mirror) {
+        dvr::hf::Xform M;
+        if (!dvr::fx::world_correction(v.W, drawParent, liveParent, &M)) {
+            *why = "parent frame invalid (the hand swap's reflection)"; return false;
+        }
+        *W = dvr::hf::xform_mul(M, *W);
+    }
     float ds = 0;
     for (int k = 0; k < 3; ++k) { const float d = liveParent.t[k] - oldParent.t[k]; ds += d * d; }
     *travel = sqrtf(ds);
@@ -263,6 +272,13 @@ static void FxFollowMesh(const WaComp& record, const dvr::hf::Xform* W, const bo
             for (int k = 0; k < 3; ++k)
                 tx[a][k] = w.r.m[k * 3] * ax[a][0] + w.r.m[k * 3 + 1] * ax[a][1] + w.r.m[k * 3 + 2] * ax[a][2];
         if (!dvr::fireaim::normalize(TX) || !dvr::fireaim::normalize(TY) || !dvr::fireaim::normalize(TZ)) { FxRestore(*f); continue; }
+        // THE HAND SWAP: a mirrored correction hands the effect a left-handed frame, and a rotator holds
+        // only proper ones, so its Y (UE3's right) is turned back: the emitter's mirror image as near
+        // as a rotation gets. The position above is exact.
+        if (dvr::hf::det3(w.r) < 0.0f) {
+            for (int k = 0; k < 3; ++k) TY[k] = -TY[k];
+            InterlockedIncrement(&g_hsFx);
+        }
         const float mv[3] = { tp[0] - gameX.pos[0], tp[1] - gameX.pos[1], tp[2] - gameX.pos[2] };
         const float move = sqrtf(mv[0] * mv[0] + mv[1] * mv[1] + mv[2] * mv[2]);
         if (!MpFinite(move) || move > kFxMaxMoveUU) {
@@ -438,14 +454,50 @@ static void FxFollowTick()
     FxFollowTickBody();
     inside = false;
 }
+// Which hands hold an item ON THE RIG: a member counts only within rigRadius of the body mesh (isRef), the
+// weapon draw path's own test, because a stowed gun stays a member at the transform the game left it. With
+// no body mesh in the snapshot every member counts, as before. Host-tested (fx-follow-tests.cpp).
+static void FxHeldOnRig(const WaComp* comps, int n, float rigRadius, bool held[2], int offRig[2], bool* haveRef)
+{
+    float ref[3] = { 0.0f, 0.0f, 0.0f };
+    *haveRef = false;
+    for (int i = 0; i < n; ++i)
+        if (comps[i].ok && comps[i].isRef) { memcpy(ref, comps[i].t, sizeof(ref)); *haveRef = true; break; }
+    for (int i = 0; i < n; ++i) {
+        const WaComp& k = comps[i];
+        if (!k.ok || !k.isMember || k.hand < 0 || k.hand > 1) continue;
+        if (*haveRef) {
+            const float dx = k.t[0] - ref[0], dy = k.t[1] - ref[1], dz = k.t[2] - ref[2];
+            if (!(sqrtf(dx * dx + dy * dy + dz * dz) <= rigRadius)) { ++offRig[k.hand]; continue; }
+        }
+        held[k.hand] = true;
+    }
+}
+// A power animation on the left lane: StatePlayerAction playing a Powers_* sequence (Powers_Cast_Blink_In/Loop/
+// Out, Generic_Powers_Cast_Blink_Travel, Powers_Cast_Possession_*, Powers_Ready_Equip; ANIM-HANDOFF-PLAN).
+static bool FxPowerCast(bool valid, const char* leftState, const char* sequence)
+{
+    return valid && leftState && sequence && !strcmp(leftState, "StatePlayerAction") && strstr(sequence, "Powers_") != nullptr;
+}
 static void FxFollowTickBody()
 {
     {   // VR-183: which hands hold an item - the hand placement keeps the calibrated frame for those
+        // 2026-10-21 (headset): the left hand bent during a Blink cast. Two holes let the finger-voted frame
+        // through: (1) a stowed pistol or crossbow stays in the snapshot as a member of its hand, at the
+        // transform the game left it (2400-3000 uu away in that run), so a hand on powers still "held an
+        // item"; the weapon draw path already refuses such members by the rig radius, and this count now
+        // does too. (2) The Heart IS on the rig, and a cast animates the fingers either way, so while the
+        // left lane plays a power animation (StatePlayerAction, a Powers_* sequence) the left hand is placed
+        // from the wrist; X and the anchor offset stay frozen from the last held frame, so nothing jumps.
         bool held[2] = { false, false };
+        int offRig[2] = { 0, 0 };
+        bool haveRef = false;
         AcquireSRWLockShared(&g_waCompLock);
-        for (int i = 0; i < g_waCompN; ++i)
-            if (g_waComp[i].ok && g_waComp[i].isMember && g_waComp[i].hand >= 0 && g_waComp[i].hand <= 1) held[g_waComp[i].hand] = true;
+        FxHeldOnRig(g_waComp, g_waCompN, g_waRigRadiusUU, held, offRig, &haveRef);
         ReleaseSRWLockShared(&g_waCompLock);
+        const dvr::anim::Snapshot an = dvr::anim::snapshot();
+        const bool castOverride = FxPowerCast(an.valid, an.state[2], an.sequence) && held[0];
+        if (castOverride) held[0] = false;
         // VR-224 Index tuning: the empty left hand (powers, Blink, the Heart) is re-posed in
         // the palm draw, so its aim ray is lifted to match; the pistol and crossbow keep theirs.
         // 23 deg measured in the headset on an Index rig: the Blink dot sat that far below the
@@ -454,8 +506,11 @@ static void FxFollowTickBody()
         for (int h = 0; h < 2; ++h)
             if (held[h] != g_mpItemInHand[h]) {
                 g_mpItemInHand[h] = held[h];
-                Log("hands/anchor: %s hand %s - placed from the %s", h ? "RIGHT" : "LEFT",
-                    held[h] ? "holds an item" : "is empty", held[h] ? "calibrated item frame (as before)" : "WRIST, finger animation cannot swing it");
+                Log("hands/anchor: %s hand %s - placed from the %s%s%s | %d member(s) off the rig ignored (more than %.0f uu from the "
+                    "body mesh: a stowed weapon keeps its last transform)%s", h ? "RIGHT" : "LEFT",
+                    held[h] ? "holds an item" : "is empty", held[h] ? "calibrated item frame (as before)" : "WRIST, finger animation cannot swing it",
+                    (h == 0 && castOverride) ? " - a power animation is playing (" : "", (h == 0 && castOverride) ? an.sequence : "",
+                    offRig[h], g_waRigRadiusUU, (h == 0 && castOverride) ? ")" : haveRef ? "" : "; NO body mesh in the snapshot, every member counted");
             }
     }
     if (!RflNamesReady() || !FxPrepareLifetime()) return;

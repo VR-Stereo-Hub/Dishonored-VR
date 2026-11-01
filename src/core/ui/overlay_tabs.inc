@@ -129,6 +129,18 @@ static void OvlTopRow()
 // ---- Hands ----------------------------------------------------------------------------------
 static void OvlTabHands()
 {
+    if (OvlSec("Left-handed: sword in the left hand", kOvlB,
+               "Swap the hands, so the sword is in your left hand and the gun and powers in your right.")) {
+        bool swapHands = HsOn();
+        if (dvr::ovl::checkbox("Swap hands (sword left, gun and powers right)", &swapHands)) {
+            HsSet(swapHands, "F10"); ConfigWriteKey("Hands", "SwapHands", swapHands ? "1" : "0", "F10 Hands");
+        }
+        OvlTip("Your left hand holds the sword and your right hand the pistol, crossbow, gadgets and powers. "
+               "Both hands, the arms and what they hold are mirrored to match the hand holding them. "
+               "The triggers and grips swap with them: the left trigger attacks, the right trigger fires. "
+               "Sticks and face buttons stay where they are. In the hand position steps below, Left and "
+               "Right mean the game's hands: Right is now the one in your left hand.");
+    }
     if (OvlSec("Hand size, position and weapon FOV", kOvlB,
                "How big the hands are and where they sit on your controllers.")) {
         dvr::ovl::slider_float("Hand / weapon size", &g_mpModelScale, 0.4f, 1.6f, "%.2f");
@@ -583,6 +595,31 @@ static void OvlTabInteract()
                     PickupSetUsables(usables, "F10"); ConfigWriteKey("Aim", "PhysicalUsables", usables ? "1" : "0", "F10 Aim");
                 }
                 OvlTip("Holding the grip holds the button for things that need it. People are never grabbed this way.");
+                bool point = PickupPointEnabled();
+                if (dvr::ovl::checkbox("Point either hand at things to grab them (a dot on both hands)", &point)) {
+                    PickupSetPoint(point, "F10"); ConfigWriteKey("Aim", "PointGrab", point ? "1" : "0", "F10 Aim");
+                }
+                OvlTip("Both hands show a dot. Point one at an item, door, lever or anything else you can use and squeeze that hand's "
+                       "grip: while the dot is on it the grip uses it instead of blocking or opening the power wheel. People still use the Interact button.");
+                if (point) {
+                    int dots = PickupPointDots() - 1;
+                    const char* dotNames[] = { "Both hands", "Weapon hand only", "Sword hand only" };
+                    if (ImGui::Combo("Reticles shown", &dots, dotNames, 3)) {
+                        static const char* const kKey[3] = { "both", "weapon", "hand" };
+                        PickupSetPointDots(dots + 1, "F10");
+                        ConfigWriteKey("Aim", "PointGrabReticles", kKey[dots < 0 ? 0 : dots > 2 ? 2 : dots], "F10 Aim");
+                    }
+                    OvlTip("One dot at a time if two is too many. Both hands still point and grab at the same range: the hidden "
+                           "hand's dot appears while it rests on something its grip would take. With the sword hand only, the "
+                           "pistol, crossbow, Blink and throws still aim where the weapon hand points.");
+                    float pr = PickupPointRangeCm();
+                    if (dvr::ovl::slider_float("Pointing range (cm)", &pr, 50.f, 400.f, "%.0f")) {
+                        PickupSetPointRangeCm(pr);
+                        char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupPointRangeCm()); v[sizeof(v) - 1] = 0;
+                        ConfigWriteKey("Aim", "PointGrabRangeCm", v, "F10 Aim");
+                    }
+                    OvlTip("How far from the hand a pointed-at thing can be. The game still decides what is in its own reach.");
+                }
             }
         }
     }
@@ -769,6 +806,31 @@ static void OvlTabControls()
         }
         OvlTip("Hold the right controller at your right eye, as if clicking the mask's lens, and pull the trigger: "
                "the zoom toggles and that press is not an attack. Each press steps the zoom (the Spyglass upgrade adds levels).");
+        {   // 2026-10-21: the hand swap's shortcut
+            int gesture = SwapGestureGet();
+            const char* gestures[] = { "Off", "Double-click the right stick", "Double-click the left stick" };
+            if (ImGui::Combo("Swap hands shortcut", &gesture, gestures, 3)) {
+                SwapGestureSet(gesture, "F10 Controls");
+                ConfigWriteKey("Controllers", "SwapHandsGesture", gesture == 2 ? "left" : gesture == 0 ? "off" : "right", "F10 Controls");
+            }
+            OvlTip("Double-click this stick to move the sword to the other hand and back (the same switch as Hands > Left-handed). "
+                   "On the right stick a single click still zooms, a moment later so a double click does not.");
+        }
+        {   // 2026-10-21: the power wheel opens on a held grip
+            bool hold = WheelHoldGet(); float ms = WheelHoldMsGet();
+            bool ch = dvr::ovl::checkbox("Hold the grip to open the tool wheel", &hold);
+            OvlTip("The power wheel opens only after its grip has been held, so squeezing to grab something never opens it by accident.");
+            if (hold) {
+                ch |= dvr::ovl::slider_float("Hold time (ms)", &ms, 200.f, 2000.f, "%.0f");
+                OvlTip("How long the grip must be held before the wheel opens.");
+            }
+            if (ch) {
+                WheelHoldSet(hold, ms, "F10 Controls");
+                char v[16]; _snprintf(v, sizeof(v), "%.0f", WheelHoldMsGet()); v[sizeof(v) - 1] = 0;
+                ConfigWriteKey("Controllers", "WheelHoldToOpen", hold ? "1" : "0", "F10 Controls");
+                ConfigWriteKey("Controllers", "WheelHoldMs", v, "F10 Controls");
+            }
+        }
         ImGui::TextDisabled("Menu: tap to pause, hold (or modifier + menu) for the journal.");
         OvlTip("Hold Y and use the right stick to lean. Both grips keep their normal actions. "
                "Clicking both sticks recenters.");
@@ -776,10 +838,20 @@ static void OvlTabControls()
     OvlBindsSection();
     dvr::snap::draw_ui();    // VR-219: snap turn (its own section)
     dvr::swing::draw_ui();   // VR-37: the motion sword (its own section)
+    ChokeAssistDrawUi();     // 2026-11-01: the choke from behind (its own section)
     dvr::drop::draw_ui();    // drop takedowns (its own section)
     if (!OvlSec("Button mapping (which button does what)", kOvlB, "Choose which controller button does each game action.")) {
         if (s_bindCapture >= 0) { s_bindCapture = -1; dvr::binds::captureUntilMs = 0; }
         return;
+    }
+    {   // 2026-10-29: the custom layout stops at the menus
+        bool menus = MenuDefaultButtonsGet();
+        if (dvr::ovl::checkbox("Menus use the standard buttons", &menus)) {
+            MenuDefaultButtonsSet(menus, "F10 Controls");
+            ConfigWriteKey("Controllers", "MenuDefaultButtons", menus ? "1" : "0", "F10 Controls");
+        }
+        OvlTip("In the pause menu, journal and other menus every button does what its on-screen prompt shows, whatever you "
+               "moved below. Off: your mapping applies in menus too (a button you unbound cannot be pressed there).");
     }
     auto l = dvr::binds::layout();
     bool changed = false;
@@ -958,6 +1030,9 @@ static void OvlTabComfort()
         if (dvr::ovl::slider_float("Keyhole view forward (cm)", &keyholeCm, 0.0f, 60.0f, "%.0f")) KeyholeForwardSet(keyholeCm);
         OvlSaveOnRelease("Cine", "KeyholeForwardCm", KeyholeForwardCm(), "%.1f");
         OvlTip("Moves your eyes forward through the keyhole while peeking, so you do not see the inside of the door. 0 = the game's own spot.");
+        bool keyholeFov = KeyholeFovRestoreGet();
+        if (dvr::ovl::checkbox("Widen the view back after a keyhole", &keyholeFov)) { KeyholeFovRestoreSet(keyholeFov, "F10"); OvlSaveBool("Cine", "KeyholeFovRestore", keyholeFov); }
+        OvlTip("A keyhole zooms the view in. This puts it back to normal when you step away, so it does not stay zoomed with the hands gone.");
         bool borders = CineBordersEnabled();
         if (dvr::ovl::checkbox("Hide cinematic black borders", &borders)) { CineBordersSet(borders); OvlSaveBool("Cine", "HideBorders", borders); }
         OvlTip("Removes the letterbox bars in scenes. The picture under them is really there.");

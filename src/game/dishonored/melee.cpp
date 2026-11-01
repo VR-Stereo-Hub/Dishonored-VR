@@ -502,6 +502,49 @@ bool pulse_active() {
     return false;
 }
 
+// 2026-11-01: the RANGED hand's swing chokes the guard you are behind (choke_assist.cpp). Its own core on the
+// game's left hand, fed exactly as the sword's is, with the sword's settings and the thrust off, so the speed it
+// needs is [Melee] EdgeSpeed, the stealth takedown's, and follows it live. It never attacks; a fire only asks the
+// choke assist, which does nothing unless a guard you are behind is in reach.
+Core ranged;
+struct RangedStats { unsigned fires = 0, blocked = 0; float peak = 0; } rn;
+uint32_t ranged_gates() {
+    uint32_t m = 0;
+    if (!ChokeAssistRangedOn()) m |= kGateOff;
+    if (!DvrGameplayVerdict()) m |= kGateGameplay;
+    if (InterlockedCompareExchange(&g_padBtnsPub, 0, 0) & XINPUT_GAMEPAD_LEFT_SHOULDER) m |= kGateBumper;   // the power wheel
+    if (g_ovlVisible) m |= kGateOverlay;
+    if (body.valid && (body.cameraAction || !strcmp(body.state[0], "StatePlayerMasterMantle"))) m |= kGateBody;
+    return m;
+}
+void ranged_tick(double now) {
+    static uint32_t lastGen = 0;
+    const uint32_t gen = dvr::vr::input_hand_aim_sample(0).generation;
+    if (gen == lastGen) return;
+    lastGen = gen;
+    const int dev = g_ctrlIdx[0];
+    Sample s;
+    s.handValid = dev >= 0 && dev < 16 && g_devPoseOk[dev];
+    if (s.handValid) { s.hand[0] = g_devPose[dev][0][3]; s.hand[1] = g_devPose[dev][1][3]; s.hand[2] = g_devPose[dev][2][3]; }
+    s.headValid = g_devPoseOk[0];
+    if (s.headValid) { s.head[0] = g_devPose[0][0][3]; s.head[1] = g_devPose[0][1][3]; s.head[2] = g_devPose[0][2][3]; }
+    s.headFwd[0] = headFwd[0]; s.headFwd[1] = headFwd[1];
+    const int64_t predicted = dvr::vr::last_predicted_time();
+    s.tMs = predicted > 0 ? (double)predicted * 1e-6 : now;
+    s.closed = ranged_gates();
+    Config rc = st; rc.detector = kEdge; rc.stab = false;
+    const Verdict v = ranged.feed(s, rc);
+    if (v.sampled && v.speed > rn.peak) rn.peak = v.speed;
+    if (v.fired) { ++rn.fires; ChokeAssistSwing(v.speed, rc.edgeSpeed); }
+    else if (v.block == kBlockGate && !(v.closed & kGateOff)) {
+        ++rn.blocked;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+            "swing/ranged: %.2f m/s, over the %.2f threshold, not a choke: %s", v.speed, rc.edgeSpeed,
+            (v.closed & kGateGameplay) ? "not a gameplay view" : (v.closed & kGateBumper) ? "the power wheel is held"
+            : (v.closed & kGateOverlay) ? "the F10 overlay is up" : "the game owns the body");
+    }
+}
+
 void tick() {
     const double now = MaimNowMs();
     // The sustain detector's numbers are the pre-VR-37 keys, read into their own
@@ -534,6 +577,7 @@ void tick() {
         handle(simCore.feed(s, st), s, now, "sim");
         return;
     }
+    ranged_tick(now);   // before the sword's switch: the ranged hand's choke has its own ([Choke] RangedSwing)
     if (!g_meleeOn) return;
     beat(now);
 

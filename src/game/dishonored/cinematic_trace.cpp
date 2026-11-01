@@ -40,6 +40,7 @@ static void CineTraceConfigure(const char* ini) {
         g_keyholeFwdCm.store(cm);
         Log("camera/keyhole: KeyholeForwardCm=%.1f (the eye pushed along the door's camera heading while peeking; 0 = the game's own spot)",cm);
     }
+    KeyholeFovRestoreSet(GetPrivateProfileIntA("Cine","KeyholeFovRestore",1,ini)!=0,"ini [Cine] KeyholeFovRestore");
     g_cineHead.store(GetPrivateProfileIntA("Cine", "HeadLook", 1, ini) != 0);
     Log("cine/head: %s ([Cine] HeadLook), draw-scoped authored rotation", g_cineHead.load() ? "ON" : "off");
     g_cineTrace.store(GetPrivateProfileIntA("Cine", "Trace", 0, ini) != 0);
