@@ -1,3 +1,41 @@
+## 2026-10-29: tracked hands blink in and out in a conversation with "your arms in cutscenes" on (MEASURED from a headset log; the lens undo built, host-verified; not yet run in a conversation)
+
+1. **Symptom identity:** reported in the headset: with `[Anim] CinematicArms=1` (tracked arms in
+   cutscenes) the hands flicker in cutscenes. Surface: the mod's own hand draws (both hands' split
+   meshes), both eyes, while the game owns nothing (`anim: ... PLAYER master=StatePlayerMasterInDialog
+   ... reason=cinematic: tracked arms`). Not an eye-tag or camera fault: no section 1 row matched; new
+   row added.
+2. **Reproduction identity:** build `nogit` Oct 21 21:14:21 (RelWithDebInfo), VDXR, the player's
+   27 Oct run (log `dishonored_vr.log`, copied to
+   `%LOCALAPPDATA%\DishonoredVR\backups\2026-10-29-pre-menu-fix\`). `CinematicArms` switched on live
+   at 625562 (`anim: CinematicArms=1 (live, saved ...)`), then a dialogue from 625.8 to 653 s.
+3. **What was measured:** in that dialogue the camera FOV read 81.42 (`cine/fov ... sensor=81.42`)
+   while the game held the arms' lens on, and the hand placement refused the arm mesh:
+   `ms/palette/world: hand 0 NOT placed - LocalToWorld column is not unit (column norms 1.026 1.026
+   1.000 ...) NOT DRAWN`, and in the next beat norms `1.026 1.022 1`, 72 refused draws against 235856
+   placed. The refusal threshold is `|norm - 1| > 0.02`: the lens scale sat on both sides of it from
+   draw to draw, so a hand was drawn, then not drawn, then drawn: the blink. The motion gate is not
+   the owner here (`cine/motion: game arm motion max=0.0`), and the still-arms hide toggled only
+   twice in 30 s (`cine/hidearms: ... HIDDEN` / `drawn again`).
+4. **Hypothesis and counterprediction:** the lens is a per-axis scale of an orthogonal LocalToWorld
+   (L2W = R * diag(n)); dividing it out of the columns and putting diag(1/n) in front of the finished
+   palette draws R * (the placed palette), the hand where an unscaled mesh would be, every draw.
+   Counterprediction: if the lens were not a pure per-axis scale (a shear, or a scale the placement
+   sees elsewhere), the next conversation would print `ms/palette/lens` and still show the hands
+   jumping or the wrong size, and the orthogonality check (0.02) would start refusing.
+5. **Change identity:** `[Hands] LensUndo=1` (`armslens undo on|off`, default ON as the fix of a
+   measured fault; ARCHITECTURE decision log): `MpAcquireCtx` divides a lens scale of up to 50% out
+   (never while the view is zoomed: the mask zoom keeps its hide), `lens_undo_rows` (hand_frame.h)
+   applies diag(1/n) as the last step, after the hand swap's reflection, which does not commute
+   with it. The still-arms hide's world position puts the scale back.
+6. **Results:** host `hand-swap-host.ps1` 13/13: the undo places through the log's norms to 9.5e-07,
+   with negative controls (no undo misses by 0.123; the undo before the mirror by 0.1345). Simulator:
+   the build runs and logs `config: [Hands] LensUndo=1`; NO conversation was reached, so the
+   `ms/palette/lens` line has not been seen yet. Headset: pending.
+7. **Status:** cause MEASURED, fix built and host-verified, headset OPEN. Adjacent and separate: the
+   lens also flicks on during Blink casts (`m_bUseFOV=1` for a few frames), which this change now
+   draws through instead of hiding.
+
 ## 2026-10-07: one eye frozen and the other at a few fps - every xrEndFrame blocks ~85 ms for the rest of the session (MEASURED; the headset's video DECODER was behind, VD overlay; not the keyhole, not the grab gate; OPEN on the VD side)
 
 1. **Symptom identity:** reported in the headset: on leaving a keyhole the RIGHT eye stayed frozen
@@ -3779,6 +3817,7 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
+| Tracked hands blink in and out during a conversation or cutscene with `[Anim] CinematicArms=1` (both eyes) | The game's arm lens scales the hand mesh about 2% and the placement's `not unit` refusal (0.02) flips draw to draw: read `ms/palette/world: hand N NOT placed - ... column norms` | 2026-10-29 MEASURED (headset log); `[Hands] LensUndo=1` divides the scale out, host-verified; headset OPEN; top entry |
 | Small flicker on newly active full IK arms, subtype uncertain | IK history mixed head-locate and hand-publication counters; surface/pose distinction still needs pixels | 2026-10-04 code/host defect corrected; headset effect pending. Basic IK/Display frame burst added; see newest entry |
 | AFW rebuilt hand/sword duplicates more deeply inside a wall | Background fill chooses a geometrically farther foreground seed | 2026-09-30 follow-up: fill fixed the solid duplicate; foreground-aware stale rejection removes the striped remainder in replay, 46/46 host tests; headset pending |
 | AFW hands slide opposite lateral head motion while world stays stable | Native hand image/pose association, including position ties | Build 242 HEADSET-ACCEPTED with PoseFromView=1 and rotation-assisted ties. Negligible residual reported; do not infer all views matched. |

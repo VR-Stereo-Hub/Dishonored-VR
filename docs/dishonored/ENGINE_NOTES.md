@@ -1,3 +1,87 @@
+## 2026-11-01: the choke is a HELD Block on a FOCUSED, unaware guard from behind
+
+What the game needs for the nonlethal choke, measured, with where each fact came from:
+- **Block (pad RB) while the interaction focus is the guard.** `DishonoredPlayerController.m_pCrosshairActor`
+  (by name, +0x69C) is the focus. In VR it follows the hand ray (VR-166), and with nothing steering
+  it a guard you stand behind is rarely focused. A census of every RB press in two headset runs by
+  what was focused at the press: Oct 21, 58 presses, 1 choke (focused 312 ms before), 9 focused
+  presses that still blocked, the rest unfocused; Oct 31, 15 presses, the guard focused at none,
+  all blocks. Without the focus RB is a plain block (`upper=StatePlayerBlock`).
+- **Unaware, from behind.** A guard teleported next to (and so noticing the player) blocked with the
+  focus on it (simulator, `NOT HONOURED ... the game BLOCKED`). Stance does not matter: the Oct 21
+  headset choke was standing (`crouched=0`).
+- **A HOLD.** The game's own tutorial line for the takedown says to hold `GBA_Block`
+  (`Localization\INT\DishonoredGame.int`, `t_tuto_assassination_0`). Two chokes whose RB was let go
+  early (94 ms on Oct 21, 400 ms on the simulator) both went `Sword_Choke_In_Master` ->
+  `Sword_Choke_Lose_Master` about 560 ms in (the guard broke free, Health unchanged); two held through
+  went `In` -> `Loop` (at 530-560 ms) -> `Sword_Choke_Win_Master` at 2171-2172 ms (simulator,
+  `choke: WON`). `Win_HoistCorpse` exists for a press still held at the ending (not measured).
+- **The guards, cheaply.** `Actor.WorldInfo` (+0x160) -> `WorldInfo.PawnList` (+0x430) ->
+  `Pawn.NextPawn` (+0x270), with `Actor.Location` +0xC4 and `Actor.Rotation` +0xD0 (Yaw at +4, 65536
+  a circle), all by name: 7 pawns in the Distillery save, 5 of them people. No GObjects pass.
+- **An unconscious guard reads `Health 0, controller 1`**: the controller stays set, so the grip's
+  body test (Health <= 0 OR no controller) takes it by Health. This closes the open case below.
+- The cheat manager's `god` does nothing in this build (the player still died to guards with it on);
+  `BugItGo` into a wall keeps the rotation and drops the move.
+
+## 2026-10-21: a keyhole is entered by HOLDING Interact and left by a tap
+
+MEASURED from the same headset log as the entry below (pad lines `pad: xbtn=0x4000` = Interact on
+the pad): two 130 ms grip taps at a keyhole door (focus `DisDoor`, the pickup target) started
+nothing; the Interact button pressed at 3879703 and held put the player in
+`StatePlayerMasterHolePeeking` at 3880031 (328 ms), and the peek outlived the release (3883828); a
+109 ms tap at 3884109 ended it (`camera/special-exit` at 3884421). The second peek: pressed at
+3890234, peeking at 3890578 (344 ms), released at 3891093, a 94 ms tap at 3891343, exit at 3891640.
+So the door's interaction is tap = open, hold (about a third of a second) = peek, tap while
+peeking = leave. The pickup grip now mirrors its duration onto Interact (CONTROLLER_BINDS).
+
+A body for the grip: `Pawn.Health <= 0` or no `Pawn.Controller`, both resolved by name. Whether an
+UNCONSCIOUS Dishonored NPC passes that test is not established; the `pickup: the engine focuses ...`
+line prints both readings per focus, so the next run with a sleeping guard answers it.
+
+MEASURED on the simulator in the foreground (2026-10-21, the player's save, this build):
+- `pickup pawns` (the new seam word) found 331 `DishonoredNPCPawn`s placed in the Distillery; the
+  dead ones read `Health 0, controller none`, the living `Health 11..50, controller yes`. The
+  sheet-wrapped plague corpses on the streets are never focused (scenery, not pawns).
+- The door's prompt reads "Unbreakable Door / Hold [Interact] Keyhole". A held left grip entered
+  the peek 313 and 328 ms after Interact went down; a 130 ms right-grip tap left it.
+- A dead NPC's prompt reads "Corpse / Hold [Interact] Carry": a 250 ms squeeze of the RIGHT grip
+  (Choke) was taken and did nothing visible, a 1000 ms squeeze carried it
+  (`StatePlayerGrabCorpse` -> `CarryCorpseIdle`). A seated civilian (`Health 50, controller yes`)
+  took the left grip as Interact; the right grip reached the game as its own button
+  (`pad: xbtn=0x0200`) and blocked. No choke happened (a seated NPC), so the unconscious case is
+  still open.
+- The UE3 cheat manager is live in this build: `console BugItGo x y z 0 0 0` teleports the player
+  and `console playersonly` freezes the AI (VERIFICATION gotcha 24).
+
+**Headset-confirmed (the player's run of the 16:22 build):** after a peek the restore printed
+`the FOV is back: 102.58 after 437 ms (from 93.34)` and the arms' lens cleared 32 ms later
+(`m_bUseFOV=0`), so the hands came back: the prediction above held. It let go within 0.5 deg and
+the ratio-1 latch then kept 102.58 for the rest of the run, so the tolerance is now 0.05 deg
+(`kPeekBackDeg`); on the simulator that build settled at `103.00 after 562 ms (from 88.90)`, the
+lens clearing in the same frame.
+
+## 2026-10-21: a keyhole peek narrows the camera's own FOV, and the exit blends back to the resting fields
+
+MEASURED from one headset log (build nogit Oct 21 15:28, GOG install, two peeks), not from a decompile:
+- While `StatePlayerMasterHolePeeking` owns the player, the camera's `m_fCurFOV` (`kFovSensor`
+  0x53c) falls smoothly, 103.00 -> 101.11 -> 98.56 ... -> 88.14 over about 4 s of the first peek,
+  and on from 88.14 to 86.95 in the second. No `Dis_Zoom` and no stick click in between: it is the
+  peek's own FOV request, not the mask zoom. The player mesh's lens is on during it
+  (`m_bUseFOV=1`, `m_FOV` near 103), as in a lock-arms zoom.
+- The exit (`camera/special-exit`, back to `StatePlayerMasterWalk`) did not widen it again: 86.95
+  for the remaining 30 s of the run, with the lens still on.
+- INFERRED (consistent with the measurement, not resolved by name): the exit blends `m_fCurFOV` back
+  toward a resting value held in the fields the lever writes (`kLevCtrl` FOVAngle/Desired/Default,
+  `kLevCam`), because with those at the target the model in `tools\fov-lever-tests.cpp` returns and
+  with them at the narrowed value it does not. The lever at ratio 1 had written the narrowing into
+  all of them (TRAPS 2026-10-21). PREDICTION for the next headset peek with `[Cine] KeyholeFovRestore=1`:
+  `fovlever: keyhole exit - the FOV is back` within about a second, and the hands drawn again once
+  the lens clears. If the lens stays on with the FOV back, the lens has its own exit and the
+  prediction is refuted.
+- The keyhole's FOV value and blend speed live in the packages (no `DishonoredPlayerState.ini` key;
+  the script corpus was not on this machine to read).
+
 ## 2026-10-05: Attached hand effects drift during locomotion, corrected candidate
 
 Scope: the attached Heart glow, not the Heart backing material or a stereo
