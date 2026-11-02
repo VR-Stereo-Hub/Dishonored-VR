@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstring>
 #include <mutex>
+#include <utility>
 
 #define XRLOG(...) DVR_LOG(::dvr::log::Cat::xrinput, ::dvr::log::Level::Info, __VA_ARGS__)
 
@@ -88,6 +89,14 @@ HandSlot g_hands[2]; // grip pose: 0 = left, 1 = right
 HandSlot g_aims[2];  // aim pose, same indexing
 uint32_t g_handGeneration = 0; // present-thread identity of the completed locate
 uint64_t g_handStampMs = 0;
+
+// Dishonored: the hand swap (docs/dishonored/HAND_SWAP.md). The slots above are PHYSICAL
+// controllers. Every per-hand read below takes the GAME's hand instead - 0 the gadget, pistol and
+// powers hand, 1 the sword hand - and maps it here, so the poses, the triggers, the grips and the
+// haptics of every consumer follow one switch. Off, the game's hand is the physical one and
+// nothing below changes.
+std::atomic<bool> g_handSwap{false};
+inline int physical_of(int hand) { return g_handSwap.load(std::memory_order_relaxed) ? 1 - hand : hand; }
 
 // Session 20 vrrec: sim overlay ON the funnel. While armed, EVERY consumer of
 // input_get_hand_pose (fire ray, viewmodel, laser) reads the injected poses
@@ -213,7 +222,8 @@ void locate_hand(XrSession session, XrAction poseAction, XrSpace space, XrTime w
 }   // namespace (reopened below)
 // VR-39 (MSW): a grip located at an arbitrary display time (a synthesized slot's), outside input_sync's slots.
 bool input_locate_grip(int hand, XrTime when, float pos3[3], float quat4[4]) {
-    const XrSpace space = hand == 0 ? g_gripSpaceL : hand == 1 ? g_gripSpaceR : XR_NULL_HANDLE;
+    const int phys = (hand == 0 || hand == 1) ? physical_of(hand) : -1;   // the game's hand, like input_get_hand_pose
+    const XrSpace space = phys == 0 ? g_gripSpaceL : phys == 1 ? g_gripSpaceR : XR_NULL_HANDLE;
     if (space == XR_NULL_HANDLE || g_baseSpace == XR_NULL_HANDLE) return false;
     XrSpaceLocation sl{XR_TYPE_SPACE_LOCATION};
     if (XR_FAILED(xrLocateSpace(space, g_baseSpace, when, &sl)) ||
@@ -542,6 +552,12 @@ void input_sync(XrSession session, XrTime predictedDisplayTime) {
     s.trigL = read_float(session, g_plasmid);
     s.gripL = read_float(session, g_gripL);
     s.gripR = read_float(session, g_gripR);
+    // The hand swap: the triggers and grips are named for the game's hands, like the poses. The
+    // sticks, face buttons, stick clicks and thumbrests stay where they are on the controllers.
+    if (g_handSwap.load(std::memory_order_relaxed)) {
+        std::swap(s.trigL, s.trigR);
+        std::swap(s.gripL, s.gripR);
+    }
     s.a = read_bool(session, g_btnA);
     s.b = read_bool(session, g_btnB);
     // Menu/chord/modifier policy belongs to the Dishonored pad composer.
@@ -627,6 +643,7 @@ bool input_attached() { return g_attachedAtomic.load(std::memory_order_relaxed);
 
 void input_haptic(int hand, float amp, float durSec) {
     if (hand < 0 || hand > 1) return;
+    hand = physical_of(hand);   // the queue is indexed by controller
     if (amp < 0.0f) amp = 0.0f;
     if (amp > 1.0f) amp = 1.0f;
     if (durSec < 0.005f) durSec = 0.005f;
@@ -666,8 +683,9 @@ void input_set_aim_pitch_extra(int hand, float deg) {
 bool input_get_hand_pose(int hand, bool aimPose, float* pos3, float* quat4) {
     if (hand < 0 || hand > 1 || !pos3 || !quat4) return false;
     const bool sim = g_simHandsActive.load(std::memory_order_relaxed);
-    const HandSlot& s = sim ? (aimPose ? g_simAims[hand] : g_simHands[hand])
-                            : (aimPose ? g_aims[hand] : g_hands[hand]);
+    const int phys = physical_of(hand);   // the extra pitch below stays the game hand's
+    const HandSlot& s = sim ? (aimPose ? g_simAims[phys] : g_simHands[phys])
+                            : (aimPose ? g_aims[phys] : g_hands[phys]);
     if (!s.valid.load(std::memory_order_relaxed)) return false;
     pos3[0] = s.px; pos3[1] = s.py; pos3[2] = s.pz;
     quat4[0] = s.qx; quat4[1] = s.qy; quat4[2] = s.qz; quat4[3] = s.qw;
@@ -682,6 +700,29 @@ bool input_get_hand_pose(int hand, bool aimPose, float* pos3, float* quat4) {
     }
     return true;
 }
+
+// The controller itself, whatever the swap says: for what is placed on a physical wrist (the HUD's
+// hand anchors). The grip or aim pose as located, without the game hand's extra aim pitch.
+bool input_get_physical_hand_pose(int hand, bool aimPose, float* pos3, float* quat4) {
+    if (hand < 0 || hand > 1 || !pos3 || !quat4) return false;
+    const bool sim = g_simHandsActive.load(std::memory_order_relaxed);
+    const HandSlot& s = sim ? (aimPose ? g_simAims[hand] : g_simHands[hand])
+                            : (aimPose ? g_aims[hand] : g_hands[hand]);
+    if (!s.valid.load(std::memory_order_relaxed)) return false;
+    pos3[0] = s.px; pos3[1] = s.py; pos3[2] = s.pz;
+    quat4[0] = s.qx; quat4[1] = s.qy; quat4[2] = s.qz; quat4[3] = s.qw;
+    return true;
+}
+
+void input_set_hand_swap(bool on) {
+    const bool was = g_handSwap.exchange(on, std::memory_order_relaxed);
+    if (was != on)
+        XRLOG("input: hand swap %s - the game's sword hand now reads the %s controller and its gadget/power "
+              "hand the %s one (poses, triggers, grips, haptics); sticks and face buttons unchanged",
+              on ? "ON" : "off", on ? "LEFT" : "right", on ? "RIGHT" : "left");
+}
+bool input_hand_swap() { return g_handSwap.load(std::memory_order_relaxed); }
+int input_physical_hand(int hand) { return (hand == 0 || hand == 1) ? physical_of(hand) : hand; }
 
 void input_set_sim_hand(int hand, bool aimPose, bool valid, const float pos3[3],
                         const float quat4[4]) {
@@ -704,11 +745,12 @@ void input_clear_sim_hands() {
 }
 
 void input_draw_debug_ui() {
-    ImGui::Text("xr hands: grip L %s R %s | aim L %s R %s",
+    ImGui::Text("xr hands: grip L %s R %s | aim L %s R %s%s",
                 g_hands[0].valid.load(std::memory_order_relaxed) ? "ok" : "-",
                 g_hands[1].valid.load(std::memory_order_relaxed) ? "ok" : "-",
                 g_aims[0].valid.load(std::memory_order_relaxed) ? "ok" : "-",
-                g_aims[1].valid.load(std::memory_order_relaxed) ? "ok" : "-");
+                g_aims[1].valid.load(std::memory_order_relaxed) ? "ok" : "-",
+                g_handSwap.load(std::memory_order_relaxed) ? " | hands SWAPPED" : "");
     ImGui::Text("xr actions: %s | sync ok %u nf %u fail %u | %s",
                 g_attached ? "attached" : (g_created ? "created" : "off"),
                 g_syncOk.load(std::memory_order_relaxed),

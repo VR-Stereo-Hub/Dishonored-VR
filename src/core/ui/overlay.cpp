@@ -76,9 +76,11 @@ static void OvlInjectControllerPointer(float w, float h)
     float px = 0.0f, py = 0.0f, ndcX = 0.0f, ndcY = 0.0f, tanH = 0.0f, tanV = 0.0f;
 #if DVR_WITH_OPENXR
     dvr::vr::HeadPose head{}, aim{};
+    float aimP[3], aimQ[4];   // [Overlay] PointerHand is a CONTROLLER: the hand swap does not move it
     if (!dvr::vr::peek_head_pose(head)) why = "no head pose";
-    else if (!dvr::vr::get_hand_pose(hand, true, aim)) why = "pointing hand not tracked";
+    else if (!dvr::vr::input_get_physical_hand_pose(hand, true, aimP, aimQ)) why = "pointing hand not tracked";
     else {
+        aim = { aimP[0], aimP[1], aimP[2], aimQ[0], aimQ[1], aimQ[2], aimQ[3] };
         float dirWorld[3], d[3];
         OvlForwardOf(&aim.qx, dirWorld);
         OvlRotateByConj(&head.qx, dirWorld, d);
@@ -130,8 +132,15 @@ static void OvlInjectControllerPointer(float w, float h)
 
     // The pointing hand's stick: Y scrolls, X tweaks whatever slider the cursor is over.
     // DOMINANT AXIS, so a scroll never nudges a value on the way past.
+    // The sticks are physical; the snapshot's triggers are named for the GAME's hands, so with the hands
+    // swapped the pointing controller's trigger is the other field (the swap is its own inverse).
+#if DVR_WITH_OPENXR
+    const int trigHand = dvr::vr::input_physical_hand(hand);
+#else
+    const int trigHand = hand;
+#endif
     const float* stick = hand ? in.lk : in.mv;
-    const float trig = hand ? in.trigR : in.trigL;
+    const float trig = trigHand ? in.trigR : in.trigL;
     const float sx = stick[0], sy = stick[1];
     const float kDead = 0.25f;
     const bool xLane = fabsf(sx) > kDead && fabsf(sx) >= fabsf(sy);

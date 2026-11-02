@@ -86,6 +86,9 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "cinehands") && DvrOnOff(args, &b)) { dvr::anim::set_cinematic(b); return true; }
     if (!strcmp(cmd, "cinefov") && DvrOnOff(args, &b)) { CineFovSet(b); return true; }
+    if (!strcmp(cmd, "keyholefov") && DvrOnOff(args, &b)) {   // 2026-10-21: [Cine] KeyholeFovRestore
+        KeyholeFovRestoreSet(b, "the seam"); ConfigWriteKey("Cine", "KeyholeFovRestore", b ? "1" : "0", "the seam"); return true;
+    }
     if (!strcmp(cmd, "cinestereo") && DvrOnOff(args, &b)) { StereoStateSet(b); return true; }
     if (!strcmp(cmd, "possessionstereo") && DvrOnOff(args, &b)) { PossessionStereoSet(b); return true; }   // VR-135
     if (!strcmp(cmd, "rainrecovery") && DvrOnOff(args, &b)) { RainRecoverySet(b); return true; }
@@ -262,6 +265,15 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         if (!strncmp(args, "right ", 6)) { const float cm = (float)atof(args + 6); ZoomGestureRightSet(cm, "the seam"); char v[16]; _snprintf(v, sizeof(v), "%.0f", cm); ConfigWriteKey("Controllers", "ZoomGestureRightCm", v, "the seam"); return true; }
         if (DvrOnOff(args, &b)) { ZoomGestureSet(b, "the seam"); ConfigWriteKey("Controllers", "ZoomGesture", b ? "1" : "0", "the seam"); return true; }
         Log("zoomgesture: usage - zoomgesture on|off | zoomgesture radius <4..40 cm> | zoomgesture right <0..30 cm>"); return true;
+    }
+    if (!strcmp(cmd, "wheelhold")) {   // 2026-10-21: wheelhold on|off|<ms>
+        float ms = 0;
+        if (DvrOnOff(args, &b)) WheelHoldSet(b, WheelHoldMsGet(), "the seam");
+        else if (sscanf(args, "%f", &ms) == 1) WheelHoldSet(true, ms, "the seam");
+        char v[16]; _snprintf(v, sizeof(v), "%.0f", WheelHoldMsGet()); v[sizeof(v) - 1] = 0;
+        ConfigWriteKey("Controllers", "WheelHoldToOpen", WheelHoldGet() ? "1" : "0", "the seam");
+        ConfigWriteKey("Controllers", "WheelHoldMs", v, "the seam");
+        return true;
     }
     if (!strcmp(cmd, "zoomtap") && DvrOnOff(args, &b)) { ZoomTapSet(b, "the seam"); ConfigWriteKey("Controllers", "ZoomTap", b ? "1" : "0", "the seam"); return true; }
     if (!strcmp(cmd, "zoommagnify") && DvrOnOff(args, &b)) { ZoomMagnifySet(b, "the seam"); ConfigWriteKey("Screen", "ZoomMagnify", b ? "1" : "0", "the seam"); return true; }
@@ -529,6 +541,12 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         const char* a = args ? args : "";
         while (*a == ' ') ++a;
         if (!strncmp(a, "gain", 4)) { const float g = (float)atof(a + 4); if (g > 0.0f) AfwFgGainSet(g, "command seam"); }
+        bool lu = false;
+        if (!strncmp(a, "undo ", 5) && DvrOnOff(a + 5, &lu)) {   // 2026-10-29: [Hands] LensUndo, live A/B
+            g_mpLensUndo = lu; ConfigWriteKey("Hands", "LensUndo", lu ? "1" : "0", "the seam");
+            Log("armslens: lens undo %s (the seam) - %ld draw(s) placed through a lens scale so far", lu ? "ON" : "off", (long)g_mpLensUndone);
+            return true;
+        }
         char st[160]; ArmsLensStatus(st, sizeof(st));
         Log("armslens: hands switch %s, AFW foreground gain %.3f | %s (armslens gain <0.80-1.00>)",
             HandsWorldFovGet() ? "ON" : "off", AfwFgGainGet(), st);
@@ -556,6 +574,9 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         if (!act[0] || !_stricmp(act, "status")) BindsLog("asked");
         else if (!_stricmp(act, "reset")) BindsSet(dvr::binds::Layout{}, "the seam");
         else if (!_stricmp(act, "swap") && DvrOnOff(src, &b)) { l.swapSticks = b; BindsSet(l, "the seam"); }
+        else if (!_stricmp(act, "menus") && DvrOnOff(src, &b)) {   // 2026-10-29: [Controllers] MenuDefaultButtons
+            MenuDefaultButtonsSet(b, "the seam"); ConfigWriteKey("Controllers", "MenuDefaultButtons", b ? "1" : "0", "the seam");
+        }
         else if (dvr::binds::parse_action(act, &a) && dvr::binds::parse_source(src, &s)) { l.src[a] = s; BindsSet(l, "the seam"); }
         else Log("input/binds: use binds status | reset | swap on|off | <Action> <Source> (asked '%s')", args);
         return true;
@@ -585,7 +606,9 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "aimsrc")) return AimSourceCommand(args);    // VR-166
     if (!strcmp(cmd, "interactaim")) return InteractAimCommand(args); // VR-166
     if (!strcmp(cmd, "grab")) return GrabAnimCommand(args);              // the grab animation (hands/mesh_split.cpp)
+    if (!strcmp(cmd, "swaphands")) return HsCommand(args);               // [Hands] SwapHands (hands/mesh_split.cpp)
     if (!strcmp(cmd, "pickup")) return PickupCommand(args);           // loot picked up by reaching for it
+    if (!strcmp(cmd, "choke")) return ChokeAssistCommand(args);       // the Choke grip and the ranged swing (2026-11-01)
     if (!strcmp(cmd, "throwaim")) return ThrowAimCommand(args);    // VR-166
     if (!strcmp(cmd, "gadgetaim")) return GadgetAimCommand(args);  // VR-166
     if (!strcmp(cmd, "carryaim")) return CarryThrowAimCommand(args); // VR-181

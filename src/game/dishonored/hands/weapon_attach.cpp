@@ -292,7 +292,8 @@ static void WaCompTick(void)
 // Called from the hand's own placement path once D is final - which is AFTER
 // the model scale, so that factor is carried exactly once and WaDraw must not
 // apply it again.
-static void WaPublishCommon(int hand, const MpDrawCtx* c, const dvr::hf::Xform& D)
+static void WaPublishCommon(int hand, const MpDrawCtx* c, const dvr::hf::Xform& D,
+                            const dvr::hf::Plane* mirror)
 {
     if (!g_waOn || hand < 0 || hand > 1 || !c) return;
     dvr::hf::Xform L;
@@ -308,6 +309,8 @@ static void WaPublishCommon(int hand, const MpDrawCtx* c, const dvr::hf::Xform& 
     dvr::hf::Xform invL;
     if (!dvr::wf::inverse(L, &invL)) return;
     w.D = dvr::hf::xform_mul(dvr::hf::xform_mul(L, D), invL);
+    // THE HAND SWAP: D is the mirrored-world correction; W takes a pass back out (HAND_SWAP.md).
+    if (mirror) { w.W = dvr::hf::reflection_xform(*mirror); w.mirror = true; }
     w.present = (uint32_t)dvr::frame::count();
     w.poseGen = c->pose.gen;
     w.eye     = g_mpEyeState;
@@ -333,6 +336,21 @@ static void WaPublishCommon(int hand, const MpDrawCtx* c, const dvr::hf::Xform& 
     AcquireSRWLockExclusive(&g_waCommonLock);
     g_waCommon[hand] = w;
     ReleaseSRWLockExclusive(&g_waCommonLock);
+}
+
+
+// THE HAND SWAP: a reflection published in one space, carried into the local space of a draw
+// whose transform is `draw` - the same conjugation every correction here takes. It is valid for
+// every pass of that component. False (a singular transform) and the pass is not drawn: a weapon
+// left unmirrored in a mirrored hand is a copy in the wrong place.
+static bool WaMirrorLocal(const dvr::hf::Xform& W, const dvr::hf::Xform& draw, dvr::hf::Xform* out)
+{
+    dvr::hf::Xform inv;
+    if (!dvr::wf::inverse(draw, &inv)) return false;
+    *out = dvr::hf::xform_mul(dvr::hf::xform_mul(inv, W), draw);
+    for (int i = 0; i < 9; i++) if (!MpFinite(out->r.m[i])) return false;
+    for (int i = 0; i < 3; i++) if (!MpFinite(out->t[i])) return false;
+    return true;
 }
 
 
@@ -455,7 +473,8 @@ static bool WaReadyHide(const WaMesh* w, HRESULT* hr)
 // buffer-identity path and the non-indexed path: both already know WHICH mesh
 // they are looking at and need only the register and the delta.
 static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
-                           const dvr::hf::Xform& delta, bool indexed,
+                           const dvr::hf::Xform& delta, const dvr::hf::Xform* mirror,
+                           bool indexed,
                            D3DPRIMITIVETYPE type, INT baseVertex, UINT minIndex,
                            UINT numVertices, UINT startIndex, UINT startVertex,
                            UINT primCount, HRESULT* hr)
@@ -470,7 +489,11 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
     if (FAILED(dev->GetVertexShaderConstantF((UINT)start, source, (UINT)cnt))) {
         InterlockedIncrement(&g_waNoSource); return false;
     }
-    MpBuild(patched, source, (UINT)cnt, &delta);
+    // THE HAND SWAP: drawn with mirror * delta, the winding turned with it; measured with delta.
+    const dvr::hf::Xform drawDelta = mirror ? dvr::hf::xform_mul(*mirror, delta) : delta;
+    HsCull swapCull;
+    if (mirror) { swapCull.flip(dev); InterlockedIncrement(&g_hsWeapon); }
+    MpBuild(patched, source, (UINT)cnt, &drawDelta);
     if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)start, patched, (UINT)cnt))) {
         if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)start, source, (UINT)cnt)))
             InterlockedIncrement(&g_waRestoreFail);
@@ -501,7 +524,7 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
         HbDraw(dev,w,(UINT)cnt/3,type,baseVertex,minIndex,numVertices,startIndex,primCount);
     // VR-138: the sibling passes take the mirror too, so depth and colour agree.
     if (SUCCEEDED(drawHr) && indexed)
-        WmDraw(dev, w, source, (UINT)start, (UINT)cnt, delta, type, baseVertex, minIndex,
+        WmDraw(dev, w, source, (UINT)start, (UINT)cnt, drawDelta, type, baseVertex, minIndex,
                numVertices, startIndex, primCount);
     if (changedVp && FAILED(dev->SetViewport(&savedVp)))
         InterlockedIncrement(&g_waRestoreFail);
@@ -550,8 +573,8 @@ static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
     if (!w->dmOk || w->dmPresent != (uint32_t)dvr::frame::count()) {
         InterlockedIncrement(&g_waPrimNoDelta); return false;
     }
-    if (!WaPatchAndDraw(dev, w, w->dm, false, type, 0, 0, 0, 0, startVertex,
-                        primCount, hr)) return false;
+    if (!WaPatchAndDraw(dev, w, w->dm, w->dmMirror ? &w->dmW : nullptr, false, type, 0, 0, 0, 0,
+                        startVertex, primCount, hr)) return false;
     InterlockedIncrement(&g_waPrimFixed);
     return true;
 }
@@ -877,6 +900,8 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                     // corrected nothing.
                     dvr::hf::Xform corr;
                     bool haveCorr = false;
+                    dvr::hf::Xform corrW = {};     // THE HAND SWAP: the local reflection, when corrMirror
+                    bool corrMirror = false;
                     if (sameGeometry && g_pcLayL2W >= 0 && g_pcLayL2W <= 252) {
                         MpDrawCtx c2 = {};
                         if (SUCCEEDED(dev->GetVertexShaderConstantF(g_pcLayL2W, c2.l2w, 4))) {
@@ -974,6 +999,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                             if (v2->ok &&
                                 v2->present == (uint32_t)dvr::frame::count()) {
                                 dvr::hf::Xform space = v2->D;
+                                dvr::hf::Xform spaceW = v2->W;   // THE HAND SWAP: through the same bridge as D
                                 if (known->useNative) {
                                     const WaComp* ref2 = NULL;
                                     for (int q = 0; q < v2->componentCount; ++q)
@@ -985,9 +1011,12 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                                         dvr::hf::Xform nr = {ref2->R,
                                             {ref2->t[0], ref2->t[1], ref2->t[2]}};
                                         if (dvr::wf::bridge(nr, v2->L_hand, &br) &&
-                                            dvr::wf::inverse(br, &ibr))
+                                            dvr::wf::inverse(br, &ibr)) {
                                             space = dvr::hf::xform_mul(
                                                 dvr::hf::xform_mul(ibr, v2->D), br);
+                                            spaceW = dvr::hf::xform_mul(
+                                                dvr::hf::xform_mul(ibr, v2->W), br);
+                                        }
                                         else ref2 = NULL;
                                     }
                                     if (!ref2) { InterlockedIncrement(&g_waNoBridge); return false; }
@@ -1016,7 +1045,10 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                                 if (dvr::wf::inverse(L2, &iL2)) {
                                     corr = dvr::hf::xform_mul(
                                         dvr::hf::xform_mul(iL2, space), L2);
-                                    haveCorr = true;
+                                    // THE HAND SWAP: the lens came off D before W goes on, so W
+                                    // takes only the draw's own conjugation.
+                                    corrMirror = v2->mirror;
+                                    haveCorr = !corrMirror || WaMirrorLocal(spaceW, L2, &corrW);
                                 }
                             }
                             }
@@ -1029,6 +1061,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                     if (!haveCorr && !instStrongVeto && known->dmOk &&
                         known->dmPresent == (uint32_t)dvr::frame::count()) {
                         corr = known->dm; haveCorr = true;
+                        corrMirror = known->dmMirror; corrW = known->dmW;
                     }
                     // NOTHING USABLE FOR THIS PASS. Two choices, and drawing it
                     // untouched is the worse one: this is another pass of a mesh
@@ -1088,8 +1121,8 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                     for (int q = 0; q < 3 && ok; ++q)
                         if (!MpFinite(corr.t[q])) ok = false;
                     if (ok && g_waGhostFix &&
-                        WaPatchAndDraw(dev, known, corr, true, type, baseVertex,
-                                       minIndex, numVertices, startIndex, 0,
+                        WaPatchAndDraw(dev, known, corr, corrMirror ? &corrW : nullptr, true, type,
+                                       baseVertex, minIndex, numVertices, startIndex, 0,
                                        primCount, hr)) {
                         InterlockedIncrement(&g_waIdCorrected);
                         InterlockedIncrement(&known->ghosts);
@@ -1162,6 +1195,8 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     float lensRatios[64]={};
     const WaComp* members[64];
     dvr::hf::Xform corrections[64];
+    dvr::hf::Xform mirrors[64];          // THE HAND SWAP: each candidate's reflection, in its correction's space
+    bool mirrored[64] = {};
     int count = 0;
     for (int h = 0; h < 2; ++h) {
         const WaCommon* v = views[h];
@@ -1183,6 +1218,8 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
         if (!dvr::wf::inverse(bridge, &invBridge)) continue;
         const dvr::hf::Xform nativeDelta = dvr::hf::xform_mul(
             dvr::hf::xform_mul(invBridge, v->D), bridge);
+        const dvr::hf::Xform nativeMirror = dvr::hf::xform_mul(
+            dvr::hf::xform_mul(invBridge, v->W), bridge);   // THE HAND SWAP: W through the same bridge
         for (int i = 0; i < v->componentCount && count + 1 < 64; ++i) {
             const WaComp* k = &v->components[i];
             if (!k->ok || !k->isMember || k->hand != h) continue;
@@ -1223,12 +1260,14 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                 candidateCorrection=dvr::hf::xform_mul(v->D,inverseLens);
             }
             lensRatios[count]=lensRatio;
-            candidates[count] = c; corrections[count] = candidateCorrection; members[count++] = k;
+            candidates[count] = c; corrections[count] = candidateCorrection;
+            mirrors[count] = v->W; mirrored[count] = v->mirror; members[count++] = k;
             // A world-space pass has a second independently known prediction:
             // the native component transform itself. It also needs the delta
             // converted back out of the reference draw's rebased coordinates.
             candidates[count] = c; candidates[count].hasLens=false; candidates[count].predicted = native;
-            corrections[count] = nativeDelta; members[count++] = k;
+            corrections[count] = nativeDelta;
+            mirrors[count] = nativeMirror; mirrored[count] = v->mirror; members[count++] = k;
             InterlockedIncrement(&g_waHandCompared[h]);
             const dvr::wf::Result one = dvr::wf::match(draw, &c, 1, g_waAngTolDeg, g_waPosTolUU, g_waMarginX);
             // VR-112: distinguish native component, bridge and draw scaling.
@@ -1524,6 +1563,16 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
         dvr::hf::xform_mul(inverse, corrections[match.best]), draw);
     for (int i = 0; i < 9; ++i) if (!MpFinite(delta.r.m[i])) return false;
     for (int i = 0; i < 3; ++i) if (!MpFinite(delta.t[i])) return false;
+    // THE HAND SWAP (HAND_SWAP.md): the reflection in this draw's own local space. It is drawn on
+    // top of delta and kept for the sibling passes; delta alone goes to the bolt measurement, which
+    // is taken in the same mirrored world as the palm it is expressed against.
+    dvr::hf::Xform drawDelta = delta;
+    w->dmMirror = false;
+    if (mirrored[match.best]) {
+        if (!WaMirrorLocal(mirrors[match.best], draw, &w->dmW)) { InterlockedIncrement(&w->refused); return false; }
+        w->dmMirror = true;
+        drawDelta = dvr::hf::xform_mul(w->dmW, delta);
+    }
     // Publish it for this contract's OTHER passes. Same mesh, same Present,
     // same place - so the depth and shadow copies take the identical delta
     // instead of being left at the native position.
@@ -1533,7 +1582,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     if (FAILED(dev->GetVertexShaderConstantF(w->boneReg, source, w->regs))) {
         InterlockedIncrement(&g_waNoSource); return false;
     }
-    MpBuild(patched, source, w->regs, &delta);
+    MpBuild(patched, source, w->regs, &drawDelta);
     if (FAILED(dvr::frame::orig_set_vs_const(dev, w->boneReg, patched, w->regs))) {
         if (FAILED(dvr::frame::orig_set_vs_const(dev, w->boneReg, source, w->regs)))
             InterlockedIncrement(&g_waRestoreFail);
@@ -1544,6 +1593,8 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
         D3DVIEWPORT9 full = savedVp; full.MinZ = 0; full.MaxZ = 1;
         changedVp = SUCCEEDED(dev->SetViewport(&full));
     }
+    HsCull swapCull;                         // THE HAND SWAP: the reflection reversed the winding
+    if (w->dmMirror) { swapCull.flip(dev); InterlockedIncrement(&g_hsWeapon); }
     dvr::depthprobe::fgmask_mark_piece();   // VR-39 run 20: the held weapon, whatever depth range the game drew it with
     InterlockedIncrement(&g_waAttempted);
     const HRESULT drawHr = dvr::frame::orig_draw_indexed(dev, type, baseVertex,
@@ -1552,7 +1603,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); BrMeasure(dev,w,source,w->regs,delta); }
     if (SUCCEEDED(drawHr)) HbDraw(dev,w,w->regs/3,type,baseVertex,minIndex,numVertices,startIndex,primCount);
     // VR-138: the mirrored copy, inside the same patched palette and depth range.
-    if (SUCCEEDED(drawHr)) WmDraw(dev, w, source, (UINT)w->boneReg, w->regs, delta, type, baseVertex,
+    if (SUCCEEDED(drawHr)) WmDraw(dev, w, source, (UINT)w->boneReg, w->regs, drawDelta, type, baseVertex,
                                   minIndex, numVertices, startIndex, primCount);
     if (changedVp && FAILED(dev->SetViewport(&savedVp))) InterlockedIncrement(&g_waRestoreFail);
     if (FAILED(dvr::frame::orig_set_vs_const(dev, w->boneReg, source, w->regs))) {

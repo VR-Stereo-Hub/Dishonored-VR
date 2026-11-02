@@ -663,6 +663,98 @@ static inline int run_all(ReportFn fn, void* ctx)
             "leaving out the reflection misses by %.3f, which the test above would reject", e2);
     }
 
+    // ---- 13. THE HAND SWAP: the mirrored world (hand_frame.h, "the hand swap") ----
+    // A hand placed on the MIRROR IMAGE of its controller and then reflected back
+    // must land on the controller itself with its palm frame O_C * X * G * Trim
+    // (a left hand made from the right one), whatever plane was used; leaving X
+    // out must break that; and the palette reflection must commute with skinning.
+    {
+        const Mat3 R_H  = rot_axis_deg(1, 23.0f);
+        const Mat3 B    = rot_axis_deg(2, 7.0f);                  // right-handed, as measured
+        const Mat3 R_C  = mul3(rot_axis_deg(0, 28.0f), rot_axis_deg(1, -35.0f));
+        const Mat3 R_L  = rot_axis_deg(0, 90.0f);
+        const Mat3 Rsrc = rot_axis_deg(1, 51.0f);
+        const float tL[3] = { 7.0f, -3.0f, 11.0f };
+        const float q[3]  = { 24.5f, -142.5f, 58.0f };
+        const float dcam[3] = { -31.0f, -18.5f, 44.0f };          // the controller's target, camera-relative
+        const Mat3 O_C = controller_orient_camera(B, R_H, R_C);
+        const Mat3 G = mul3(parity_factor(parity_of(O_C)), rot_axis_deg(2, 17.0f));   // a calibration of matching parity
+        const Mat3 trimR = euler_xyz_deg_to_mat(6.0f, -9.0f, 4.0f);
+        const float trimT[3] = { 0.8f, -0.3f, 1.4f };
+        const float headC[3] = { -3.15f, 0.0f, 0.0f };            // half an IPD off the eye, as a draw has it
+        const float right[3] = { B.m[0], B.m[3], B.m[6] };        // B's first column: the head's right
+        Xform L; L.r = R_L; for (int i = 0; i < 3; i++) L.t[i] = tL[i];
+        Xform src; src.r = Rsrc; for (int i = 0; i < 3; i++) src.t[i] = q[i];
+        // Where the hand's source palm frame [Rsrc | q] is drawn, camera-relative, and det of the
+        // local correction actually composed onto the palette.
+        auto place = [&](const Plane& p, bool withX, Xform* camOut) {
+            float d[3] = { dcam[0], dcam[1], dcam[2] };
+            Mat3 O = O_C;
+            mirror_target(p, d, &O);
+            if (!withX) O = mul3(O, controller_mirror());        // X * X = I: the counterexample
+            const Xform D  = delta_from_target(R_L, tL, palm_target(O, G, d, trimR, trimT), Rsrc, q);
+            const Xform Dm = xform_mul(reflection_xform(plane_to_local(R_L, tL, p)), D);
+            *camOut = xform_mul(xform_mul(L, Dm), src);
+            return det3(Dm.r);
+        };
+        Plane head; const bool planeOk = plane_from(right, headC, &head);
+        Xform got; const float det = place(head, true, &got);
+        const Mat3 base = mul3(mul3(O_C, controller_mirror()), G);
+        const Mat3 want = mul3(base, trimR);
+        float wantT[3]; mulv3(base, trimT, wantT);
+        float ep = 0.0f, eo = 0.0f;
+        for (int i = 0; i < 3; i++) ep += fabsf(got.t[i] - (dcam[i] + wantT[i]));
+        for (int i = 0; i < 9; i++) eo += fabsf(got.r.m[i] - want.m[i]);
+        rec(&r, "swap_mirror_lands_on_the_controller",
+            planeOk && ep < 1e-2f && eo < 1e-3f && fabsf(det + 1.0f) < 1e-4f,
+            "placed in the mirrored world and reflected back, the palm lands %.5f from the "
+            "controller's own target and its frame is O_C*X*G*Trim to %.6f; det %.4f (want -1: "
+            "the shape is mirrored, so the right hand reads as a left one)", ep, eo, det);
+
+        const float n2[3] = { 0.6f, 0.0f, 0.8f }, c2[3] = { 12.0f, -4.0f, 30.0f };
+        Plane other; plane_from(n2, c2, &other);
+        Xform got2; place(other, true, &got2);
+        float e2 = 0.0f;
+        for (int i = 0; i < 3; i++) e2 += fabsf(got2.t[i] - got.t[i]);
+        for (int i = 0; i < 9; i++) e2 += fabsf(got2.r.m[i] - got.r.m[i]);
+        rec(&r, "swap_mirror_plane_cancels", e2 < 1e-2f,
+            "another mirror plane places the same hand to %.5f - for a hand alone the plane "
+            "cancels; it matters only for what hangs from the body (the IK shoulders)", e2);
+
+        Xform bad; const float detBad = place(head, false, &bad);
+        float eb = 0.0f;
+        for (int i = 0; i < 9; i++) eb += fabsf(bad.r.m[i] - want.m[i]);
+        rec(&r, "swap_mirror_needs_x", detBad > 0.0f && eb > 0.1f,
+            "without the controller's own x flip the composed correction has det %+.3f (NOT "
+            "mirrored) and the palm frame misses by %.3f, which the case above rejects", detBad, eb);
+
+        // The palette reflection commutes with skinning, and applied twice it is nothing.
+        float P[24] = { 0.812f, -0.414f, 0.410f, 12.5f,  0.188f, 0.842f, 0.506f, -3.25f,
+                       -0.555f, -0.346f, 0.757f, 40.0f,
+                        0.970f,  0.0f,  -0.243f, -6.0f,  0.0f,  1.0f,   0.0f,   2.0f,
+                        0.243f,  0.0f,   0.970f, 18.0f };
+        float P1[24]; memcpy(P1, P, sizeof(P));
+        const Plane pl = plane_to_local(R_L, tL, head);
+        reflect_palette_left(pl, P1, 6);
+        const float v[3] = { 3.5f, -1.25f, 8.0f }, w0 = 0.35f;
+        auto skin = [&](const float* M, float* o) {
+            for (int i = 0; i < 3; i++) {
+                const float a = M[i*4+0]*v[0] + M[i*4+1]*v[1] + M[i*4+2]*v[2] + M[i*4+3];
+                const float b = M[12+i*4+0]*v[0] + M[12+i*4+1]*v[1] + M[12+i*4+2]*v[2] + M[12+i*4+3];
+                o[i] = w0*a + (1.0f - w0)*b;
+            }
+        };
+        float s0[3], s1[3], sr[3];
+        skin(P, s0); skin(P1, s1);
+        apply_point(reflection_xform(pl), s0, sr);
+        float es = 0.0f; for (int i = 0; i < 3; i++) es += fabsf(s1[i] - sr[i]);
+        reflect_palette_left(pl, P1, 6);
+        float et = 0.0f; for (int i = 0; i < 24; i++) et += fabsf(P1[i] - P[i]);
+        rec(&r, "swap_mirror_palette", es < 1e-3f && et < 1e-3f,
+            "reflecting the skinned palette equals reflecting the skinned vertex to %.6f, and "
+            "reflecting twice restores it to %.6f", es, et);
+    }
+
     // ---- 12. the reported error metric -------------------------------------
     {
         const float a = rotation_angle_deg(rot_axis_deg(1, 90.0f));

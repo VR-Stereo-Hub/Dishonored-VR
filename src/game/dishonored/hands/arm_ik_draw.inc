@@ -123,6 +123,11 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
         return IkRefuse(ctx.why?ctx.why:"Head tracking is unavailable.");
     ++g_mpDrawsSampled;
     MpDrawCompare(&ctx);
+    // THE HAND SWAP: the elbow history belongs to one world; a live toggle starts it over rather than
+    // feed the solver last frame's pole from the other side of the mirror.
+    const bool swapHands=HsOn();
+    static bool s_swapWas=false;
+    if(swapHands!=s_swapWas){s_swapWas=swapHands;IkResetPose();}
     auto& temporal=IkFrame(ctx);
     Settings settings;
     settings.forwardCm=g_ikForward.load();settings.rightCm=g_ikRight.load();settings.upCm=g_ikUp.load();settings.widthCm=g_ikWidth.load();
@@ -140,10 +145,18 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
     if(g_mpEyeOffset&&g_mpEyeState)body.origin=body.origin+rotate(dvr::hf::transpose3(ctx.R_L),vec(ctx.r))*(-g_mpEyeState*.5f*g_ipdM*k);
     float finalPalette[4*256];memcpy(finalPalette,g_mpCache,g_mpCacheN*4*sizeof(float));
     ArmPose solved[2];
+    // THE HAND SWAP (HAND_SWAP.md): both arms are solved in the world mirrored about the BODY's own
+    // vertical plane through the shoulder pair's centre (the head, moved by ArmShoulderRightCm) - the
+    // shoulders sit symmetrically about it, so the mirror image of the right arm hangs from the left
+    // shoulder - and the finished palette is reflected back below.
+    float bodyRightCam[3];put(rotate(ctx.R_L,body.right),bodyRightCam);
+    const float pairShift=settings.rightCm*k*.01f;   // shoulder()'s own lateral term
+    dvr::hf::Plane swapPlane{};
     for(int h=0;h<2;++h){
         const int cls=h?MS_CLS_HAND_B:MS_CLS_HAND_A;
         Xform correction{};float anchor[3];const char* why=nullptr;
-        if(!MpAnchorPos(cls,g_mpCache,g_mpCacheN,anchor)||!MpWorldTarget(&ctx,h,cls,anchor,&correction,&why))
+        if(!MpAnchorPos(cls,g_mpCache,g_mpCacheN,anchor)||
+           !MpWorldTarget(&ctx,h,cls,anchor,&correction,&why,swapHands?bodyRightCam:nullptr,&swapPlane,pairShift))
             return IkRefuse(why?why:"Current animated wrist target is unavailable.");
         InterlockedIncrement(&g_mpWorldOk);
         float handPalette[4*256];MpBuild(handPalette,g_mpCache,g_mpCacheN,&correction);
@@ -215,6 +228,8 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
         }
         g_ikGameShare[h]=gameShare;
     }
+    // Back out of the mirrored world: one reflection for the whole draw (both arms used one plane).
+    if(swapHands){HsReflectPalette(&ctx,swapPlane,finalPalette,g_mpCacheN);InterlockedIncrement(&g_hsIk);}
     // The derived numbers, while the game has an arm: where the game's shoulder is against the IK
     // shoulder (in body axes, so "too far forward" is arithmetic) and what the re-seat did with it.
     if(g_ikGameShare[0]>.5f||g_ikGameShare[1]>.5f)DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,500,
@@ -248,6 +263,7 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
         D3DVIEWPORT9 full=saved.vp;full.MinZ=0;full.MaxZ=1;
         saved.viewport=SUCCEEDED(dev->SetViewport(&full));
     }
+    HsCull swapCull;if(swapHands)swapCull.flip(dev);   // the reflection reversed the winding
     dvr::depthprobe::fgmask_mark_piece();
     if(FAILED(dvr::frame::orig_draw_indexed(dev,type,0,0,g_msVerts,0,g_msTris)))return IkRefuse("Full-arm draw failed.");
     for(int h=0;h<2;++h)if(!temporal.written[h]){

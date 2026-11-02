@@ -17,6 +17,18 @@ static void AfwFgGainSet(float g, const char* who)
             2.0f * atanf(tanf(ProjectionFovGet() * 0.5f * 0.0174533f) / g) * 57.29578f, ProjectionFovGet());
 }
 
+// 2026-10-21: [Cine] KeyholeFovRestore (fov_lever_policy.h PeekExit). F10 Comfort > Cutscenes and special cameras,
+// `keyholefov on|off`. Off = the behaviour before, where a ratio-1 lever kept a keyhole's narrowing after the exit.
+static std::atomic<bool> g_keyholeFovRestore{true};
+static bool KeyholeFovRestoreGet() { return g_keyholeFovRestore.load(); }
+static void KeyholeFovRestoreSet(bool on, const char* who)
+{
+    g_keyholeFovRestore.store(on);
+    Log("fovlever: keyhole exit restore %s (%s) - %s", on ? "ON" : "off", who ? who : "?",
+        on ? "after a peek the target FOV is written until the game's own FOV is back (3 s at most); the peek keeps its zoom"
+           : "a keyhole's narrowing can stay after the exit while the lever's ratio is 1");
+}
+
 static inline void LevWrite(uint8_t* p, float t)
 {
     if (!PeReadable(p, 4)) return;   // route 2: region-cached (game thread, live engine objects)
@@ -28,12 +40,13 @@ static inline void LevWrite(uint8_t* p, float t)
 static inline void FovLeverApply()
 {
     static dvr::fov_lever::CinematicRecovery recovery;
+    static dvr::fov_lever::PeekExit peekExit;   // 2026-10-21: the keyhole's exit (fov_lever_policy.h)
     static unsigned recoveryEpoch = 0;
     // The base this session trusted and our last write survive a re-arm (the owners
     // and g_fovNatural reset on loads): a recapture is judged against them.
     static float keptNatural = 0.0f, lastWrite = 0.0f;
     const unsigned epoch = UiSurfaceEpoch();
-    if (recoveryEpoch != epoch) { recovery = {}; recoveryEpoch = epoch; }
+    if (recoveryEpoch != epoch) { recovery = {}; peekExit = {}; recoveryEpoch = epoch; }
     if (UiSurfaceOwnsPresentation()) { recovery = {}; dvr::camera::set_eye_ceiling(0.0f,false); return; }   // VR-117: the lever follows the projection claim while a screen rides
     float deg = dvr::camera::fov_deg();   // 41.0: the seam's target (= [Screen] FovLever unless a method moved it)
     if (!(deg >= 40.0f && deg <= 160.0f)) {
@@ -101,6 +114,35 @@ static inline void FovLeverApply()
         const float cinematicTarget = recovery.update(cinematicEligible,
             dvr::scene_state::cinematic(state.state[0]), walking, sensor, deg, GetTickCount64());
         if (cinematicTarget > 0) t = cinematicTarget;
+        // 2026-10-21 (headset): leaving a keyhole, the view stayed magnified for the rest of the run (sensor 86.95 against
+        // a 103 target, natural 105 so the ratio is 1) and the game kept the arms' lens on, so the hands were refused.
+        // The peek primes PeekExit; from the exit the target is written until the game's own FOV is back.
+        {
+            const bool peeking = state.valid && !strcmp(state.state[0], "StatePlayerMasterHolePeeking");
+            const bool peekEligible = KeyholeFovRestoreGet() && state.valid && !UiSurfaceBlocks() && !g_menuOpen && !g_inMenu &&
+                !g_mainMenu && !g_gameExiting && dvr::vr::session_live();
+            const bool wasPrimed = peekExit.primed;
+            const unsigned long long nowTick = GetTickCount64();
+            const float peekTarget = peekExit.update(peekEligible, peeking, walking, sensor, deg, nowTick);
+            static unsigned long long tailFrom = 0; static float tailSensor0 = 0.0f;
+            if (peekTarget > 0 && cinematicTarget <= 0) {
+                if (!tailFrom) { tailFrom = nowTick; tailSensor0 = sensor;
+                    Log("fovlever: keyhole exit - the game's FOV reads %.2f against the %.2f target (natural %.2f); the target is "
+                        "written until it is back (3 s at most) [Cine] KeyholeFovRestore", sensor, deg, g_fovNatural); }
+                t = peekTarget;
+            } else if (tailFrom) {
+                const bool back = fabsf(sensor - deg) <= dvr::fov_lever::kPeekBackDeg;
+                if (back) Log("fovlever: keyhole exit - the FOV is back: %.2f after %llu ms (from %.2f)", sensor, nowTick - tailFrom, tailSensor0);
+                else DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 2000,
+                    "fovlever: keyhole exit - the FOV did NOT come back: %.2f after %llu ms (from %.2f, target %.2f; %s) - the "
+                    "lever's ratio-1 latch holds it; a pause and resume or a load re-arms", sensor, nowTick - tailFrom, tailSensor0, deg,
+                    !peekEligible ? "the tail was interrupted (menu, session or toggle)" : !walking ? "the exit did not go back to walking" : "3 s ran out");
+                tailFrom = 0;
+            } else if (wasPrimed && !peeking && !peekExit.primed && fabsf(sensor - deg) <= dvr::fov_lever::kPeekBackDeg) {
+                // primed and released with nothing to restore (the FOV never moved): said once per peek, at most every 10 s
+                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 10000, "fovlever: keyhole exit - the FOV is already at the target (%.2f)", sensor);
+            }
+        }
         // A dispatch inside an active cinematic draw must preserve that draw's FOV.
         const float scoped=CineFovScopeTarget();
         if (scoped>0) t=scoped;

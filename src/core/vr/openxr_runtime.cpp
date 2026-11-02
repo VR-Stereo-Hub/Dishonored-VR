@@ -5657,6 +5657,10 @@ void on_present_end(ID3D11Texture2D* frame) {
         }
 
         uint32_t submitted = 0;
+        // (Dishonored, 2026-10-31) the level window: a VIEW-space quad that asks has the head's
+        // roll taken out about the gaze (hud_anchor.h window_level_roll). One angle per present,
+        // from the same predicted head the world window parks from.
+        float levelRoll = 0.0f; bool levelRollKnown = false; uint32_t levelAsked = 0, leveled = 0;
         for (int i = 0; i < nDesc; ++i) {
             const HudQuadDesc& d = descs[i];
             if (!d.tex) continue;
@@ -5698,7 +5702,9 @@ void on_present_end(ID3D11Texture2D* frame) {
             } else if (d.anchor == HudAnchor::Hand || d.anchor == HudAnchor::LocalBillboard) {
                 anchorName = "hand";
                 float gp[3], gq[4];
-                if (!input_get_hand_pose(d.hand ? 1 : 0, /*aimPose=*/false, gp, gq)) {
+                // Dishonored: d.hand is a CONTROLLER (the anchor sits on a physical wrist), so the
+                // hand swap ([Hands] SwapHands) does not move it.
+                if (!input_get_physical_hand_pose(d.hand ? 1 : 0, /*aimPose=*/false, gp, gq)) {
                     g_hudStatUntracked.fetch_add(1, std::memory_order_relaxed);
                     continue;   // untracked hand: no quad rather than a stale one
                 }
@@ -5730,6 +5736,25 @@ void on_present_end(ID3D11Texture2D* frame) {
                 space = g_space;
                 pose.orientation = {oq[0], oq[1], oq[2], oq[3]};
                 pose.position = {pos[0], pos[1], pos[2]};
+            } else if (d.level) {
+                ++levelAsked;
+                if (!levelRollKnown) {
+                    levelRollKnown = true;
+                    HeadPose h;
+                    if (peek_head_pose(h)) {
+                        const float hq[4] = {h.qx, h.qy, h.qz, h.qw};
+                        levelRoll = dvr::hudanchor::window_level_roll(hq);
+                    }
+                }
+                if (levelRoll != 0.0f) {
+                    float b[3] = {pose.position.x, pose.position.y, pose.position.z};
+                    dvr::hudanchor::view_roll(levelRoll, b);
+                    dvr::hudanchor::view_roll(levelRoll, right);
+                    dvr::hudanchor::view_roll(levelRoll, up);
+                    pose.position = {b[0], b[1], b[2]};
+                    pose.orientation = {0.0f, 0.0f, sinf(levelRoll * 0.5f), cosf(levelRoll * 0.5f)};
+                    ++leveled;
+                }
             }
             // The element's place on its anchor, in the quad's own plane.
             pose.position.x += right[0] * d.planeOff[0] + up[0] * d.planeOff[1];
@@ -5781,6 +5806,20 @@ void on_present_end(ID3D11Texture2D* frame) {
                       hd.Width, hd.Height, crop.x, crop.y, crop.w, crop.h, crop.widthM, crop.heightM,
                       dist, space == g_viewSpace ? "eyes" : "origin",
                       dist > 0.01f ? 2.0f * atanf(crop.widthM * 0.5f / dist) * 180.0f / 3.14159265f : 0.0f);
+            }
+        }
+        {
+            static bool levelWas = false; static ULONGLONG levelSaidMs = 0;
+            const ULONGLONG nowMs = GetTickCount64();
+            if ((levelAsked > 0) != levelWas || (levelAsked && nowMs - levelSaidMs >= 5000)) {
+                levelWas = levelAsked > 0; levelSaidMs = nowMs;
+                if (levelAsked)
+                    XRLOG("xr: HUD window level - head roll %+.1f deg (+ = tilted clockwise, the neck/upright sign) taken "
+                          "out of %u of %u window quad(s) asking ([Hud] WindowLevel; 0 of them = the head pose was "
+                          "unavailable or the head is level)", levelRoll * 57.29578f, leveled, levelAsked);
+                else
+                    XRLOG("xr: HUD window level - no window quad asks now (no screen on the window, or [Hud] "
+                          "WindowLevel=0): the window turns with the head");
             }
         }
         if (submitted) g_hudFramesSubmitted.fetch_add(1, std::memory_order_relaxed);

@@ -109,6 +109,11 @@ struct WaCommon {
     float unitsPerMeter;
     void* target; D3DVIEWPORT9 viewport;
     dvr::hf::Xform D;          // camera-relative world space
+    // THE HAND SWAP (HAND_SWAP.md): D is then the MIRRORED-world correction and W the reflection
+    // that takes it back, also camera-relative. A pass is drawn with W * D; the bolt axis is
+    // measured against D and `palm`, which are in the same (mirrored) world.
+    dvr::hf::Xform W;
+    bool     mirror;
     dvr::hf::Xform L_hand;     // the hand draw's own transform, for the bridge
     uint32_t present;          // dvr::frame::count() when it was built
     uint32_t poseGen;          // the pose snapshot it used
@@ -176,6 +181,11 @@ struct WaMesh {
     dvr::hf::Xform dm;
     uint32_t dmPresent;
     bool     dmOk;
+    // THE HAND SWAP (HAND_SWAP.md): with the hands swapped, `dm` is the mirrored-world correction and
+    // the palette is drawn with dmW * dm - dmW the reflection in this contract's own local space,
+    // valid for every pass of the same component. `dm` alone is what the bolt measurement wants.
+    dvr::hf::Xform dmW;
+    bool     dmMirror;
     // WHICH PREDICTION WON when this contract was identified. A member is
     // offered twice - once in the reference draw's rebased space and once in
     // world space - and the two take different corrections. A sibling pass of

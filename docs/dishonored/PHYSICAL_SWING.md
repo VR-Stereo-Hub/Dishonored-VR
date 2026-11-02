@@ -16,6 +16,14 @@ for a readable kill-available signal is VR-156.
 - **The swing decides WHEN the attack happens. The game decides WHERE it lands**,
   exactly as it does for the trigger: the sword's hit follows the game's own view
   and its melee camera assist, not the arc the hand drew.
+- **The ranged hand chokes (2026-11-01).** A second edge core runs on the game's
+  LEFT hand (`ranged_tick` in melee.cpp) with the sword's own settings and the thrust
+  off, so the speed it needs IS `[Melee] EdgeSpeed` and follows it live. It never
+  attacks: a fire asks the choke assist (`choke_assist.cpp`), which presses and holds
+  Block only with a guard you are behind in reach, and does nothing otherwise. Its own
+  switch is `[Choke] RangedSwing`; its gates are gameplay, the power wheel, F10 and the
+  game owning the body. Log: `choke: ranged-hand swing 4.46 m/s (needs 3.00 ...)`,
+  `swing/ranged: ... not a choke: <gate>`. CONTROLLER_BINDS has the choke itself.
 
 ## 2. How a swing is recognised
 

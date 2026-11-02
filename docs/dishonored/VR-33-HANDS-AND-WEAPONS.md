@@ -541,6 +541,15 @@ native `SetHidden` instead (`[SwordTrail] Hide=1`, `swordtrail on|off`, F10 > Co
 exactly what section 4 warns against suppressing blind. What it is, how it was found
 and what was eliminated: ENGINE_NOTES, "VR-171".
 
+## 7b. Left-handed play mirrors the whole chain (2026-10-20)
+
+`[Hands] SwapHands` (HAND_SWAP.md) places each hand on the mirror image of its controller and
+reflects the finished palette back, so the correction this document builds is unchanged and the
+reflection rides on top: the hand's `D` is published to the weapons WITH the plane (`WaCommon.W`),
+a weapon pass is drawn with `dmW * dm` and the cull flipped, and the bolt axis is still measured
+from `dm` alone against the same mirrored-world palm, so the model-axis record means the same in
+both modes. Read HAND_SWAP.md before touching any of those three.
+
 ## 8. The graveyard
 
 Every one of these was built, run in a headset, and failed.
@@ -680,6 +689,32 @@ separates held passes from placed copies by numbers.
 Power animations that moved the fingers swung the whole hand around them. The palm's frame came from the palette slot most weighted on the anchor patch, and the patch sits on the finger bases, so a finger bone won the vote. The log shows slots 10 and 35 chosen while the wrist finder named hand bones 6 and 30. The anchor itself was the patch skinned with its full weights, so it moved with finger curl too. The frame now comes from the hand bone (`g_msHandBone`), and the anchor is the patch's bind centroid carried by that bone's matrix alone. So that the saved grip and the trims keep their meaning, the frame is `R_hand * X`, with `X = R_hand^T * R_vote` measured once per source generation: identical at that instant, rigid with the wrist after it. `[Hands] AnchorBone=1` (default), 0 = the old vote. **Not yet run.** Check the `ms/palette/frame:` lines: the hand bone chosen per class, and the offset kept from the old slot.
 
 **VR-183 first headset run (build 671): the powers were fixed and the reticle broke.** The finger motion no longer swung the hand, but the reticle landed far to the right. The offset X had been measured once, with the hand relaxed: -5.6 +3.0 +8.1 degrees on the left, -6.2 -22.1 -45.3 on the right. The finger-to-wrist relation changes when the hand grips an item, so a held gun was drawn several degrees off the frame the calibration and trims were tuned to, and at 8 m that is far off. Build 672: while the weapon snapshot has an item in that hand, the hand is placed exactly as before (the vote frame and the blended anchor), and X plus the anchor's offset on the wrist bone are re-measured every frame. With the hand empty (powers), the wrist frame and the rigid anchor take over from the last measurement, so the switch does not jump. `hands/anchor:` logs each switch.
+
+**2026-10-21 (headset, the left hand bent during a Blink cast): the "held" test let VR-183 back in.**
+`g_mpItemInHand` came from any weapon member in that hand's snapshot, and a stowed pistol and
+crossbow stay members at the transform the game left them (2400 and 3000 uu from the player in that
+log). After the pistol was put away (`Secondary ... -> none` at 8118015) no `hands/anchor: LEFT hand
+is empty` followed, and both Blink casts ran with the left hand on the finger-voted frame, the exact
+swing VR-183 removed. Two changes in `fx_follow.cpp`: `FxHeldOnRig` counts a member only within
+`[Hands] AttachRigRadius` (200 uu) of the body mesh, the weapon draw path's own rule; and
+`FxPowerCast` places the left hand from the wrist while the left lane plays a `Powers_*` sequence
+under `StatePlayerAction`, even with the Heart on the rig (X and the anchor offset stay frozen from
+the last held frame, so the switch does not jump). `hands/anchor:` now names the cast and counts the
+members it ignored. Host: `fx-follow-tests.cpp` (9 cases, a negative control with the log's
+positions). The powers trim (`TrimLP*`) follows the game's own power flag and is unaffected; one
+player copied the left trim into it during the run with the fault. Simulator, in the game: a
+Blink cast after drawing and firing the crossbow and the pistol kept `LEFT hand is empty` from
+the switch to the end of `Powers_Cast_Blink_Out`; the stale members did not reappear there (the
+snapshot dropped the stowed guns), so the rig-radius half rests on the host test built from the
+headset log's positions. Not yet seen in a headset.
+
+**2026-10-29: the arms' lens is divided out, not refused (`[Hands] LensUndo=1`).** The 2026-10-07
+refusal of a lens-scaled LocalToWorld (`not unit`, 0.02) made tracked cutscene hands blink in a
+conversation, where the game holds the lens on at about a 2% scale that crosses the threshold from
+draw to draw (FLICKER_REFERENCE 2026-10-29). `MpAcquireCtx` now keeps the unit columns and
+`lensScale[3]`, and `lens_undo_rows` (hand_frame.h) scales the finished palette's rows by 1/n as
+the last step, after the hand swap's reflection. Not while the view is zoomed (the mask zoom keeps
+its hide), not past 50%. Host: `hand-swap-host.ps1` 13/13, with negative controls.
 
 ## VR-184: the wrist cut stays rigid with the hand (2026-09-22)
 

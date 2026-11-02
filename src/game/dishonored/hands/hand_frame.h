@@ -587,6 +587,126 @@ static inline void mirror_palette_right(const float* P, const float* S, float* o
         for (int j = 0; j < 4; j++) out[k*4+j] = P[k*4+j];
 }
 
+// ---- THE HAND SWAP: placing a hand in the mirrored world ---------------------
+//
+// [Hands] SwapHands (docs/dishonored/HAND_SWAP.md). The action layer hands the
+// game's sword hand the LEFT controller. Drawn there as it is, it would be a
+// right hand on the left arm, so each hand is placed in a MIRRORED WORLD and the
+// finished palette is reflected back:
+//
+//   1. the controller target is reflected across a vertical plane through the
+//      head (unit normal n through point c, in the draw's camera-relative world):
+//          d' = S d                 S v = v - 2 n (n . (v - c))
+//          O' = S_r * O_C * X       S_r = I - 2 n n^T,  X = diag(-1, 1, 1)
+//      O' is a valid controller orientation again: the mirror image of a LEFT
+//      controller in a left hand is a RIGHT controller in a right hand, because
+//      OpenXR's grip +X points the same way in the world on both hands (out of
+//      the left palm, into the right one). X undoes the one axis the plane
+//      reverses; aim_ray.cpp's carry mirror flips the same local x for the same
+//      reason. det(O') = det(O_C), so the grip parity bookkeeping is untouched.
+//   2. the game's hand is placed on that target exactly as always: its own
+//      calibration and trims, full-arm IK from its own shoulder, the weapons
+//      through the hand's correction.
+//   3. the palette is reflected by S on the LEFT, rows' = S * rows, in the
+//      component's local space. Because S * S = I the palm lands exactly where
+//      the controller is; only the SHAPE is mirrored, so the right hand reads as
+//      a left hand and everything placed with it (the IK arm, the sword) is
+//      mirrored with it. det(S) = -1 reverses the triangle winding, so the draw
+//      flips its cull mode.
+//
+// Any plane works for a hand alone. Full-arm IK needs the plane through the
+// body's own centre, because the shoulders are placed symmetrically about it:
+// the mirror image of the right shoulder is then the left one.
+//
+// The DISPLAYED palm frame works out to O_C * X * G * Trim at the controller's
+// own position - the plane cancels - which is why the present-lane consumers
+// (the aim ray, the view-aligned trim steps) need only R_C * X and no plane.
+// The self-test's `swap_mirror_*` cases pin each of these claims.
+struct Plane { float n[3]; float c[3]; };    // unit normal, a point on it
+
+static inline Mat3 controller_mirror(void)   // X = diag(-1, 1, 1)
+{
+    Mat3 o = identity3(); o.m[0] = -1.0f; return o;
+}
+
+static inline bool plane_from(const float* n, const float* c, Plane* out)
+{
+    const float l = sqrtf(n[0]*n[0] + n[1]*n[1] + n[2]*n[2]);
+    if (!(l > 1e-6f) || !out) return false;           // also catches NaN
+    for (int i = 0; i < 3; i++) { out->n[i] = n[i] / l; out->c[i] = c[i]; }
+    return true;
+}
+
+// S_r = I - 2 n n^T, the plane's linear part.
+static inline Mat3 reflection3(const float* n)
+{
+    Mat3 o;
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++) o.m[i*3+j] = (i == j ? 1.0f : 0.0f) - 2.0f*n[i]*n[j];
+    return o;
+}
+
+// S as an Xform (y = r*x + t), for composing with the hand and weapon corrections.
+static inline Xform reflection_xform(const Plane& p)
+{
+    Xform o;
+    o.r = reflection3(p.n);
+    const float nc = p.n[0]*p.c[0] + p.n[1]*p.c[1] + p.n[2]*p.c[2];
+    for (int i = 0; i < 3; i++) o.t[i] = 2.0f*nc*p.n[i];
+    return o;
+}
+
+// Step 1: the target into the mirrored world. `d` is a point, `O` a controller
+// orientation, both in the plane's space; either may be null.
+static inline void mirror_target(const Plane& p, float* d, Mat3* O)
+{
+    if (d) {
+        const float s = p.n[0]*(d[0]-p.c[0]) + p.n[1]*(d[1]-p.c[1]) + p.n[2]*(d[2]-p.c[2]);
+        for (int i = 0; i < 3; i++) d[i] -= 2.0f*s*p.n[i];
+    }
+    if (O) *O = mul3(mul3(reflection3(p.n), *O), controller_mirror());
+}
+
+// The same plane in a component's local space, for LocalToWorld [R_L | t_L]
+// (R_L orthonormal, as MpAcquireCtx requires): n_l = R_L^T n, c_l = R_L^T (c - t_L).
+static inline Plane plane_to_local(const Mat3& R_L, const float* t_L, const Plane& p)
+{
+    const Mat3 Rt = transpose3(R_L);
+    Plane o;
+    float d[3] = { p.c[0]-t_L[0], p.c[1]-t_L[1], p.c[2]-t_L[2] };
+    mulv3(Rt, p.n, o.n);
+    mulv3(Rt, d, o.c);
+    return o;
+}
+
+// Step 3: rows' = S * rows for a palette of 3x4 bone rows (count registers,
+// three per bone), in place. The left-hand counterpart of mirror_palette_right:
+// S acts on the SKINNED result, so it commutes with the weighted blend exactly
+// like any common correction. A trailing partial bone is left alone.
+static inline void reflect_palette_left(const Plane& local, float* P, unsigned count)
+{
+    float S[12];
+    reflection_3x4(local.n, local.c, S);
+    for (unsigned b = 0; b + 3 <= count; b += 3) {
+        float out[12];
+        mul_3x4(S, P + b*4, out);
+        for (int i = 0; i < 12; i++) P[b*4 + i] = out[i];
+    }
+}
+
+// 2026-10-29: the arms' lens undo. The shader draws LocalToWorld * P, and the game's lens makes LocalToWorld
+// R * diag(n) (an orthogonal R with per-axis column lengths n). The placement works on R; scaling row i of every
+// 3x4 bone matrix by 1/n_i puts diag(1/n) in front of the finished palette, so the drawn result is R * P. It must
+// be the LAST step: it does not commute with the hand swap's reflection (reflect_palette_left).
+static inline void lens_undo_rows(const float n[3], float* P, unsigned count)
+{
+    const float k[3] = { 1.0f / n[0], 1.0f / n[1], 1.0f / n[2] };
+    if (k[0] == 1.0f && k[1] == 1.0f && k[2] == 1.0f) return;
+    for (unsigned b = 0; b + 3 <= count; b += 3)
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 4; j++) P[(b + i) * 4 + j] *= k[i];
+}
+
 // Apply an Xform to a point. Used by the self-test's pivot check and by the
 // residual instrument.
 static inline void apply_point(const Xform& D, const float* p, float* out)

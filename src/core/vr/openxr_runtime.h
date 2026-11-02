@@ -722,6 +722,7 @@ struct HudQuadDesc {
     float tiltDeg = 0.0f;
     float orientation[4] = {0,0,0,1}; // OpeningPlane: LOCAL-space opening orientation
     float subrect[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+    bool  level = false;               // Window: take the head's roll out (hud_anchor.h window_level_roll)
 };
 using HudQuadProviderFn = int (*)(ID3D11DeviceContext* ctx, HudQuadDesc* out, int max);
 void set_hud_quad_provider(HudQuadProviderFn fn);   // null = the single-quad path above

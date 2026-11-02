@@ -321,6 +321,8 @@ static bool CineHeadOwnsInput();
 static bool SpecialHeadEnabled();
 static void SpecialHeadSet(bool on);
 static float KeyholeForwardCm();
+static bool  KeyholeFovRestoreGet();                              // 2026-10-21: [Cine] KeyholeFovRestore (fov_lever.cpp)
+static void  KeyholeFovRestoreSet(bool on, const char* who);
 static void KeyholeForwardSet(float cm);
 static bool SpecialHeadResumeYaw(int32_t& delta);
 static void CineHeadNoteDispatch();
@@ -485,7 +487,8 @@ static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
                        UINT startVertex, UINT primCount, HRESULT* hr);
 static void WaBeat(void);
 static void WaPublishCommon(int hand, const MpDrawCtx* c,
-                            const dvr::hf::Xform& D);
+                            const dvr::hf::Xform& D,
+                            const dvr::hf::Plane* mirror);   // the hand swap's plane, or null
 static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex,
                    UINT primCount, HRESULT* hr);
@@ -724,6 +727,11 @@ static bool GrabReadyOpenEnabled();
 static bool GrabReadyHideEnabled();
 static void GrabReadySet(bool open, bool hide, const char* who);
 static void GrabAnimSetTimes(const float* t5);
+// The hand swap, [Hands] SwapHands (hands/mesh_split.cpp, THE HAND SWAP; HAND_SWAP.md).
+static bool HsOn();
+static void HsSet(bool on, const char* who);
+static void HsConfigure(const char* ini);
+static bool HsCommand(const char* args);
 static void PickupSet(bool on, const char* who);
 static void PickupSetReachCm(float cm);
 static float PickupReachCm();
@@ -737,8 +745,25 @@ static bool PickupCarryEnabled();
 static void PickupSetCarry(bool on, const char* who);
 static bool PickupUsablesEnabled();
 static void PickupSetUsables(bool on, const char* who);
+static bool  PickupPointEnabled();                               // 2026-10-21: [Aim] PointGrab (physical_pickup.cpp)
+static void  PickupSetPoint(bool on, const char* who);
+static float PickupPointRangeCm();
+static void  PickupSetPointRangeCm(float cm);
+static int   PickupPointDots();                                  // [Aim] PointGrabReticles: 1 both, 2 weapon, 3 hand
+static void  PickupSetPointDots(int dots, const char* who);
 static void PickupConfigure(const char* ini);
 static bool PickupCommand(const char* args);
+// 2026-11-01: the choke assist (choke_assist.cpp).
+static void ChokeAssistTick();
+static bool ChokeRay(float* origin, float* dir);
+static bool ChokeCandidateNow();
+static double ChokeHoldMs();
+static bool ChokeAssistRangedOn();
+static void ChokeAssistSwing(float speed, float threshold);
+static bool ChokeAssistRb(bool grip);
+static void ChokeAssistConfigure(const char* ini);
+static bool ChokeAssistCommand(const char* args);
+static void ChokeAssistDrawUi();
 // VR-166: grenades and other throws aimed by hand (throw_aim.cpp).
 static bool ThrowAimEnabled();
 static void ThrowAimSet(bool on, const char* who);
@@ -773,6 +798,7 @@ static void CarryHoldSetWorldDepth(bool on);
 static bool CarryHoldRotateEnabled();
 static void CarryHoldSetRotate(bool on);
 static bool CarryThrowTriggersSwapped();                        // VR-181: the pad bridge
+static bool CarryInRightHandNow();                              // 2026-10-29: the right hand's own trigger throws its carry
 static bool CarryThrowLeftEnabled();
 static void CarryThrowLeftSet(bool on, const char* who);
 static bool CarryInGrabHandEnabled();
@@ -797,6 +823,13 @@ static void HealthElixirTick(bool held);
 static bool ZoomTapGet();                                      // 2026-10-07: [Controllers] ZoomTap (pad_bridge.cpp)
 static void ZoomTapSet(bool on, const char* who);
 static bool ZoomGestureGet();                                  // 2026-10-07: [Controllers] ZoomGesture (pad_bridge.cpp)
+static bool  WheelHoldGet();                                   // 2026-10-21: [Controllers] WheelHoldToOpen / WheelHoldMs (pad_bridge.cpp)
+static float WheelHoldMsGet();
+static void  WheelHoldSet(bool on, float ms, const char* who);
+static bool  MenuDefaultButtonsGet();                          // 2026-10-29: [Controllers] MenuDefaultButtons (pad_bridge.cpp)
+static void  MenuDefaultButtonsSet(bool on, const char* who);
+static int   SwapGestureGet();                                 // 2026-10-21: [Controllers] SwapHandsGesture (pad_bridge.cpp)
+static void  SwapGestureSet(int g, const char* who);
 static void ZoomGestureSet(bool on, const char* who);
 static void ZoomGestureRadiusSet(float cm, const char* who);
 static void ZoomGestureRightSet(float cm, const char* who);

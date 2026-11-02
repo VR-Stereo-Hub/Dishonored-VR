@@ -258,6 +258,34 @@ eligibility flag, or the hand shows a fist with no sword, or an open hand throug
   `[usable]` lines; `pawn or talk targets refused 0` after standing next to NPCs; a
   `pickup: carry gate` line when a bottle and when a body is picked up; a usable's hold line.
 
+## 10c. Pointing grab: both hands, every interaction (2026-10-21)
+
+- Each hand's pointing ray, solved by `HandRayWorldFor` (`interact_aim.cpp`) from
+  `dvr::aim::fire_frame_hand`; the second hand's frame is published by `aim_ray.cpp` only while
+  `request_point_ray(true)` is set, and its dot is appended to the aim visual.
+- `PpNearest` keeps a per-hand pointed winner beside the reach winner: the first box (grown by
+  3 cm plus 2.5 deg of the distance) or 10 cm ball along each ray within `PointGrabRangeCm`. A
+  reach winner is returned first. The near list still feeds both, so a pointed thing must be within
+  2.5 m of the camera (4 m for box kinds) before the range matters.
+- `PpGate` takes the main hand's grip on any non-pawn engine focus while no target is held, which
+  is what extends the grip to interactions the list does not carry. `PpFocusTakeable` caches the
+  pawn verdict for 500 ms.
+- The ready hand (open hand, item hidden) is published only for a target in reach.
+- Simulator, the player's save (2026-10-21): pointing the right hand at a `DisStatPickup` 1.7 m
+  from its palm printed `POINTED AT by that hand's dot`, the right grip printed `grip swallowed,
+  Interact pressed` and the item was taken. Own cost with both rays: 13.1 to 13.7 us a frame on
+  average, max 83 us, over-250 and over-1000 counts 0 of about 1780 frames, faults 0. Not run: the
+  main hand's any-focus rule (no unlisted focus was reached), a door or usable by pointing, and the
+  headset.
+- Headset, the same day: the sword hand's dot pointed nearly straight down. The second ray had been
+  the other controller's AIM pose turned by the other-items offset (-48 deg), an angle tuned against
+  the measured model axis, not the AIM pose. It is now the weapon hand's dot as drawn, mirrored onto
+  the other grip (`xrmath::mirror_dir_between`; host-checked in `hand-swap-tests.cpp`). And
+  `[Aim] PointGrabReticles` (both, weapon, hand) shows one dot or both; `dvr::aim::point_allowed`
+  keeps a hand without a dot from pointing and the main-hand any-focus rule off while its dot is
+  hidden. Simulator: the three settings gave 1, 1 and 2 dot quads, the beat `rays L none R ok` for
+  `hand`. Not yet seen in a headset.
+
 ## 11. Tools to use before deriving anything
 
 - `tools/uscript/dishonored/` (local): the class hierarchy and property names above came from

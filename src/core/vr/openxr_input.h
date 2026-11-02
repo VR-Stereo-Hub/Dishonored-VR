@@ -71,6 +71,16 @@ bool input_locate_grip(int hand, XrTime when, float pos3[3], float quat4[4]);
 // VR-224 (Index tuning): extra pitch (degrees, + = up) applied to a hand's AIM pose.
 void input_set_aim_pitch_extra(int hand, float deg);
 
+// Dishonored: the hand swap (docs/dishonored/HAND_SWAP.md, [Hands] SwapHands). Every `hand` above
+// is the GAME's hand (0 = gadget/pistol/powers, 1 = sword); with the swap on, 0 reads the right
+// controller and 1 the left - the poses, input_locate_grip, the haptics, and the triggers and
+// grips in the snapshot. Sticks, face buttons, stick clicks and thumbrests never move.
+void input_set_hand_swap(bool on);
+bool input_hand_swap();
+int  input_physical_hand(int hand);   // the controller (0 left, 1 right) that game hand reads
+// The controller itself, ignoring the swap: for things placed on a physical wrist (HUD anchors).
+bool input_get_physical_hand_pose(int hand, bool aimPose, float* pos3, float* quat4);
+
 // VR-57 present-thread sample: both poses come from the same input_sync.
 // The generation/stamp name that sync, never the caller's current present.
 struct HandAimSample {

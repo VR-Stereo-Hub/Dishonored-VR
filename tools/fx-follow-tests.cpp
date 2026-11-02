@@ -88,11 +88,14 @@ static bool CylTruthLive(){return pawnLive;}
 static bool CarryGameAnchor(float*){return false;}
 constexpr int WA_MAX_COMP=8;
 struct WaComp {uint8_t* obj=nullptr;Identity id;dvr::hf::Mat3 R{};float t[3]{},scale[3]{};bool ok=false,isRef=false,isMember=false;int hand=-1;};
-struct WaCommon {Xform D{},L_hand{};uint32_t present=0;WaComp components[WA_MAX_COMP]{};int componentCount=0;bool ok=false;};
+struct WaCommon {Xform D{},W{},L_hand{};bool mirror=false;uint32_t present=0;WaComp components[WA_MAX_COMP]{};int componentCount=0;bool ok=false;};
+static volatile LONG g_hsFx=0;   // the hand swap's effect counter (hands/mesh_split.cpp)
 static WaCommon g_waCommon[2];
 static WaComp g_waComp[WA_MAX_COMP];
 static int g_waCompN=0;
 static SRWLOCK g_waCompLock=SRWLOCK_INIT,g_waCommonLock=SRWLOCK_INIT;
+static float g_waRigRadiusUU=200.0f;   // [Hands] AttachRigRadius (the anchor's held-on-rig test)
+namespace dvr::anim { struct Snapshot { char state[3][96]{}; char sequence[96]{}; bool valid=false; }; static Snapshot snapshot(){ return {}; } }
 static void FakePE(void*,void*,void*,void*);
 using PFN_ProcessEventCall=void(*)(void*,void*,void*,void*);
 #define kProcessEvent ((uintptr_t)&FakePE)
@@ -217,6 +220,30 @@ int main(){
     }
     printf("locomotion: %d poses, corrected worst %.6f uu; old world-frame control %.3f uu\n",samples,worst,oldWorst);
     check("negative control reproduces displaced effect",oldWorst>10);
+    // THE HAND SWAP (HAND_SWAP.md): a mirrored hand publishes D plus a reflection W. The effect must
+    // land exactly where the reflection puts it, and - since a rotator holds only proper frames -
+    // keep the mirrored X and Z with its Y turned back.
+    {
+        fixtureNative[arm.bytes]=previous;fixtureNative[heart.bytes]=xform_mul(previous,member);
+        const float n[3]={.6f,0,.8f},c[3]={2,1,3};
+        dvr::hf::Plane pl{};dvr::hf::plane_from(n,c,&pl);
+        for(auto& v:g_waCommon){v.W=dvr::hf::reflection_xform(pl);v.mirror=true;}
+        Xform mw[2];const LONG fxBefore=g_hsFx;
+        check("mirrored correction available",correction(0,g_waComp[1],&mw[0],&why));
+        check("mirrored correction is a reflection",dvr::hf::det3(mw[0].r)<0);
+        const Xform native=xform_mul(xform_mul(fixtureNative[heart.bytes],bones[{heart.bytes,100}]),relpose(heartOriginal.t,heartOriginal.r));
+        FxFollowMesh(g_waComp[1],mw,have,nowMs);
+        const Xform got=effect(heart,heartAtt[0]);
+        const Xform want=xform_mul(mw[0],native);              // the exact (improper) mirror image
+        Xform wantProper=want;for(int r=0;r<3;++r)wantProper.r.m[r*3+1]=-wantProper.r.m[r*3+1];
+        check("mirrored effect lands on the mirrored hand",samePosition(got,want));
+        check("mirrored effect keeps X and Z, Y turned back",sameRotation(got,wantProper)&&dvr::hf::det3(got.r)>0);
+        check("mirrored effect counted",g_hsFx>fxBefore);
+        for(auto& v:g_waCommon)v.mirror=false;
+        Xform unm[2];
+        check("unmirrored publication ignores W",correction(0,g_waComp[1],&unm[0],&why)&&dvr::hf::det3(unm[0].r)>0);
+        printf("hand swap: mirrored effect %.6f uu from the reflection's target\n",distance(got,want));
+    }
     have[0]=have[1]=false;FxFollowMesh(g_waComp[0],W,have,nowMs);FxFollowMesh(g_waComp[1],W,have,nowMs);
     check("no correction restores native Heart",!memcmp(&heartAtt[0],&heartOriginal,sizeof(Attachment)));
     check("no correction restores Possession and light",!memcmp(&armAtt[0],&possOriginal,sizeof(Attachment))&&!memcmp(&armAtt[1],&lightOriginal,sizeof(Attachment)));
@@ -264,5 +291,33 @@ int main(){
     unsigned first=boneCalls;FxFollowTick();check("same-frame repeat does not double-drive",boneCalls==first);
     Xform bad=draw;bad.r={};check("singular draw refused",!dvr::fx::world_correction(local[0],bad,previous,&W[0]));
     bad=previous;bad.t[0]=NAN;check("nonfinite native frame refused",!dvr::fx::world_correction(local[0],draw,bad,&W[0]));
+    {   // 2026-10-21: the anchor's held test (the hand bent during a Blink cast). Positions from that headset log:
+        // the body mesh, the sword on the rig, a stowed pistol and crossbow left 2400-3000 uu away.
+        auto at=[](WaComp& k,float x,float y,float z){k.ok=true;k.t[0]=x;k.t[1]=y;k.t[2]=z;};
+        WaComp c[4]{};
+        at(c[0],76.8f,-6924.4f,2188.4f);c[0].isRef=true;
+        at(c[1],21.8f,-6936.5f,2281.6f);c[1].isMember=true;c[1].hand=1;
+        at(c[2],2530.9f,-6612.6f,2103.9f);c[2].isMember=true;c[2].hand=0;
+        at(c[3],3082.8f,-7369.5f,2119.5f);c[3].isMember=true;c[3].hand=0;
+        bool held[2]={};int off[2]={};bool ref=false;
+        FxHeldOnRig(c,4,200.0f,held,off,&ref);
+        check("stowed guns off the rig do not hold the left hand",ref&&!held[0]&&off[0]==2&&held[1]&&off[1]==0);
+        bool oldHeld=false;for(auto& k:c)if(k.ok&&k.isMember&&k.hand==0)oldHeld=true;
+        check("negative control: counting every member (the old test) holds the left hand",oldHeld);
+        at(c[2],60.0f,-6900.0f,2250.0f);   // the Heart, on the rig
+        held[0]=held[1]=false;off[0]=off[1]=0;FxHeldOnRig(c,4,200.0f,held,off,&ref);
+        check("an item on the rig still holds the hand",held[0]&&off[0]==1);
+        c[0].isRef=false;held[0]=held[1]=false;off[0]=off[1]=0;at(c[2],2530.9f,-6612.6f,2103.9f);
+        FxHeldOnRig(c,4,200.0f,held,off,&ref);
+        check("no body mesh: every member counts, as before",!ref&&held[0]&&off[0]==0);
+        c[0].isRef=true;c[2].t[0]=NAN;held[0]=held[1]=false;off[0]=off[1]=0;FxHeldOnRig(c,4,200.0f,held,off,&ref);
+        check("a member with a non-finite position is not on the rig",!held[0]&&off[0]==2);
+        check("a Blink cast is a power animation",FxPowerCast(true,"StatePlayerAction","Powers_Cast_Blink_In#0")&&
+              FxPowerCast(true,"StatePlayerAction","Powers_Cast_Blink_Loop#0")&&FxPowerCast(true,"StatePlayerAction","Generic_Powers_Cast_Blink_Travel#0"));
+        check("the lane left StatePlayerAction: the cast is over though the name lags",!FxPowerCast(true,"StatePlayerUpperNav","Powers_Cast_Blink_Out#0"));
+        check("a gun shot is not a power animation",!FxPowerCast(true,"StatePlayerAction","Guns_Fire#0"));
+        check("an invalid snapshot or a missing name is not a cast",!FxPowerCast(false,"StatePlayerAction","Powers_Cast_Blink_In#0")&&
+              !FxPowerCast(true,nullptr,"Powers_Cast_Blink_In#0")&&!FxPowerCast(true,"StatePlayerAction",nullptr));
+    }
     printf("fx-follow: %d checks, %d failed\n",checks,failed);return failed?1:0;
 }

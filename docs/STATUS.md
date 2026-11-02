@@ -1,3 +1,238 @@
+## 2026-11-01: the grip choke; a choke from a ranged-hand swing (built, simulator-checked, installed)
+
+**Current state.** Two requests: the Choke grip no longer chokes, and a swing of the ranged hand at
+the stealth takedown's speed should choke too.
+- **Why the grip did not choke.** It always reached the game as RB, but the game chokes only on a
+  HELD Block with its interaction focus on an unaware guard from behind (ENGINE_NOTES 2026-11-01),
+  and in VR the focus follows the hand ray. The 31 Oct headset run: 15 Choke-grip presses, the guard
+  focused at none of them, every one a block; the 21 Oct run: 58 presses, one choke, which broke free
+  because RB was let go at 94 ms. The game's own tutorial text says the takedown is a hold.
+- **The choke assist** (`choke_assist.cpp`, pure core `choke_core.h`, `[Choke]`, F10 Controls >
+  Choke). Every frame the nearest living guard in reach that you are behind is the candidate
+  (`WorldInfo.PawnList`). The Choke grip with a candidate holds RB back, steers the interaction trace
+  onto that guard and presses RB once the game focuses it; while the game chokes, RB stays down until
+  the ending (at most 8 s). No candidate: the block, at once, as before. The pickup leaves the Choke
+  grip alone while a candidate is in reach.
+- **The ranged swing.** A second copy of the sword's swing detector on the left hand, with the sword's
+  own `[Melee] EdgeSpeed` (3.0 m/s), asks the same assist; with nobody to choke it presses nothing.
+Simulator, the player's save: grip squeezed 400 ms -> focused in 5 ms -> `HONOURED after 31 ms` ->
+`WON ... after 2172 ms`; ranged swing 4.46 m/s -> focused in 12 ms -> `WON` after 2171 ms; a swing
+with nobody there `nothing pressed`; a grip with nobody there blocked at once. Host: choke 254
+checks with negative controls. Installed with the player's ini plus the `[Choke]` section (the
+whole file compared, CRLF); backup in `%LOCALAPPDATA%\DishonoredVR\backups\2026-11-01-pre-choke-assist`.
+
+**Later the same day: tap takes, hold chokes.** The first version left the Choke grip to the choke
+whenever a guard was choke-able, so a key on that guard's belt could not be taken with it. Since the
+game's choke is a hold anyway, a grip with both jobs now decides by duration: let go within
+`[Choke] HoldToChokeMs` (250) and Interact is tapped (the take), hold past it and the grip becomes the
+choke (`dvr::choke::TapHold`, host 264 checks). With only one job the grip acts at once as before.
+NOT simulator-checked: in this save the only key beside a choke-able guard is on a pair of guards
+facing each other, who killed the simulated player on every arrival (`playersonly` did not prevent
+it). Installed with `HoldToChokeMs=250` added (the whole ini compared); backup in
+`%LOCALAPPDATA%\DishonoredVR\backups\2026-11-01-pre-tap-hold`.
+
+**Next.** In the headset: sneak behind an unaware guard, squeeze the right grip briefly, then try a
+ranged-hand swing; the log's `choke:` lines name every step and the `WON`/`LOST` ending. Behind a
+guard with a key on its belt: a quick squeeze should take the key (`a tap: the take`), a held one
+choke (`held 250 ms - the choke`).
+
+## 2026-10-31 (later): the held wheel shutting at once; menus on the window tilted (built, simulator-checked, installed)
+
+**Current state.** Two reports read against the player's 31 Oct headset log (build Oct 29 15:08):
+- **The wheel closed as soon as the grip hold opened it.** Every hold-open in the run closed within
+  half a second. The log: `wheel: grip held 208 ms - the wheel opens` (LB down), the wheel's own
+  screen raises `g_inMenu` 47 ms later, the 2026-10-29 menu layout switches in and masks the grip
+  still held as "held across the switch", LB drops, `Dis_Wheel_Close`. The wheel exclusion covered
+  only the `UiSurfaceBlocks` term. Now nothing the wheel raises counts as a menu while it is held or
+  up and for 250 ms after (`pad_bridge.cpp`, one `menuUp` for the layout and the hold). Simulator,
+  the player's ini: the wheel opened at 201 ms, stayed open the whole 1.86 s hold, closed on release,
+  no layout switch; the journal still gets the shipped layout. TRAPS 2026-10-31.
+- **Menus in front of the face sat a few degrees clockwise.** The journal, notes and the wheel ride
+  the head-locked window (VIEW space), which turns with the headset's roll; the game renders head
+  roll, so the world stays level and the window does not. The run's head roll: median +3.2 deg, p90
+  +5.6 (+5.8 at the recenter), positive = clockwise. New `[Hud] WindowLevel=1` (`hud window level
+  on|off`) takes the roll out of a SCREEN on the window, about the gaze; the gameplay HUD keeps the
+  head's frame because the game draws its markers there. Host: hud-anchor 1952 checks with a negative
+  control. Simulator at 8 and 20 deg of roll: the journal's quad turned by the roll, its edges
+  parallel to the room's, against square-to-the-eye with the key off. The pause menu is world-parked
+  and was already level.
+Installed with the player's ini plus `WindowLevel=1` (the whole file compared, CRLF); backup in
+`%LOCALAPPDATA%\DishonoredVR\backups\2026-10-31-pre-wheel-level`. `release/dishonored_vr.ini` had
+lost the 4-line `KeyholeForwardCm` block against the writer and the golden; restored.
+
+**Next.** In the headset: hold the grip for the wheel and pick a power; open the journal with the
+head level and tilted (`xr: HUD window level` names the angle).
+
+## 2026-10-31: one player's HUD set to put every update pop-up on the window (ini only, no code)
+
+The player asked for every update-style pop-up (health, mana, objective updates and the like) in
+the window in front of them. Their ini had `Element.vitals=handR`, `Element.missionstats=handL` and
+`Element.detection=frame`; all three are now `window`. The rest of the update elements (objective,
+toast, tutorial, prompt, equipment, subtitles, skipgauge, darkvision) were already on the window;
+`vignette` (full-screen effects) stays in the frame and `pause`/`store` in the world. Simulator: the
+health and mana bars and the equipped elixir show whole, about 12 deg left and 11 deg up of the
+view centre. Detection arrows and mission stats were not triggered. The player then asked for the
+detection arrows back in the frame (`Element.detection=frame` again, the shipped default). Backup in
+`%LOCALAPPDATA%\DishonoredVR\backups\2026-10-31-pre-hud-window`; shipped defaults unchanged.
+
+## 2026-10-29: menus, the sword-hand throw, grab range, cutscene hand flicker (built, simulator-checked except the flicker, installed)
+
+**Current state.** Six reports read against the player's 27 Oct headset log (build Oct 21 21:14):
+- **The gun-hand grip did nothing in menus; "Show history" could not be pressed; "check all menu
+  buttons".** The wheel's grip hold (2026-10-21) also ran in menus and ate every quick LB, and the
+  player's custom layout (Lean and Attack unbound, Interact on Y) reached the menus, where nothing
+  produced pad Y. Now: the wheel hold is gameplay only; menus use the shipped layout
+  (`[Controllers] MenuDefaultButtons=1`, F10, `binds menus`) with inputs held across the switch
+  ignored. Simulator, the player's save: LB and RB switch journal tabs, Y fires
+  `OnToggleObjectivesListHistory`, LT the sub-tab, B closes, the pause menu opens and resumes; no
+  stray X on opening the journal, no crouch on closing it. TRAPS 2026-10-29.
+- **No throw from the melee hand.** `Attack=None` left the right hand's carry no throw. Its own
+  trigger now throws while it carries; simulator: thrown along the hand.
+- **Melee hand grab range shorter.** With `PointGrabReticles=weapon` only the gun hand pointed. Both
+  hands point now; a hidden dot shows while it rests on something takeable.
+- **Hands flicker in cutscenes with CinematicArms on.** Measured: the arms' lens scale crossed the
+  0.02 refusal draw to draw in a conversation. `[Hands] LensUndo=1` divides it out (host 13/13 with
+  negative controls); NOT seen in a conversation yet. FLICKER_REFERENCE 2026-10-29.
+Suites green: controller-binds, controller-emulation, hand-swap 13/13, fx-follow, fire-aim,
+weapon-dial, fov-lever, cinematic-fov. Installed with the player's ini plus `MenuDefaultButtons`
+and `LensUndo`; backups and two simulator logs in
+`%LOCALAPPDATA%\DishonoredVR\backups\2026-10-29-pre-menu-fix`.
+
+**Next.** In the headset: a conversation with CinematicArms on (`ms/palette/lens` and no blinking
+hands); the sword hand's dot appearing on things in `weapon` mode.
+
+## 2026-10-21 (evening): the hand bending in a Blink cast; the grip on bodies, people and keyholes (built, installed, not yet in a headset)
+
+**Current state.** From the player's third headset run (banner Oct 21 16:22):
+- **The left hand bent during Blink.** A stowed pistol and crossbow stayed members of the left
+  hand far from the rig, so the hand anchor kept "holds an item" and the cast's finger animation
+  swung the hand (the VR-183 fault). `fx_follow.cpp`: `FxHeldOnRig` (the rig radius) and
+  `FxPowerCast` (a `Powers_*` sequence on the left lane: the wrist frame even with the Heart).
+  VR-33 and TRAPS 2026-10-21. Host: fx-follow 748 (9 new, negative control from the log).
+- **The grip on every interactable.** Interact now follows the grip's duration on every target
+  (tap opens, a held squeeze peeks through a keyhole, measured from the run before: ENGINE_NOTES
+  2026-10-21); either grip leaves a peek; a focused body is taken on either grip and a living
+  person on the grip that is not Choke (`PpFocusClass`, `PpGripIsChoke` in `physical_pickup.cpp`).
+  CONTROLLER_BINDS "Every interactable".
+Suites green: fx-follow, hand-swap, controller-emulation, controller-binds, fire-aim, fov-lever
+(1284752, the 0.05 deg tolerance with a negative control), cinematic-fov, weapon-dial.
+- **The keyhole exit restore is headset-confirmed** (the player's run): back in 437 ms and the
+  lens cleared, but it settled at 102.58 (0.5 deg tolerance, then the latch); now 0.05
+  (`kPeekBackDeg`), which settled at 103.00 in 562 ms on the simulator.
+- **Simulator in the foreground, in the player's save** (teleported with `console BugItGo`,
+  VERIFICATION gotcha 24): a held grip peeked through a keyhole, the other grip's tap left it; the
+  Choke grip carried a dead NPC; on a living civilian the left grip was Interact and the right grip
+  stayed the game's own; a Blink cast kept the left hand on the wrist frame. New seam word
+  `pickup pawns` (the nearest NPCs and their body readings). ENGINE_NOTES 2026-10-21.
+Installed (final build, banner after 21:00); the player's ini restored byte for byte after the test
+runs (CRLF). Backups and the two simulator logs in
+`%LOCALAPPDATA%\DishonoredVR\backups\2026-10-21-pre-blink-grip-fix`.
+
+**Next.** In the headset: a Blink cast after holstering a gun (the stowed-member state did not
+reproduce on the simulator); a choked or slept guard's `pickup: the engine focuses ... (Health,
+controller)` line, which says whether an unconscious NPC counts as a body (until then the left grip
+takes them as a living person).
+
+## 2026-10-21 (later): the sword hand's dot, one reticle at a time, the keyhole exit (built, installed; keyhole not yet re-run)
+
+**Current state.** Read from the player's first headset run of the build below (log banner Oct 21
+15:28): two faults, one request.
+- **The sword hand's dot pointed nearly straight down.** It was the other controller's AIM pose
+  turned by the other-items offset (-48 deg), an angle tuned against the weapon hand's model axis.
+  It is now the weapon hand's dot as drawn, mirrored onto the other grip
+  (`xrmath::mirror_dir_between`, `aim_ray.cpp`). Host: `hand-swap-host.ps1` 11 of 11, two new checks
+  (the carried ray equals the world mirror to 3e-7 over 12 poses; the first build's ray modelled 48
+  deg off it). Simulator: the log names the new source.
+- **One reticle at a time:** `[Aim] PointGrabReticles` both (default) | weapon | hand, F10 Aim >
+  "Reticles shown", seam `pickup point reticles`. Only a hand whose dot shows points; with `hand` the
+  weapon dot is hidden and its ray still aims. Simulator: 1, 1 and 2 dot quads, beat `rays L none R ok`.
+- **After a keyhole the view stayed narrowed and the hands were gone.** Measured: the peek narrows
+  `m_fCurFOV` 103 -> 86.95; the lever's ratio is 1 on this PC (natural 105 vs target 103), so every
+  pass wrote the narrowing into the resting fields and nothing widened it after the exit; the game
+  kept the arms' lens on and the hand placement refused (TRAPS and ENGINE_NOTES 2026-10-21). Fix:
+  `[Cine] KeyholeFovRestore=1` (PeekExit in `fov_lever_policy.h`): primed by the peek, silent during it,
+  then the target until the FOV is back (3 s at most), logged either way. Host: `fov-lever-host.ps1`
+  1284749 checks with a negative control reproducing the latch. NOT run in the game: no keyhole was
+  reachable from a background simulator run (VERIFICATION gotcha 23).
+Related suites green: fire-aim, cinematic-fov, fov-lever-owners, controller-emulation,
+controller-binds, weapon-dial, fx-follow. Installed with the player's ini kept (their session's own
+changes: WheelHoldMs 200, Interact on Y, subtitles) plus the two new keys; backups in
+`%LOCALAPPDATA%\DishonoredVR\backups\2026-10-21-pre-keyhole-fix`. The game's engine ini was set to
+`bPauseOnLossOfFocus=FALSE` for the background run and put back.
+
+**Next.** In the headset: peek through a keyhole and step away; the log should say `fovlever: keyhole
+exit - the FOV is back`, and the hands should come back. If the FOV returns but the hands do not, the
+arms' lens has an exit of its own (ENGINE_NOTES prediction). The sword hand's dot should sit like the
+weapon hand's, mirrored.
+
+## 2026-10-21: pointing grab on both hands, the wheel hold, the swap gesture, wheel panels centred (built, simulator-confirmed in the game, not yet in a headset)
+
+**Current state.** Four player-facing changes on top of the hand swap below, none committed (the
+checkout is still a release zip):
+- **PointGrab** (`[Aim] PointGrab=1`, `PointGrabRangeCm=250`): both hands carry a dot; pointing
+  either hand at a listed interactable within the range makes it that hand's target, and its grip
+  becomes Interact instead of its bound action. The main hand also takes any non-pawn engine focus
+  on its dot. Code: `aim_ray.cpp` (`fire_frame_hand`, `request_point_ray`, the second dot),
+  `interact_aim.cpp` (`HandRayWorldFor`), `physical_pickup.cpp` (per-hand pointed candidates in
+  `PpNearest`, the main-hand rule in `PpGate`, `PpFocusTakeable`). Record:
+  PLAN-physical-interaction.md 10c, CONTROLLER_BINDS.md "Pointing grab".
+- **The wheel hold** (`[Controllers] WheelHoldToOpen=1`, `WheelHoldMs=1000`, `pad_bridge.cpp`).
+- **The swap gesture** (`[Controllers] SwapHandsGesture=right`): a right stick double click toggles
+  `SwapHands`; the single tap still zooms 350 ms later (`pad_bridge.cpp`, HAND_SWAP.md section 1).
+- **Wheel side panels** default to the window either side of the centre (HUD_ANCHORS.md
+  2026-10-21).
+Every key is in the writer, `release/` and `tests/golden` ini, has an F10 control and a seam word.
+Simulator, in the player's save: a right-hand point at a `DisStatPickup` 1.7 m away was taken and
+the right grip took it (Interact pressed, the item gone); a 311 ms left squeeze left the wheel shut
+and a long one opened it at 1001 ms; a double click toggled the swap and saved it without a zoom, a
+single click zoomed; pickup cost about 13.5 us a frame with both rays, nothing over 250 us, no
+faults. Host suites rerun green after the change (controller-emulation, controller-binds,
+hand-swap, fx-follow, weapon-dial, hud-anchor/controls/route, rounded-wrist, fire-aim). The
+installed ini gained the five keys and the panel positions, with every other line as the player
+had it (CRLF checked).
+
+**Next.** A headset: the second dot reads as a pointer and not as noise, the grab feels right at
+range, a grab squeeze never opens the wheel or chokes, the wheel hold time, and the panels' size
+at the new places (`Element.wheel*.WinScale`). Not run anywhere: the main hand's any-focus rule on
+an unlisted interaction, a door or usable taken by pointing.
+
+## 2026-10-20: left-handed play, the sword in the left hand ([Hands] SwapHands; built, simulator-confirmed in the game, not yet in a headset)
+
+**Current state.** New lever `[Hands] SwapHands` (default 0; F10 Hands > "Left-handed: sword in the
+left hand"; seam `swaphands on|off`). On, the game's sword hand is held by the LEFT controller and
+its gadget, pistol and power hand by the RIGHT, both drawn mirrored with their arms and what they
+hold, and the triggers and grips follow the hands (left trigger attacks, right fires). Two seams:
+the action layer maps each game hand to the other controller (`openxr_input.cpp`: poses, the MSW
+grip locate, haptics, the snapshot's triggers and grips), and the render places each hand on the
+mirror image of its controller and reflects the palette back with the cull flipped (`hand_frame.h`
+"the hand swap", `MpWorldTarget`'s plane, `HsReflectPalette` in the per-class and full-arm IK draws).
+The weapons (`WaCommon` D + W, `dmW` for sibling passes, the bolt measured unmirrored), the hand
+effects (`fx_follow.cpp`), the aim ray and the view-aligned trim steps (`R_C * X`) follow it; the
+zoom gesture mirrors to the left eye. HUD hand anchors and the F10 pointer name a controller and do
+not move. HAND_SWAP.md is the record, with the derivation, what is deliberately not here and the
+known costs (normal-map handedness on the mirrored models, approximate effect orientation).
+Verified offline only: `tools\hand-swap-host.ps1` (frame_test with four new `swap_mirror_*` cases,
+plus 9 consumer checks each with a negative control), `tools\fx-follow-host.ps1` (739, a new
+mirrored-effect case); a sweep of every host suite passed 75 of 90, and the 15 that could not run
+include no changed file (missing submodules, Python, ReShade, a hard-coded VS path; HAND_SWAP.md
+section 6 lists them). The checkout was a release zip without git or submodules; with imgui
+v1.92.8-docking and OpenXR-SDK release-1.1.63 unpacked into `third_party`, `tools\build.ps1 -Release`
+built everything (no new warnings, exports OK). Nothing was committed. In the game on the simulator
+(a GOG install, the player's save, full-arm IK): `swaphands on` moved the sword to a mirrored LEFT
+hand on the left controller and the Heart to a mirrored right hand in both eyes, the left IK arm
+followed the left controller from the left shoulder, the left trigger played the sword slash,
+`swaphands off` restored the baseline, and the counters climbed (HAND_SWAP.md section 6 has the
+table). The game first sat on one thread until the VC++ 2008 x86 and DirectX June 2010 runtimes
+were installed, and the installer's ini runtime path beat `XR_RUNTIME_JSON` (VERIFICATION gotchas
+21 and 22). `[Hands] SwapHands=0` was added to the writer, `release/` and
+`tests/golden` ini; the release ini already lacked the writer's `KeyholeForwardCm` block before this
+(default-profile-host fails on that, not on this key).
+
+**Next.** A headset: hands read as your
+own, the sword swings with the left controller, the crossbow laser sits on the mirrored barrel,
+Blink aims from the right, no inside-out surface on a hand or weapon, a takedown, and the live
+toggle.
+
 ## 2026-10-07: release 1.0.4
 
 **Current state.** `staging` carries #186-#191, #194 and #195 on top of 1.0.3; the owner declared

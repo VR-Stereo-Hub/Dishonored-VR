@@ -101,6 +101,22 @@ static bool HandRayWorld(float* origin, float* dir, const char** why)
     return true;
 }
 
+// 2026-10-21 (PointGrab, physical_pickup.cpp): the same conversion for EITHER game hand's published ray
+// (dvr::aim::fire_frame_hand: the main ray for the main hand, the second ray for the other), from the
+// caller's camera anchor, so a grab pointed with either hand and its dot are one ray.
+static bool HandRayWorldFor(int hand, const float* camera, float* origin, float* dir)
+{
+    const auto aim = dvr::aim::fire_frame_hand(hand);
+    if (!aim.ray.ok || !aim.headValid) return false;
+    float cam[3] = { camera[0], camera[1], camera[2] };
+    dvr::fireaim::Solution sol;
+    if (!dvr::fireaim::solve(aim, GetTickCount64(), g_viewYawRad, g_viewPitchRad, cam, g_posScaleUU, cam, sol)) return false;
+    float d[3] = { sol.target[0] - sol.origin[0], sol.target[1] - sol.origin[1], sol.target[2] - sol.origin[2] };
+    if (!dvr::fireaim::normalize(d)) return false;
+    memcpy(origin, sol.origin, 12); memcpy(dir, d, 12);
+    return true;
+}
+
 // Interaction's gates, then the shared ray.
 static bool IaHandRay(uint8_t* self, float* origin, float* dir)
 {
@@ -108,6 +124,8 @@ static bool IaHandRay(uint8_t* self, float* origin, float* dir)
     if (!CylTruthLive() || g_menuOpen || g_inMenu || g_mainMenu || g_cineNow)
         return IaRefuse("not in gameplay");
     if (!self || self != g_peCtrl) return IaRefuse("not the player's controller");
+    // choke_assist.cpp: while a choke is being set up, the guard you are behind, ahead of any pickup.
+    if (ChokeRay(origin, dir)) { g_iaWhy = "driving (choke assist: the guard you are behind)"; return true; }
     // physical_pickup.cpp: a lootable item within reach of a hand is what the engine looks at,
     // whichever way the hands point and whether or not interaction is aimed by hand.
     if (PickupRay(origin, dir)) { g_iaWhy = "driving (physical pickup target)"; return true; }

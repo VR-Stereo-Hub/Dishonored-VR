@@ -56,6 +56,7 @@
 // bridge reads two atomics.
 
 #define DVR_CAT ::dvr::log::Cat::script
+#include "game/dishonored/choke_core.h"   // TapHold: the Choke grip's tap takes, its hold chokes (2026-11-01)
 
 static std::atomic<bool>     g_ppOn{true};
 static std::atomic<float>    g_ppReachM{0.45f};
@@ -69,7 +70,22 @@ static std::atomic<uintptr_t> g_ppTargetId{0};        // the target (for the pad
 static std::atomic<bool>     g_ppTargetHold{false};   // the target is a usable: Interact follows the grip
 static std::atomic<uint32_t> g_ppReadyMask{0};        // bit h: hand h may pick the target up now
 static std::atomic<uint64_t> g_ppReadyMs{0};          // when the mask was last written
+static std::atomic<uint32_t> g_ppTwoJobs{0};          // bit h: hand h's grip is also the choke now (a tap takes, a hold chokes)
 static std::atomic<uint32_t> g_ppFired{0}, g_ppSwallowed{0};
+// 2026-10-21 POINTGRAB ([Aim] PointGrab, PointGrabRangeCm). Both hands carry a dot (aim_ray.cpp's second ray), and a
+// listed thing that a hand POINTS at, within the range, is a target just like one in reach: the engine's trace is
+// aimed at it from that palm and that hand's grip takes it once the engine focuses it. Reach still wins. And while
+// no target is held, whatever the engine focuses along the MAIN hand's ray - any interactable the game offers, listed
+// or not, except a person (the right grip is also block and choke) - is taken by the main hand's grip too.
+static std::atomic<bool>  g_ppPointOn{true};
+static std::atomic<float> g_ppPointRangeM{2.5f};
+// [Aim] PointGrabReticles: 1 = both hands' dots, 2 = the weapon (main) hand's alone, 3 = the other hand's alone. A hand
+// points only while its dot is shown (dvr::aim::point_allowed); grabs within reach are untouched by this.
+static std::atomic<int> g_ppPointDots{1};
+static const char* const kPpDotNames[4] = { "", "both", "weapon", "hand" };
+static bool g_ppTargetPointed = false;                // game thread: the target was pointed at, not reached
+static uint32_t g_ppPointTargets = 0, g_ppGateByAim = 0;   // since the beat
+static uint32_t g_ppGateByPawn = 0;                         // gate passes on a focused person or body, since the beat
 
 // readable: a book, note or audio log. Kinds from kPpDoor on are measured from their collision box.
 enum : uint32_t { kPpLoot = 0, kPpReadable = 1, kPpDoor = 2, kPpCarry = 3, kPpUsable = 4, kPpKinds = 5 };
@@ -321,8 +337,12 @@ struct PpQuery {
     bool     kindOn[kPpKinds];         // by kind: its F10 switch
     uint8_t* held; uint8_t* pc;
     uint8_t* blocked[8];
+    // POINTGRAB: each hand's pointing ray in game units, the range along it and the slack round a thing
+    bool     point; float pointRange, pointMargin, pointBall;
+    bool     pointOk[2]; float pointO[2][3], pointD[2][3];
+    int      mainHand;                 // the game hand the engine's own trace follows while no target is held
 };
-struct PpCand { uint8_t* obj; uint32_t idx; uint32_t kind; float aim[3]; float d2[2]; int hand; float keep; };
+struct PpCand { uint8_t* obj; uint32_t idx; uint32_t kind; float aim[3]; float d2[2]; int hand; float keep; bool pointed; };
 // The engine's focused actor as the list sees it: listed (an interactable of an enabled kind in the
 // near list) or not, and each palm's distance to its box. The grip gate reads this (2026-10-07).
 struct PpFocus { uint8_t* obj; bool listed; uint32_t kind; float d2[2]; };
@@ -338,6 +358,7 @@ static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n
     out->best.obj = NULL; out->focus = NULL; out->fault = false;
     out->f.obj = NULL; out->f.listed = false; out->f.kind = 0; out->f.d2[0] = out->f.d2[1] = 1e30f;
     PpCand bestH[2]; float scoreH[2] = { 1e30f, 1e30f }; bestH[0].obj = bestH[1].obj = NULL;
+    PpCand bestP[2]; float scoreP[2] = { 1e30f, 1e30f }; bestP[0].obj = bestP[1].obj = NULL;   // POINTGRAB
     __try {
         if (q->pc && !((uintptr_t)q->pc & 3)) out->focus = *(uint8_t**)(q->pc + q->focusOff);
         out->f.obj = out->focus;
@@ -387,15 +408,65 @@ static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n
                 const float score = sqrtf(d2h[h]) / own * (e.obj == q->held ? 0.8f : 1.0f);
                 if (score >= scoreH[h]) continue;
                 PpCand& c = bestH[h];
-                c.obj = e.obj; c.idx = e.idx; c.kind = e.kind; c.hand = h; c.keep = keep;
+                c.obj = e.obj; c.idx = e.idx; c.kind = e.kind; c.hand = h; c.keep = keep; c.pointed = false;
                 memcpy(c.aim, aimh[h], 12); c.d2[0] = d2h[0]; c.d2[1] = d2h[1];
                 scoreH[h] = score;
             }
+            // POINTGRAB: the same thing on each hand's POINTING ray. The ray meets the collision box grown by a
+            // margin that widens with distance (2.5 deg), or a ball round the origin of a thing with no box; the
+            // first thing along each ray wins (the held target favoured, so the pick does not flicker).
+            if (q->point) for (int h = 0; h < 2; ++h) {
+                if (!handOk[h] || !q->pointOk[h]) continue;
+                const float* o = q->pointO[h]; const float* d = q->pointD[h];
+                float tHit = -1.0f;
+                if (box) {
+                    const float tc = (bo[0] - o[0]) * d[0] + (bo[1] - o[1]) * d[1] + (bo[2] - o[2]) * d[2];
+                    if (!(tc > 0.0f)) continue;
+                    const float m = q->pointMargin + tc * 0.0437f;                  // tan(2.5 deg)
+                    float t0 = 0.0f, t1 = q->pointRange; bool miss = false;
+                    for (int a = 0; a < 3 && !miss; ++a) {
+                        const float lo = bo[a] - be[a] - m, hi = bo[a] + be[a] + m;
+                        if (fabsf(d[a]) < 1e-6f) { if (o[a] < lo || o[a] > hi) miss = true; continue; }
+                        float ta = (lo - o[a]) / d[a], tb = (hi - o[a]) / d[a];
+                        if (ta > tb) { const float s = ta; ta = tb; tb = s; }
+                        if (ta > t0) t0 = ta;
+                        if (tb < t1) t1 = tb;
+                        if (t0 > t1) miss = true;
+                    }
+                    if (miss) continue;
+                    tHit = t0;
+                } else {
+                    const float v[3] = { loc[0] - o[0], loc[1] - o[1], loc[2] - o[2] };
+                    const float t = v[0] * d[0] + v[1] * d[1] + v[2] * d[2];
+                    if (!(t > 0.0f) || t > q->pointRange) continue;
+                    const float r = q->pointBall + t * 0.0437f;
+                    if (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] - t * t > r * r) continue;
+                    tHit = t;
+                }
+                if (!(tHit >= 0.0f && tHit <= q->pointRange)) continue;
+                const float score = tHit * (e.obj == q->held ? 0.8f : 1.0f);
+                if (score >= scoreP[h]) continue;
+                PpCand& c = bestP[h];
+                c.obj = e.obj; c.idx = e.idx; c.kind = e.kind; c.hand = h; c.keep = keep; c.pointed = true;
+                for (int a = 0; a < 3; ++a) {
+                    float p = o[a] + d[a] * tHit;                                    // where the ray meets it
+                    if (box) {
+                        const float lo = bo[a] - be[a], hi = bo[a] + be[a];
+                        p = p < lo ? lo : p > hi ? hi : p;                           // onto the real box
+                        p += (bo[a] - p) * 0.08f;                                    // a little inside it
+                    } else p = loc[a];
+                    c.aim[a] = p;
+                }
+                c.d2[0] = d2h[0]; c.d2[1] = d2h[1];
+                scoreP[h] = score;
+            }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) { out->fault = true; return; }
-    const int w = !bestH[0].obj ? 1 : !bestH[1].obj ? 0 : scoreH[0] <= scoreH[1] ? 0 : 1;
-    if (!bestH[w].obj) return;
-    out->best = bestH[w];
+    int w = !bestH[0].obj ? 1 : !bestH[1].obj ? 0 : scoreH[0] <= scoreH[1] ? 0 : 1;
+    if (bestH[w].obj) { out->best = bestH[w]; return; }
+    // Nothing in reach of either hand: what a hand points at.
+    w = !bestP[0].obj ? 1 : !bestP[1].obj ? 0 : scoreP[0] <= scoreP[1] ? 0 : 1;
+    if (bestP[w].obj) out->best = bestP[w];
 }
 
 // A hand's PALM in game world units: the grip pose, scaled about the head the way the drawn hand
@@ -460,26 +531,128 @@ static int PpFocusHand(const PpPick& pick, const PpQuery& q, const bool* handOk)
 //   * the focus is another listed thing (or there is no target): the nearer palm in its reach.
 // Never both hands (2026-10-05: both ready at once hid the crossbow in the other hand). Nothing
 // unlisted counts: a pawn, a talk target or a class the list does not hold is never offered.
+// What the engine focuses, for the grip: a thing, a living person (talk, pickpocket) or a body (search, carry).
+// The class chain is read by text, once per focus and again every 500 ms (a pointer can be reused by another
+// object). A pawn is a BODY when its Pawn.Health is 0 or less or it has no Pawn.Controller (both resolved by
+// name); the readings are kept for the log. 2026-10-21 (headset): the grip refused every pawn, so no body could
+// be looted with it (13 `grip NOT taken ... DishonoredNPCPawn` lines in one run, both hands).
+enum : int { kFcNone = 0, kFcThing = 1, kFcPerson = 2, kFcBody = 3 };
+static int  g_ppFocusHp = 0;       // the last pawn's Health, -9999 = unreadable
+static int  g_ppFocusCtl = -1;     // 1 = has a controller, 0 = none, -1 = unreadable
+// Pawn.Health and whether Pawn.Controller is set, resolved by name once. False when either read faults.
+static bool PpPawnReadings(uint8_t* pawn, int* hp, int* ctl)
+{
+    static uint32_t hpOff = 0, ctlOff = 0; static bool resolved = false;
+    if (!resolved) { resolved = true; hpOff = RflOffsetOf("Pawn", "Health"); ctlOff = RflOffsetOf("Pawn", "Controller"); }
+    *hp = -9999; *ctl = -1;
+    __try {
+        if (hpOff) *hp = *(int*)(pawn + hpOff);
+        if (ctlOff) *ctl = *(uint8_t**)(pawn + ctlOff) ? 1 : 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    return true;
+}
+static std::atomic<bool> g_ppPawnsReq{false};   // `pickup pawns`: the next gameplay tick lists the nearest NPCs
+static int PpFocusClass(uint8_t* focus, double now)
+{
+    static uint8_t* last = NULL; static int lastFc = kFcNone; static double lastMs = 0;
+    if (focus == last && now - lastMs < 500.0) return lastFc;
+    last = focus; lastMs = now; lastFc = kFcNone;
+    if (!focus || !LooksLikeObj(focus)) return kFcNone;
+    uint8_t* cls = NULL;
+    __try { cls = *(uint8_t**)(focus + kClassOff); } __except (EXCEPTION_EXECUTE_HANDLER) { return kFcNone; }
+    if (!cls) return kFcNone;
+    const char* pawn = PpChainNamesPawnRaw(cls);
+    if (!pawn) { lastFc = kFcThing; return lastFc; }
+    lastFc = kFcPerson; g_ppFocusHp = -9999; g_ppFocusCtl = -1;
+    if (!strstr(pawn, "Pawn")) return lastFc;                         // a talk dummy or speaker: never a body
+    if (!PpPawnReadings(focus, &g_ppFocusHp, &g_ppFocusCtl)) return lastFc;
+    if ((g_ppFocusHp != -9999 && g_ppFocusHp <= 0) || g_ppFocusCtl == 0) lastFc = kFcBody;
+    return lastFc;
+}
+// Is this game hand's grip bound to Choke (the shipped layout: the right grip)? A living person is never taken
+// on that grip, so a choke from behind (where the game also offers a pickpocket) stays a choke.
+static bool PpGripIsChoke(int h)
+{
+    return dvr::binds::layout().src[dvr::binds::Choke] == (h ? dvr::binds::RightGrip : dvr::binds::LeftGrip);
+}
+
 static void PpGate(const PpPick& pick, const PpQuery& q, const bool* handOk, double now)
 {
-    (void)now;
     const PpFocus& f = pick.f;
     const int fHand = PpFocusHand(pick, q, handOk);
+    const int fc = f.obj ? PpFocusClass(f.obj, now) : kFcNone;
     uint32_t mask = 0;
-    if (f.obj && f.obj == g_ppTarget && g_ppTargetHand >= 0) mask = 1u << g_ppTargetHand;
+    bool distant = false;   // POINTGRAB: taken at a distance - the ready hand (open, item hidden) is for reach only
+    bool peekExit = false;
+    // 2026-10-21: while peeking through a keyhole, either grip taps Interact, which is what leaves the peek
+    // (measured: a 94-109 ms Interact press ended each peek of a headset run).
+    {
+        const auto an = dvr::anim::snapshot();
+        peekExit = an.valid && !strcmp(an.state[0], "StatePlayerMasterHolePeeking");
+    }
+    if (peekExit) { mask = 3u; distant = true; }
+    else if (f.obj && f.obj == g_ppTarget && g_ppTargetHand >= 0) { mask = 1u << g_ppTargetHand; distant = g_ppTargetPointed; }
     else if (fHand >= 0) { mask = 1u << fHand; ++g_ppGateByFocus; }
+    else if (fc == kFcPerson || fc == kFcBody) {
+        // 2026-10-21: a person or a body the engine focuses (search, carry a body, talk, pickpocket). A body on
+        // either grip; a living person only on a grip that is not Choke. The engine's focus is the arbiter.
+        for (int h = 0; h < 2; ++h)
+            if (handOk[h] && (fc == kFcBody || !PpGripIsChoke(h))) mask |= 1u << h;
+        if (mask) { distant = true; ++g_ppGateByPawn; }
+    }
+    else if (q.point && !g_ppTarget && f.obj && q.mainHand >= 0 && q.mainHand <= 1 && handOk[q.mainHand] &&
+             dvr::aim::point_allowed(q.mainHand) && InteractAimEnabled() && fc == kFcThing) {
+        mask = 1u << q.mainHand; distant = true; ++g_ppGateByAim;   // the engine traced the main hand's ray: its dot is on it
+    }
+    {   // 2026-11-01: behind a guard the Choke grip has two jobs, a take and the choke (choke_assist.cpp). The game's
+        // choke is a hold, so PickupPadFilter makes a tap the take and a hold the choke (a key on that guard's belt
+        // was the pointed target through a whole headset approach).
+        uint32_t twoJobs = 0;
+        if (mask && !peekExit && ChokeCandidateNow())
+            for (int h = 0; h < 2; ++h)
+                if ((mask & (1u << h)) && PpGripIsChoke(h)) twoJobs |= 1u << h;
+        g_ppTwoJobs.store(twoJobs);
+        static uint32_t said = 0;
+        if (twoJobs != said) {
+            said = twoJobs;
+            if (twoJobs) Log("pickup: the Choke grip has two jobs here - a tap takes the %s, a hold of %.0f ms chokes the guard you "
+                             "are behind; the other grip takes as always", kPpKindName[f.kind < (uint32_t)kPpKinds ? f.kind : 0],
+                             ChokeHoldMs());
+        }
+    }
+    {   // a person or a body: said once per focus, with the readings that decided it
+        static uint8_t* saidFor = NULL;
+        if ((fc == kFcPerson || fc == kFcBody) && f.obj != saidFor) {
+            saidFor = f.obj;
+            const char* cn = LooksLikeObj(f.obj) ? ObjClassName(f.obj) : NULL;
+            Log("pickup: the engine focuses %s - %s (Health %d, controller %s): %s", cn ? cn : "?",
+                fc == kFcBody ? "a BODY" : "a living person", g_ppFocusHp, g_ppFocusCtl == 1 ? "yes" : g_ppFocusCtl == 0 ? "none" : "unread",
+                fc == kFcBody ? "either grip searches or carries it" : "the grip not bound to Choke talks or picks the pocket; the Choke grip stays a choke");
+        } else if (fc != kFcPerson && fc != kFcBody) saidFor = NULL;
+    }
     if (mask) {
-        g_ppGripKind.store(f.kind);
-        g_ppTargetReadable.store(f.kind == kPpReadable);
-        g_ppTargetHold.store(f.kind == kPpUsable);
-        g_ppTargetId.store((uintptr_t)f.obj);
+        g_ppGripKind.store(peekExit ? kPpLoot : f.kind);
+        g_ppTargetReadable.store(!peekExit && f.kind == kPpReadable);
+        // Interact follows the grip on every target (tap or hold, as the button would): the game opens a door on a tap
+        // and peeks through its keyhole on a hold of about a third of a second. Leaving a peek is a tap only, so a
+        // held grip cannot start the next peek.
+        g_ppTargetHold.store(!peekExit);
+        g_ppTargetId.store(peekExit ? (uintptr_t)1 : (uintptr_t)f.obj);
     } else {
         g_ppTargetHold.store(false);
         g_ppTargetId.store((uintptr_t)g_ppTarget);
     }
     g_ppReadyMask.store(mask);
     g_ppReadyMs.store(GetTickCount64());
-    GrabReadyPublish(mask);                                  // the ready hand (mesh_split.cpp): eligibility with hysteresis
+    GrabReadyPublish(distant ? 0u : mask);                       // the ready hand (mesh_split.cpp): eligibility with hysteresis
+    {   // 2026-10-29: a dot the reticle setting hides comes back while its hand rests on something its grip takes - the hand
+        // pointing at the target, or the main hand when the game focuses what its ray (the engine trace) is on
+        unsigned offer = 0;
+        if (g_ppTarget && g_ppTargetPointed && g_ppTargetHand >= 0 && g_ppTargetHand <= 1) offer |= 1u << g_ppTargetHand;
+        if (mask && distant && !peekExit && q.mainHand >= 0 && q.mainHand <= 1 && (mask & (1u << q.mainHand)) &&
+            !(f.obj && f.obj == g_ppTarget)) offer |= 1u << q.mainHand;
+        dvr::aim::set_point_offer(offer);
+    }
 
     // The refused-grip line's values. Names are looked up when a pointer CHANGES, not every tick.
     static uint8_t* lastFocus = (uint8_t*)1; static uint8_t* lastTarget = (uint8_t*)1;
@@ -501,7 +674,9 @@ static void PpGate(const PpPick& pick, const PpQuery& q, const bool* handOk, dou
     g_ppDiagReachCm.store(lim / g_posScaleUU * 100.0f);
     for (int h = 0; h < 2; ++h) {
         const char* why;
-        if (mask & (1u << h)) why = f.obj == g_ppTarget ? "taken: the focus is the target" : "taken: the focus is a listed thing in this palm's reach";
+        if (mask & (1u << h)) why = f.obj == g_ppTarget ? (g_ppTargetPointed ? "taken: the focus is the target this hand points at" : "taken: the focus is the target")
+                                  : distant ? "taken: the main hand's dot is on something the game offers"
+                                  : "taken: the focus is a listed thing in this palm's reach";
         else if (!f.obj) why = g_ppTarget ? "the engine focuses nothing (the target is not focused)" : "no target and the engine focuses nothing";
         else if (!f.listed) why = "the engine focuses an actor the list does not hold (not an interactable kind that is on, or a component or child of one)";
         else if (!q.kindOn[f.kind]) why = "the focused thing's kind is switched off";
@@ -535,10 +710,10 @@ static void PpDropTarget(const char* why, double nowMs, bool block)
             "pickup: target released (%s) after %.0f ms, engine focus on it %s", why, nowMs - g_ppTargetSinceMs,
             g_ppTargetFocused ? "YES" : "never");
         if (block) {
-            PpBlock(g_ppTarget, nowMs, 1000.0);
+            PpBlock(g_ppTarget, nowMs, g_ppTargetPointed ? 3000.0 : 1000.0);   // a pointed thing the game refused: out of its reach
         }
     }
-    g_ppTarget = NULL; g_ppTargetHand = -1; g_ppTargetFocused = false;
+    g_ppTarget = NULL; g_ppTargetHand = -1; g_ppTargetFocused = false; g_ppTargetPointed = false;
     g_ppTargetId.store(0); g_ppTargetHold.store(false);
     g_ppReadyMask.store(0);
 }
@@ -622,6 +797,48 @@ static void PpLogNear(void** objs, uint32_t num, const float* camera, uint32_t l
     }
 }
 
+// `pickup pawns` (2026-10-21): the nearest NPC pawns (class name containing NPCPawn) with where they are in the
+// head frame and the two readings the grip's body test uses, so a sleeping or dead NPC can be told apart in a log.
+// One full GObjects pass, on request only.
+static void PpLogPawns(void** objs, uint32_t num, const float* camera, uint32_t locOff)
+{
+    struct Row { uint8_t* obj; float d2; float loc[3]; };
+    Row rows[8]; int n = 0; uint32_t seen = 0;
+    dvr::crash::probe_begin();
+    __try {
+        for (uint32_t i = 0; i < num; ++i) {
+            uint8_t* o = (uint8_t*)objs[i];
+            if (!o || o == g_pePawn || ((uintptr_t)o & 3)) continue;
+            uint8_t* cls = *(uint8_t**)(o + kClassOff);
+            if (!cls || ((uintptr_t)cls & 3) || (uintptr_t)cls < 0x10000) continue;
+            const char* cn = RealName(*(uint32_t*)(cls + kNameOff));
+            if (!cn || !strstr(cn, "NPCPawn")) continue;
+            float loc[3]; memcpy(loc, o + locOff, 12);
+            if (!(loc[0] == loc[0]) || (loc[0] == 0.0f && loc[1] == 0.0f && loc[2] == 0.0f)) continue;   // NaN or a default object
+            ++seen;
+            const float dx = loc[0] - camera[0], dy = loc[1] - camera[1], dz = loc[2] - camera[2], d2 = dx * dx + dy * dy + dz * dz;
+            int at;
+            if (n < 8) at = n++;
+            else { if (d2 >= rows[7].d2) continue; at = 7; }                  // full: replace the farthest
+            while (at > 0 && rows[at - 1].d2 > d2) { rows[at] = rows[at - 1]; --at; }
+            rows[at].obj = o; rows[at].d2 = d2; memcpy(rows[at].loc, loc, 12);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    dvr::crash::probe_end();
+    const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad), m = g_posScaleUU > 1 ? g_posScaleUU : 50.0f;
+    Log("pickup/pawns: %u NPC pawn(s) placed in the level, the %d nearest to the camera (%.0f %.0f %.0f) - head frame in metres "
+        "(right, up, forward); a BODY for the grip is Health <= 0 or no controller", seen, n, camera[0], camera[1], camera[2]);
+    for (int i = 0; i < n; ++i) {
+        const float dx = rows[i].loc[0] - camera[0], dy = rows[i].loc[1] - camera[1], dz = rows[i].loc[2] - camera[2];
+        int hp = 0, ctl = -1; PpPawnReadings(rows[i].obj, &hp, &ctl);
+        const char* cn = ObjClassName(rows[i].obj);
+        Log("pickup/pawns: #%d %s %.2f m - right %+.2f up %+.2f forward %+.2f | at (%.0f %.0f %.0f) | Health %d, controller %s -> %s",
+            i, cn ? cn : "?", sqrtf(rows[i].d2) / m, (-dx * sy + dy * cy) / m, dz / m, (dx * cy + dy * sy) / m,
+            rows[i].loc[0], rows[i].loc[1], rows[i].loc[2], hp, ctl == 1 ? "yes" : ctl == 0 ? "none" : "unread",
+            ((hp != -9999 && hp <= 0) || ctl == 0) ? "a BODY" : "a living person");
+    }
+}
+
 // Script lane, once a frame.
 static void PhysicalPickupTick()
 {
@@ -630,6 +847,7 @@ static void PhysicalPickupTick()
     if (frame == lastFrame) return;
     lastFrame = frame;
     const double now = MaimNowMs();
+    dvr::aim::request_point_ray(g_ppOn.load() && g_ppPointOn.load() ? g_ppPointDots.load() : 0);   // POINTGRAB: which dots
     {
         static double lastNow = 0; static uint32_t silentWas = 0xffffffffu;
         g_ppRingAt = (g_ppRingAt + 1) & 7;
@@ -711,6 +929,16 @@ static void PhysicalPickupTick()
     q.kindOn[kPpUsable] = g_ppUsablesOn.load();
     q.held = g_ppTarget; q.pc = g_peCtrl;
     for (int b = 0; b < 8; ++b) q.blocked[b] = now < g_ppBlocked[b].untilMs ? g_ppBlocked[b].obj : NULL;
+    {   // POINTGRAB: each hand's pointing ray, the one its dot is drawn on (aim_ray.cpp), in game units
+        q.point = g_ppPointOn.load();
+        q.pointRange = g_ppPointRangeM.load() * g_posScaleUU;
+        q.pointMargin = 0.03f * g_posScaleUU;     // 3 cm round a box, plus the 2.5 deg slack
+        q.pointBall = 0.10f * g_posScaleUU;       // a thing with no box: a 10 cm ball round its origin
+        const int over = dvr::aim::hand_override();
+        q.mainHand = over >= 0 ? over : dvr::aim::config().hand;
+        for (int h = 0; h < 2; ++h)
+            q.pointOk[h] = q.point && handOk[h] && dvr::aim::point_allowed(h) && HandRayWorldFor(h, camera, q.pointO[h], q.pointD[h]);
+    }
     PpPick pick;
     dvr::crash::probe_begin();
     {   // the rotating near-list pass: 192 listed items a frame, those within 2.5 m of the camera kept (box kinds 4 m)
@@ -753,8 +981,17 @@ static void PhysicalPickupTick()
             g_ppCarryOn.load() ? "ON" : "off", g_ppUsablesOn.load() ? "ON" : "off", g_ppPawnTargets, g_ppPawnTargetsTotal);
         g_ppCostUsSum = 0; g_ppCostUsMax = 0; g_ppCostN = 0; g_ppCostOver250 = 0; g_ppCostOver1000 = 0; g_ppSliceCut = 0;
         memset(g_ppTargetsByKind, 0, sizeof(g_ppTargetsByKind)); g_ppPawnTargets = 0; g_ppGateByFocus = 0;
+        Log("pickup: PointGrab %s - range %.0f cm, reticles %s, rays L %s R %s (main hand %s; a hand whose dot the reticles "
+            "setting hides reads none by design) | targets taken by pointing %u, grips offered on the main hand's dot %u "
+            "(both 0 by design while it is off or no dot rests on anything the game offers) | grips offered on a focused "
+            "person or body %u (0 by design while the engine focuses no pawn)",
+            q.point ? "ON" : "off", g_ppPointRangeM.load() * 100.0f, kPpDotNames[g_ppPointDots.load() & 3],
+            q.pointOk[0] ? "ok" : "none", q.pointOk[1] ? "ok" : "none",
+            q.mainHand ? "RIGHT" : "LEFT", g_ppPointTargets, g_ppGateByAim, g_ppGateByPawn);
+        g_ppPointTargets = 0; g_ppGateByAim = 0; g_ppGateByPawn = 0;
     }
     if (g_ppNearReq.exchange(false)) PpLogNear(objs, num, camera, locOff, collOff, boundsOff, hand, handOk);
+    if (g_ppPawnsReq.exchange(false)) PpLogPawns(objs, num, camera, locOff);
 
     const PpCand* c = pick.best.obj ? &pick.best : NULL;
     if (!c) { if (g_ppTarget) PpDropTarget("nothing within reach", now, false); PpGate(pick, q, handOk, now); return; }
@@ -780,13 +1017,15 @@ static void PhysicalPickupTick()
         }
         g_ppTarget = c->obj; g_ppTargetIdx = c->idx; g_ppTargetSinceMs = now; g_ppFocusedLastMs = 0; g_ppTargetFocused = false;
         ++g_ppTargetsByKind[c->kind];
+        if (c->pointed) ++g_ppPointTargets;
         const char* cn = ObjClassName(c->obj);
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 400,
-            "pickup: target %s [%s]%s at %.0f uu (%.0f cm) from the %s palm, reach %.0f cm - the interaction trace now runs from "
+            "pickup: target %s [%s]%s at %.0f uu (%.0f cm) from the %s palm, %s - the interaction trace now runs from "
             "that palm to it; the grip takes it once the game focuses it",
             cn ? cn : "?", kPpKindName[c->kind], kKind[c->kind], sqrtf(c->d2[c->hand]), sqrtf(c->d2[c->hand]) / g_posScaleUU * 100.0f,
-            c->hand ? "RIGHT" : "LEFT", q.reach[c->kind] / g_posScaleUU * 100.0f);
+            c->hand ? "RIGHT" : "LEFT", c->pointed ? "POINTED AT by that hand's dot (PointGrab)" : "within reach");
     }
+    g_ppTargetPointed = c->pointed;
     memcpy(g_ppTargetLoc, c->aim, 12);
     memcpy(g_ppTargetFrom, hand[c->hand], 12);
     g_ppTargetHand = c->hand; g_ppTargetKind = c->kind;
@@ -799,7 +1038,9 @@ static void PhysicalPickupTick()
     else if (PpFocusHand(pick, q, handOk) < 0 &&
              now - (g_ppFocusedLastMs > 0 ? g_ppFocusedLastMs : g_ppTargetSinceMs) > 250.0) {
         // Aimed at it for a quarter second and the game did not take it: not usable now.
-        PpDropTarget("the game did not focus it (looted, hidden, covered or not usable) - left out for 1 s, the next nearest is tried", now, true);
+        PpDropTarget(g_ppTargetPointed
+            ? "the game did not focus it (looted, hidden, covered, not usable or beyond the game's own reach) - left out for 3 s, the next thing is tried"
+            : "the game did not focus it (looted, hidden, covered or not usable) - left out for 1 s, the next nearest is tried", now, true);
         PpGate(pick, q, handOk, now);
         return;
     }
@@ -808,32 +1049,61 @@ static void PhysicalPickupTick()
 
 // Pad bridge (present thread). `raw` is the PHYSICAL snapshot about to be remapped: a grip that
 // starts a pickup is zeroed in it until released, so whatever is bound to that grip does not
-// fire. Returns true while Interact should be held down: 130 ms for a press, and on a usable (a
-// valve, a lever that wants Interact held) for as long as the grip stays down AND the same target
-// is still focused and in that hand's reach. The hold ends the moment the target is lost, because
-// Interact held with nothing focused sheathes the weapon in this game.
+// fire. Returns true while Interact should be held down: 130 ms at least, and (2026-10-21: on every
+// target, it used to be usables only) for as long as the grip stays down AND the same target is
+// still offered to that hand. The game reads the duration: a tap opens a door, a hold of about a
+// third of a second peeks through its keyhole (measured: two 130 ms grip taps at a keyhole door did
+// nothing, a held Interact button peeked 330 ms in). The hold ends when the target is lost for more
+// than 150 ms, because Interact held with nothing focused sheathes the weapon in this game; the
+// grace keeps a one-tick focus flicker from cutting a peek short.
 static bool PickupPadFilter(dvr::vr::InputSnapshot& raw, bool blocked)
 {
     static bool was[2] = { false, false }, swallow[2] = { false, false }, holding[2] = { false, false };
     static uintptr_t pressedOn[2] = { 0, 0 };
-    static uint64_t pressUntil = 0, holdSince[2] = { 0, 0 };
+    static uint64_t pressUntil = 0, holdSince[2] = { 0, 0 }, holdGoodMs[2] = { 0, 0 };
     const uint64_t now = GetTickCount64();
     const bool fresh = now - g_ppReadyMs.load() <= 250;
     const uint32_t mask = (g_ppOn.load() && !blocked && fresh) ? g_ppReadyMask.load() : 0;
+    const uint32_t twoJobs = mask & g_ppTwoJobs.load();
     float* grip[2] = { &raw.gripL, &raw.gripR };
+    // 2026-11-01: a grip with two jobs (a take and the choke, PpGate) waits: a tap takes, a hold chokes.
+    static dvr::choke::TapHold tapHold[2];
+    const double holdMs = ChokeHoldMs();
+    // The take: the grip swallowed and Interact pressed. A tap (decided on its release) presses Interact 130 ms.
+    auto take = [&](int h, bool tap) {
+        swallow[h] = true; pressUntil = now + 130;
+        GrabAnimNotify(h, "a pickup grip");                  // the hand closes (mesh_split.cpp, THE GRAB)
+        pressedOn[h] = !tap && g_ppTargetHold.load() ? g_ppTargetId.load() : 0;
+        holding[h] = pressedOn[h] != 0; holdSince[h] = now; holdGoodMs[h] = now;
+        g_ppSwallowed.fetch_add(1); g_ppFired.fetch_add(1);
+        if (g_ppGripKind.load() == kPpCarry) { g_ppCarryGripHand.store(h); g_ppCarryGripMs.store(now); }
+        const bool page = g_ppTargetReadable.load();
+        if (page) dvr::hudlayout::note_opened_by_hand(h);     // the reading panel attaches to this hand
+        Log("pickup: %s grip %s with the target in reach and focused - grip swallowed, Interact %s%s",
+            h ? "RIGHT" : "LEFT", tap ? "TAPPED (the choke's grip: a tap takes)" : "pressed",
+            holding[h] ? "held while the grip is (130 ms at least)" : "tapped for 130 ms",
+            page ? "; a book or note: its page is asked onto this hand" : "");
+    };
     for (int h = 0; h < 2; ++h) {
         const bool down = *grip[h] > (was[h] ? 0.7f : 0.9f);
-        if (down && !was[h] && (mask & (1u << h))) {
-            swallow[h] = true; pressUntil = now + 130;
-            GrabAnimNotify(h, "a pickup grip");                  // the hand closes (mesh_split.cpp, THE GRAB)
-            pressedOn[h] = g_ppTargetHold.load() ? g_ppTargetId.load() : 0;
-            holding[h] = pressedOn[h] != 0; holdSince[h] = now;
-            g_ppSwallowed.fetch_add(1); g_ppFired.fetch_add(1);
-            if (g_ppGripKind.load() == kPpCarry) { g_ppCarryGripHand.store(h); g_ppCarryGripMs.store(now); }
-            const bool page = g_ppTargetReadable.load();
-            if (page) dvr::hudlayout::note_opened_by_hand(h);     // the reading panel attaches to this hand
-            Log("pickup: %s grip pressed with the target in reach and focused - grip swallowed, Interact pressed for 130 ms%s",
-                h ? "RIGHT" : "LEFT", page ? "; a book or note: its page is asked onto this hand" : "");
+        const bool edge = down && !was[h];
+        if (edge && (twoJobs & (1u << h))) {
+            tapHold[h].step((double)now, true, true, holdMs);
+            swallow[h] = true;                                   // nothing reaches the game until it is decided
+            const uint32_t k = g_ppGripKind.load();
+            Log("pickup: %s grip pressed with the %s in reach AND a guard to choke - undecided: let go within %.0f ms to take "
+                "it, keep holding to choke", h ? "RIGHT" : "LEFT", kPpKindName[k < (uint32_t)kPpKinds ? k : 0], holdMs);
+        } else if (edge && (mask & (1u << h))) take(h, false);
+        if (!edge && tapHold[h].pending()) {
+            const int v = tapHold[h].step((double)now, false, down, holdMs);
+            if (v == dvr::choke::TapHold::kTake) {
+                Log("pickup: %s grip let go after %.0f ms - a tap: the take", h ? "RIGHT" : "LEFT", (double)now - tapHold[h].since());
+                take(h, true);
+            } else if (v == dvr::choke::TapHold::kChoke) {
+                swallow[h] = false;                              // from now the grip is the Choke action (choke_assist.cpp)
+                Log("pickup: %s grip held %.0f ms - the choke: the grip goes to Block and the take is dropped",
+                    h ? "RIGHT" : "LEFT", holdMs);
+            }
         }
         if (down && !was[h] && !(mask & (1u << h)) && (g_ppDiagTarget.load() || g_ppDiagFocus.load())) {
             // A grip pressed near something and NOT taken: both pointers, their classes and the reason,
@@ -858,11 +1128,13 @@ static bool PickupPadFilter(dvr::vr::InputSnapshot& raw, bool blocked)
         GrabAnimGrip(h, swallow[h]);                             // the fist stays closed while this grip is held
         if (swallow[h]) *grip[h] = 0.0f;
         if (holding[h]) {
-            const bool keep = swallow[h] && (mask & (1u << h)) && g_ppTargetId.load() == pressedOn[h];
+            const bool good = (mask & (1u << h)) && g_ppTargetId.load() == pressedOn[h];
+            if (good) holdGoodMs[h] = now;
+            const bool keep = swallow[h] && (good || now - holdGoodMs[h] <= 150);
             if (!keep) {
                 holding[h] = false;
                 if (now - holdSince[h] > 130)
-                    Log("pickup: %s grip held Interact on a usable for %llu ms - ended by %s", h ? "RIGHT" : "LEFT",
+                    Log("pickup: %s grip held Interact for %llu ms - ended by %s", h ? "RIGHT" : "LEFT",
                         (unsigned long long)(now - holdSince[h]), !swallow[h] ? "the grip's release"
                         : g_ppTargetId.load() != pressedOn[h] ? "the target changing or being lost" : "the hand leaving reach or the focus");
             }
@@ -927,8 +1199,55 @@ static void PickupSetUsables(bool on, const char* who)
         g_ppDoorReachM.load() * 100.0f, g_ppOn.load() ? "ON" : "off");
 }
 
+static bool PickupPointEnabled() { return g_ppPointOn.load(); }
+static float PickupPointRangeCm() { return g_ppPointRangeM.load() * 100.0f; }
+static void PickupSetPointRangeCm(float cm)
+{
+    if (!std::isfinite(cm)) return;
+    cm = cm < 50.0f ? 50.0f : cm > 400.0f ? 400.0f : cm;
+    g_ppPointRangeM.store(cm / 100.0f);
+}
+static int PickupPointDots() { return g_ppPointDots.load(); }
+static void PickupSetPointDots(int dots, const char* who)
+{
+    if (dots < 1 || dots > 3) { Log("pickup: PointGrabReticles %d refused (%s) - both, weapon or hand", dots, who); return; }
+    g_ppPointDots.store(dots);
+    Log("pickup: PointGrab reticles %s (%s) - %s Both hands point either way (2026-10-29).", kPpDotNames[dots], who,
+        dots == 1 ? "a dot on each hand." :
+        dots == 2 ? "the weapon hand's dot always; the sword hand's shows only while it rests on something its grip would take." :
+                    "the sword hand's dot always; the weapon hand's shows only while it rests on something its grip would take "
+                    "(its ray still aims the pistol, crossbow, Blink and throws).");
+}
+static int PickupDotsFromText(const char* s)
+{
+    if (!s) return 0;
+    while (*s == ' ') ++s;
+    if (!_strnicmp(s, "both", 4)) return 1;
+    if (!_strnicmp(s, "weapon", 6)) return 2;
+    if (!_strnicmp(s, "hand", 4) || !_strnicmp(s, "sword", 5)) return 3;
+    return 0;
+}
+static void PickupSetPoint(bool on, const char* who)
+{
+    g_ppPointOn.store(on);
+    if (!on) dvr::aim::request_point_ray(0);
+    Log("pickup: PointGrab %s (%s) - both hands carry a dot; point either one at something within %.0f cm and squeeze that "
+        "hand's grip to take it (it overrides the grip's block or power wheel only while the dot is on it); the main hand "
+        "also takes anything else the game offers on its dot except a person. Needs physical pickup on (now %s)",
+        on ? "ON" : "off", who, g_ppPointRangeM.load() * 100.0f, g_ppOn.load() ? "ON" : "off");
+}
+
 static void PickupConfigure(const char* ini)
 {
+    PickupSetPointRangeCm(IniFloat(ini, "Aim", "PointGrabRangeCm", 250));
+    {
+        char v[32] = {};
+        GetPrivateProfileStringA("Aim", "PointGrabReticles", "both", v, sizeof(v), ini);
+        const int dots = PickupDotsFromText(v);
+        if (dots) PickupSetPointDots(dots, "ini [Aim] PointGrabReticles");
+        else { Log("pickup: [Aim] PointGrabReticles=%s not understood (both, weapon or hand) - both", v); PickupSetPointDots(1, "the default"); }
+    }
+    PickupSetPoint(IniFloat(ini, "Aim", "PointGrab", 1) != 0.0f, "ini [Aim] PointGrab");
     PickupSetReachCm(IniFloat(ini, "Aim", "PhysicalPickupReachCm", 45));
     PickupSetBookReachCm(IniFloat(ini, "Aim", "PhysicalPickupBookReachCm", 55));
     PickupSetDoorReachCm(IniFloat(ini, "Aim", "PhysicalDoorReachCm", 35));
@@ -947,6 +1266,25 @@ static bool PickupCommand(const char* args)
         return true;
     }
     if (!strcmp(args, "near")) { g_ppNearReq.store(true); Log("pickup: near - the next gameplay tick lists the nearest things"); return true; }
+    if (!strcmp(args, "pawns")) { g_ppPawnsReq.store(true); Log("pickup: pawns - the next gameplay tick lists the nearest NPCs"); return true; }
+    if (!strncmp(args, "point ", 6) && DvrOnOff(args + 6, &b)) {   // POINTGRAB
+        PickupSetPoint(b, "seam");
+        ConfigWriteKey("Aim", "PointGrab", b ? "1" : "0", "the seam");
+        return true;
+    }
+    if (!strncmp(args, "point reticles ", 15)) {
+        const int dots = PickupDotsFromText(args + 15);
+        if (!dots) { Log("pickup: point reticles both|weapon|hand (got '%s')", args + 15); return true; }
+        PickupSetPointDots(dots, "seam");
+        ConfigWriteKey("Aim", "PointGrabReticles", kPpDotNames[dots], "the seam");
+        return true;
+    }
+    if (sscanf(args, "point range %f", &cm) == 1) {
+        PickupSetPointRangeCm(cm);
+        char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupPointRangeCm()); v[sizeof(v) - 1] = 0;
+        ConfigWriteKey("Aim", "PointGrabRangeCm", v, "the seam");
+        return true;
+    }
     if (!strncmp(args, "carry ", 6) && DvrOnOff(args + 6, &b)) {
         PickupSetCarry(b, "seam");
         ConfigWriteKey("Aim", "PhysicalCarry", b ? "1" : "0", "the seam");
