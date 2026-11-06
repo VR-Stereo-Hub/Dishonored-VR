@@ -747,6 +747,13 @@ static void OvlTabControls()
         changed |= dvr::ovl::checkbox("X + Y pause chord", &c.pauseChord);
         OvlTip("Pressing X and Y together acts as the menu button, for runtimes that reserve it. "
                "Modifier + X + Y opens the journal.");
+        const char* partners[] = { "Off", "A", "B" };
+        changed |= ImGui::Combo("Quick save: Y +", &c.quickSave, partners, 3);
+        OvlTip("Hold Y and press this in gameplay: the game's quick save (F5). That press does not jump or crouch.");
+        changed |= ImGui::Combo("Quick load: Y +", &c.quickLoad, partners, 3);
+        OvlTip("Hold Y and press this in gameplay: the game's quick load (F9).");
+        changed |= dvr::ovl::checkbox("Y + right stick click opens this panel", &c.panelChord);
+        OvlTip("Hold Y and click the right stick to open or close this panel. That click does not zoom or drink.");
         if (changed) {
             c = dvr::controller::normalize(c);
             dvr::controller::configure(c);
@@ -754,6 +761,9 @@ static void OvlTabControls()
             ConfigWriteKey("Controllers", "DpadModifier", value, "F10 Controls");
             ConfigWriteKey("Controllers", "DpadFlip", c.flip ? "1" : "0", "F10 Controls");
             ConfigWriteKey("Controllers", "PauseChord", c.pauseChord ? "1" : "0", "F10 Controls");
+            ConfigWriteKey("Controllers", "QuickSave", dvr::controller::partner_key(c.quickSave), "F10 Controls");
+            ConfigWriteKey("Controllers", "QuickLoad", dvr::controller::partner_key(c.quickLoad), "F10 Controls");
+            ConfigWriteKey("Controllers", "PanelChord", c.panelChord ? "1" : "0", "F10 Controls");
         }
         bool zoomTap = ZoomTapGet();
         if (dvr::ovl::checkbox("Tap R3 to zoom (the mask lens)", &zoomTap)) {

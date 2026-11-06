@@ -211,6 +211,15 @@ static void UpdateVirtualPad()
     const bool leanGameplay=in.active && !g_ovlVisible && !UiSurfaceBlocks() &&
         !g_menuOpen && !g_inMenu && !CineActive() && in.gripL<.7f;
     const auto emulation=g_controllerComposer.step(in,controller,GetTickCount64(),leanGameplay);
+    if (emulation.quick) QuickSlotRequest(emulation.quick == dvr::controller::QuickSave);
+    if (emulation.quickRefused)
+        Log("input/quick: %s (Y + %s) refused - not in gameplay (menu, panel, cutscene or loading)",
+            emulation.quickRefused == dvr::controller::QuickSave ? "quick save" : "quick load",
+            dvr::controller::partner_key(emulation.quickRefused == dvr::controller::QuickSave ? controller.quickSave : controller.quickLoad));
+    if (emulation.panel) {
+        g_ovlVisible = !g_ovlVisible;
+        Log("overlay: %s (Y + right stick click)", g_ovlVisible ? "OPEN" : "closed");
+    }
     if (in.active) {
         active = true;
         g_dbgRawMx = in.mv[0]; g_dbgRawMy = in.mv[1];  // 38.25 pre-shaping

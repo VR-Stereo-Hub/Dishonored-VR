@@ -42,6 +42,25 @@ int main(){
      s=sample();s.restR=true;s.mv[0]=.75f;s.mv[1]=.9f;o=p.step(s,{},1);check(o.buttons==Up,"diagonal chooses dominant Y");
      s=sample();s.restR=true;s.mv[0]=-.9f;s.mv[1]=.75f;o=p.step(s,{},2);check(o.buttons==Left,"diagonal chooses dominant X");
      s=sample();s.restR=true;s.mv[0]=std::numeric_limits<float>::quiet_NaN();s.mv[1]=1;o=p.step(s,{},3);check(!o.buttons,"invalid axes never fabricate direction");}
+    {Composer p;auto s=sample();s.y=true;auto o=p.step(s,{},100,true);check(!o.quick && s.y && o.lean,"Y alone is still the lean");
+     s=sample();s.y=true;s.a=true;o=p.step(s,{},150,true);check(o.quick==QuickSave && !s.a && s.y && o.lean,"Y + A quick saves, eats the jump, keeps the lean");
+     s=sample();s.y=true;s.a=true;o=p.step(s,{},200,true);check(!o.quick && !s.a,"one press is one save");
+     s=sample();s.a=true;o=p.step(s,{},250,true);check(!o.quick && !s.a,"Y released first: that A is still eaten");
+     s=sample();p.step(s,{},300,true);s=sample();s.a=true;p.step(s,{},310,true);check(s.a,"a fresh A without Y is a jump");
+     s=sample();p.step(s,{},320,true);s=sample();s.y=true;s.a=true;o=p.step(s,{},330,true);check(o.quick==QuickSave,"a second save after a release");}
+    {Composer p;auto s=sample();s.y=true;s.b=true;auto o=p.step(s,{},100,true);check(o.quick==QuickLoad && !s.b,"Y + B quick loads and eats the crouch");}
+    {Composer p;auto s=sample();s.y=true;s.a=true;auto o=p.step(s,{},100,false);check(!o.quick && o.quickRefused==QuickSave && s.a,"outside gameplay: refused and A stays the game's");}
+    {Composer p;auto s=sample();s.a=true;p.step(s,{},100,true);s=sample();s.a=true;s.y=true;auto o=p.step(s,{},120,true);check(!o.quick && !s.a,"A held before Y does not save (and is held off while Y is down)");}
+    {Composer p;auto s=sample();s.x=s.y=true;s.a=true;auto o=p.step(s,{},100,true);check(!o.quick,"X + Y stays the pause chord");}
+    {Composer p;Config c;c.quickSave=NoPartner;auto s=sample();s.y=true;s.a=true;check(!p.step(s,c,100,true).quick && s.a,"unbound quick save never fires");}
+    {Config c;c.quickSave=PartnerX;c.quickLoad=PartnerB;check(unpack(pack(c)).quickSave==NoPartner && unpack(pack(c)).quickLoad==PartnerB,"X cannot partner Y");
+     c.quickSave=PartnerA;c.quickLoad=PartnerA;check(unpack(pack(c)).quickLoad==NoPartner,"one partner cannot do both");}
+    {Composer p;auto s=sample();s.y=true;s.clkR=true;auto o=p.step(s,{},100,false);check(o.panel && !s.clkR,"Y + R3 toggles the panel, anywhere, and eats the click");
+     s=sample();s.y=true;s.clkR=true;o=p.step(s,{},150,false);check(!o.panel && !s.clkR,"one click is one toggle");
+     s=sample();s.clkR=true;o=p.step(s,{},200,false);check(!o.panel && !s.clkR,"Y released first: that click is still eaten");
+     s=sample();p.step(s,{},250,false);s=sample();s.clkR=true;p.step(s,{},260,false);check(s.clkR,"a fresh click without Y is the game's");}
+    {Composer p;Config c;c.panelChord=false;auto s=sample();s.y=true;s.clkR=true;auto o=p.step(s,c,100,false);check(!o.panel && s.clkR,"panel chord off");}
+    {Composer p;Config c{R3,false,true};auto s=sample();s.y=true;s.clkR=true;auto o=p.step(s,c,100,false);check(o.panel && !o.modifier,"the panel chord comes before the R3 modifier");}
     {Composer p;auto s=sample();s.menu=true;check(!p.step(s,{},100).buttons,"tap waits for release");
      s=sample();check(p.step(s,{},150).buttons==Start,"menu tap pulses start");
      s=sample();check(p.step(s,{},299).buttons==Start,"start survives engine poll interval");

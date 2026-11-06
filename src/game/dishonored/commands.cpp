@@ -718,6 +718,17 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     return false;
 }
 
+// Quick save / quick load from the Y chord (controller_emulation.h). The
+// game's own F5/F9 commands from DishonoredInput.ini, queued for the script lane
+// like a seam `console` word; F5 itself is not faked, the mod reads it as recentre.
+static void QuickSlotRequest(bool save)
+{
+    const char* cmd = save ? "Dis_Save 15" : "Dis_Load 15";
+    if (g_dvrConsoleReq[0]) { Log("input/quick: %s refused - a console word is still pending", save ? "quick save" : "quick load"); return; }
+    strncpy(g_dvrConsoleReq, cmd, sizeof(g_dvrConsoleReq) - 1);
+    Log("input/quick: %s (Y chord) -> console '%s'", save ? "quick save" : "quick load", cmd);
+}
+
 // Runs on the script lane (called from PeHandler next to the other console
 // users) so the engine's console sees a normal game-thread caller.
 static void DvrConsoleApply()

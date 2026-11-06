@@ -442,6 +442,12 @@ static bool WriteDefaultIni(const char* ini)
         "DpadModifier=1\n"
         "DpadFlip=0\n"
         "PauseChord=1\n"
+        "; QuickSave=A|B|None, QuickLoad=...: hold Y and press this button in gameplay for the game's\n"
+        "; quick save (F5) or quick load (F9); that press is not a jump or crouch. PanelChord=1: hold Y\n"
+        "; and click the right stick to open or close the F10 panel.\n"
+        "QuickSave=A\n"
+        "QuickLoad=B\n"
+        "PanelChord=1\n"
         "; ZoomTap=1: a tap of the right stick click (released before the health elixir's hold, no\n"
         "; D-pad pick) is the game's own zoom, the mask lens. 0 = a tap does nothing. Live: zoomtap\n"
         "; on|off, F10 Controls.\n"
@@ -1181,6 +1187,9 @@ static bool WriteDefaultIni(const char* ini)
         "; ReticleWhileOpen=1: the reticle stays on while the F10 panel is up and hides where the panel\n"
         "; covers it, so it can be tuned beside the panel. 0 = off while the panel is up (as before).\n"
         "ReticleWhileOpen=1\n"
+        "; StickChordPanel=1: a tap of both stick clicks opens or closes this panel (a hold recenters).\n"
+        "; 0 = the tap does nothing here, for a runtime overlay on the same chord (Virtual Desktop's stats).\n"
+        "StickChordPanel=1\n"
         "[VRHands]\n"
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
         "Enabled=0\n"
@@ -2313,16 +2322,26 @@ static void LoadConfig()
             "tracked head displacement, so modelling it here counted it twice.",
             (int)g_neckRollArc, g_neckRollArc ? "ROLLED head (pre-VR-91)" : "roll-free");
     }
+    const auto QuickPartner = [&](const char* key, int def) {
+        char v[16] = "";
+        GetPrivateProfileStringA("Controllers", key, "", v, sizeof(v), ini);
+        return dvr::controller::parse_partner(v, def);
+    };
     dvr::controller::configure({int(GetPrivateProfileIntA("Controllers","DpadModifier",1,ini)),
         GetPrivateProfileIntA("Controllers","DpadFlip",0,ini)!=0,
-        GetPrivateProfileIntA("Controllers","PauseChord",1,ini)!=0});
+        GetPrivateProfileIntA("Controllers","PauseChord",1,ini)!=0,
+        QuickPartner("QuickSave",dvr::controller::PartnerA),QuickPartner("QuickLoad",dvr::controller::PartnerB),
+        GetPrivateProfileIntA("Controllers","PanelChord",1,ini)!=0});
     ZoomTapSet(GetPrivateProfileIntA("Controllers","ZoomTap",1,ini)!=0,"ini");   // 2026-10-07: the mask lens zoom
     ZoomGestureSet(GetPrivateProfileIntA("Controllers","ZoomGesture",1,ini)!=0,"ini");
     ZoomGestureRadiusSet(IniFloat(ini,"Controllers","ZoomGestureRadiusCm",25.0f),"ini");
     ZoomGestureRightSet(IniFloat(ini,"Controllers","ZoomGestureRightCm",8.0f),"ini");
     const auto controller=dvr::controller::config();
-    Log("controls: modifier=%d dpad=%s X+Y=%d; Y=native, menu tap=START, modifier/hold+menu=BACK",
-        controller.modifier,controller.flip ? "right" : "left",int(controller.pauseChord));
+    Log("controls: modifier=%d dpad=%s X+Y=%d; Y=native, menu tap=START, modifier/hold+menu=BACK; quick save Y+%s, load Y+%s, "
+        "panel Y+R3 %s",
+        controller.modifier,controller.flip ? "right" : "left",int(controller.pauseChord),
+        dvr::controller::partner_key(controller.quickSave),dvr::controller::partner_key(controller.quickLoad),
+        controller.panelChord ? "on" : "off");
     {   // Bind remapping: an absent key keeps its action on the shipped source (controller_binds.h).
         dvr::binds::Layout l;
         for (int a = 0; a < dvr::binds::ActionCount; ++a) {
@@ -3823,7 +3842,13 @@ static void LoadConfig()
     g_ovlPtrEnable = IniFloat(ini, "Overlay", "ControllerPointer", 1) != 0.0f;
     g_ovlPtrHand = IniFloat(ini, "Overlay", "PointerHand", 1) != 0.0f ? 1 : 0;
     g_ovlReticle = IniFloat(ini, "Overlay", "ReticleWhileOpen", 1) != 0.0f;
-    dvr::vr::set_chord_tap_opens_panel(g_ovlPtrEnable);
+    {   // [Overlay] StickChordPanel=0: a tap of both stick clicks no longer opens the panel (a runtime
+        // overlay on the same chord, such as Virtual Desktop's stats, keeps it); the hold still recenters.
+        const bool tap = IniFloat(ini, "Overlay", "StickChordPanel", 1) != 0.0f;
+        dvr::vr::set_chord_tap_opens_panel(g_ovlPtrEnable && tap);
+        Log("config: both stick clicks: tap %s, hold recenters ([Overlay] StickChordPanel=%d, ControllerPointer=%d)",
+            g_ovlPtrEnable && tap ? "toggles the F10 panel" : "does nothing here", int(tap), int(g_ovlPtrEnable));
+    }
     {
         const float ui = IniFloat(ini, "Overlay", "UiScale", 0.0f);   // 0 = from the eye texture
         if (ui >= 0.8f && ui <= 2.5f) g_ovlUiScale = ui;
@@ -4156,6 +4181,9 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Controllers","DpadModifier",v,ini);
     WritePrivateProfileStringA("Controllers","DpadFlip",controller.flip ? "1" : "0",ini);
     WritePrivateProfileStringA("Controllers","PauseChord",controller.pauseChord ? "1" : "0",ini);
+    WritePrivateProfileStringA("Controllers","QuickSave",dvr::controller::partner_key(controller.quickSave),ini);
+    WritePrivateProfileStringA("Controllers","QuickLoad",dvr::controller::partner_key(controller.quickLoad),ini);
+    WritePrivateProfileStringA("Controllers","PanelChord",controller.panelChord ? "1" : "0",ini);
     WritePrivateProfileStringA("Controllers","ZoomTap",ZoomTapGet() ? "1" : "0",ini);
     WritePrivateProfileStringA("Controllers","ZoomGesture",ZoomGestureGet() ? "1" : "0",ini);
 
