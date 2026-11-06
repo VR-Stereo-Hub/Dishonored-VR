@@ -1998,6 +1998,14 @@ static void LoadConfig()
         // the harness can both see (docs/VERIFICATION.md gotcha 14).
         char dd[MAX_PATH] = "";
         GetPrivateProfileStringA("Paths", "DataDir", "D:\\dvr-data", dd, sizeof(dd), ini);
+        // The shipped ini names the dev PC's drive, and a by-hand install keeps it.
+        // On a machine without that drive every file here would fail to write, and
+        // the IK and Heart data with them, so use the default location instead.
+        if (dd[0] && !dvr::paths::drive_exists(dd)) {
+            Log("config: [Paths] DataDir %s is on a drive this PC does not have - using %s",
+                dd, dvr::paths::data_dir());
+            dd[0] = 0;
+        }
         if (dd[0]) {
             dvr::paths::set_data_dir(dd);
             Log("config: [Paths] DataDir -> %s (command.txt, status.json, dumps, the shim manifest)",

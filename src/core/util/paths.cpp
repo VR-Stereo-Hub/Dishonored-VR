@@ -1,4 +1,5 @@
 #include "core/util/paths.h"
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -42,6 +43,13 @@ void set_data_dir(const char* dir)
     while (n > 0 && (g_data[n - 1] == '\\' || g_data[n - 1] == '/')) g_data[--n] = 0;
     CreateDirectoryA(g_data, nullptr);
     g_dumps[0] = 0;   // re-derived under the new root on the next call
+}
+
+bool drive_exists(const char* dir)
+{
+    if (!dir || !isalpha((unsigned char)dir[0]) || dir[1] != ':') return true;
+    const char root[4] = {dir[0], ':', '\\', 0};
+    return GetDriveTypeA(root) != DRIVE_NO_ROOT_DIR;
 }
 
 const char* dumps_dir()
