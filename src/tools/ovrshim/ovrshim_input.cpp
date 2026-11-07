@@ -442,6 +442,19 @@ static const char* kBindingsTouch = R"JSON({
 }
 )JSON";
 
+// PICO controllers through PICO Connect report as pico_controller. Their driver
+// remaps a Touch binding by itself, but its remap table has no menu button, and
+// on a Pico 4 the menu never reached the mod. The layout is the same as Touch,
+// so this is the Touch binding under the Pico name.
+static std::string PicoBindings()
+{
+    std::string json = kBindingsTouch;
+    const std::string touch = "\"controller_type\": \"oculus_touch\"";
+    const size_t at = json.find(touch);
+    if (at != std::string::npos) json.replace(at, touch.size(), "\"controller_type\": \"pico_controller\"");
+    return json;
+}
+
 // Windows Mixed Reality / Reverb G2. No face buttons: trackpad clicks feed A
 // (right) and X (left), matching the mod's native WMR profile; B/Y unbound.
 // UNTESTED on hardware - treat as provisional (donor's warning carried).
@@ -527,6 +540,7 @@ bool InputShim_Attach(ActionSetRec* set, ActionRec** actions, int actionCount)
         "    { \"controller_type\": \"knuckles\", \"binding_url\": \"bindings_knuckles.json\" },\n"
         "    { \"controller_type\": \"vive_controller\", \"binding_url\": \"bindings_vive_controller.json\" },\n"
         "    { \"controller_type\": \"oculus_touch\", \"binding_url\": \"bindings_oculus_touch.json\" },\n"
+        "    { \"controller_type\": \"pico_controller\", \"binding_url\": \"bindings_pico_controller.json\" },\n"
         "    { \"controller_type\": \"holographic_controller\", \"binding_url\": \"bindings_holographic_controller.json\" }\n"
         "  ],\n  \"actions\": [\n");
     for (int i = 0; i < actionCount; ++i)
@@ -555,6 +569,8 @@ bool InputShim_Attach(ActionSetRec* set, ActionRec** actions, int actionCount)
     WriteTextFile(p, kBindingsVive);
     _snprintf_s(p, MAX_PATH, _TRUNCATE, "%s\\bindings_oculus_touch.json", dir);
     WriteTextFile(p, kBindingsTouch);
+    _snprintf_s(p, MAX_PATH, _TRUNCATE, "%s\\bindings_pico_controller.json", dir);
+    WriteTextFile(p, PicoBindings().c_str());
     _snprintf_s(p, MAX_PATH, _TRUNCATE, "%s\\bindings_holographic_controller.json", dir);
     WriteTextFile(p, kBindingsWmr);
 
