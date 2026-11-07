@@ -138,11 +138,22 @@ void review_hidden(bool hide, double now) {
             uint8_t* t = nullptr;
             const bool stillTrail = is_trail(c, &t);
             if ((!stillTrail || !hide) && hidden_now(c) == 1 && to.fnSetHidden) {
-                set_hidden(c, false);
-                ++st.shown; drop = true;
-                Log("trail: SHOWED component %p again (hidden now %d): %s, template now '%s'", (void*)c, hidden_now(c),
-                    !hide ? "the lever went off" : "it is no longer a sword trail (a pooled particle component reused)",
-                    t ? obj_name(t) : "none");
+                // A level reload frees the component. Its memory can be reused at
+                // once, while the 2 s table above still lists the old address, and
+                // SetHidden through it calls a vtable that is no longer one. So the
+                // table is rebuilt for this one rare write, and a component that is
+                // off the pawn and no longer a trail is not ours to touch.
+                if (!BuildLiveSet() || !IsLiveObject(c) || (!attached && !stillTrail)) {
+                    ++st.released; drop = true;
+                    Log("trail: released component %p without a write - gone or reused after a reload (hidden %u shown %u released %u)",
+                        (void*)c, st.hidden, st.shown, st.released);
+                } else {
+                    set_hidden(c, false);
+                    ++st.shown; drop = true;
+                    Log("trail: SHOWED component %p again (hidden now %d): %s, template now '%s'", (void*)c, hidden_now(c),
+                        !hide ? "the lever went off" : "it is no longer a sword trail (a pooled particle component reused)",
+                        t ? obj_name(t) : "none");
+                }
             } else if (hidden_now(c) == 0) drop = true;  // the engine showed it itself: not ours any more
         }
         if (drop) { st.hid[i] = st.hid[--st.nHid]; } else ++i;
@@ -152,7 +163,8 @@ void review_hidden(bool hide, double now) {
 
 void scan(bool hide, double now) {
     uint8_t* pawn = g_pePawn; uint8_t* data = nullptr; int32_t num = 0;
-    if (!pawn || !IsLiveObject(pawn)) return;
+    // No pawn to scan means nothing can vouch for last scan's verdicts either.
+    if (!pawn || !IsLiveObject(pawn)) { st.nSeen = 0; return; }
     if (!RflArrayAt(pawn, to.all, &data, &num) || num <= 0 || num > 4096 || !RangeReadable(data, num * sizeof(void*))) return;
     ++st.scans;
     static Judged next[96]; int nNext = 0;
