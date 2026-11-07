@@ -18,6 +18,9 @@ const char* data_dir();                // created on first call
 // [Paths] DataDir: move the data dir (the config applies it at load, before
 // any harness file is written). Trailing slashes dropped; created.
 void        set_data_dir(const char* dir);
+// False for a drive-letter path whose drive is not on this machine. Other kinds
+// of path, such as network shares, are given the benefit of the doubt.
+bool        drive_exists(const char* dir);
 const char* dumps_dir();               // <data_dir>\dumps, created on first call
 // <dir>\<name> into out (size MAX_PATH); returns out
 const char* in_game_dir(char* out, const char* name);
